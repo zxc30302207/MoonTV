@@ -174,7 +174,7 @@ class HybridCacheManager {
    */
   private cleanOldCache(cache: UserCacheStore): void {
     const now = Date.now();
-    const maxAge = 24 * 60 * 60 * 1000; // 24小时
+    const maxAge = 60 * 24 * 60 * 60 * 1000; // 两个月
 
     // 清理过期的播放记录缓存
     if (cache.playRecords && now - cache.playRecords.timestamp > maxAge) {
