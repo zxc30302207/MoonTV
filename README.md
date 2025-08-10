@@ -26,7 +26,7 @@
 - ❤️ **收藏 + 继续观看**：支持 Redis/D1/Upstash 存储，多端同步进度。
 - 📱 **PWA**：离线缓存、安装到桌面/主屏，移动端原生体验。
 - 🌗 **响应式布局**：桌面侧边栏 + 移动底部导航，自适应各种屏幕尺寸。
-- 🚀 **极简部署**：一条 Docker 命令即可将完整服务跑起来，或免费部署到 Vercel 和 Cloudflare。
+- 🚀 **极简部署**：一条 Docker 命令即可将完整服务跑起来，或免费部署到 Vercel、Netlify 和 ~~Cloudflare~~。
 - 👿 **智能去广告**：自动跳过视频中的切片广告（实验性）
 
 <details>
@@ -63,16 +63,16 @@
 
 ## 部署
 
-本项目**支持 Vercel、Docker 和 Cloudflare** 部署。
+本项目**支持 Vercel、Docker、Netlify 和 ~~Cloudflare~~** 部署。
 
 存储支持矩阵
 
-|               | Docker | Vercel | Cloudflare |
-| :-----------: | :----: | :----: | :--------: |
-| localstorage  |   ✅   |   ✅   |     ✅     |
-|  原生 redis   |   ✅   |        |            |
-| Cloudflare D1 |        |        |     ✅     |
-| Upstash Redis |   ☑️   |   ✅   |     ☑️     |
+|                   | Docker | Vercel | Netlify | ~~Cloudflare~~ |
+| :---------------: | :----: | :----: | :-----: | :------------: |
+|   localstorage    |   ✅   |   ✅   |   ✅    |       ✅       |
+|    原生 redis     |   ✅   |        |         |                |
+| ~~Cloudflare D1~~ |        |        |         |       ✅       |
+|   Upstash Redis   |   ☑️   |   ✅   |   ✅    |       ☑️       |
 
 ✅：经测试支持
 
@@ -99,6 +99,28 @@
 1. 在 [upstash](https://upstash.com/) 注册账号并新建一个 Redis 实例，名称任意。
 2. 复制新数据库的 **HTTPS ENDPOINT 和 TOKEN**
 3. 返回你的 Vercel 项目，新增环境变量 **UPSTASH_URL 和 UPSTASH_TOKEN**，值为第二步复制的 endpoint 和 token
+4. 设置环境变量 NEXT_PUBLIC_STORAGE_TYPE，值为 **upstash**；设置 USERNAME 和 PASSWORD 作为站长账号
+5. 重试部署
+
+### Netlify 部署
+
+#### 普通部署（localstorage）
+
+1. **Fork** 本仓库到你的 GitHub 账户。
+2. 登陆 [Netlify](https://www.netlify.com/)，点击 **Add New project → Importing an existing project**，授权 Github，选择 Fork 后的仓库。
+3. 设置 PASSWORD 环境变量。
+4. 保持默认设置完成首次部署。
+5. 如需自定义 `config.json`，请直接修改 Fork 后仓库中该文件。
+6. 每次 Push 到 `main` 分支将自动触发重新构建。
+
+部署完成后即可通过分配的域名访问，也可以绑定自定义域名。
+
+#### Upstash Redis 支持
+
+0. 完成普通部署并成功访问。
+1. 在 [upstash](https://upstash.com/) 注册账号并新建一个 Redis 实例，名称任意。
+2. 复制新数据库的 **HTTPS ENDPOINT 和 TOKEN**
+3. 返回你的 Netlify 项目，**Project Configuration → Environment variables** 新增环境变量 **UPSTASH_URL 和 UPSTASH_TOKEN**，值为第二步复制的 endpoint 和 token
 4. 设置环境变量 NEXT_PUBLIC_STORAGE_TYPE，值为 **upstash**；设置 USERNAME 和 PASSWORD 作为站长账号
 5. 重试部署
 
