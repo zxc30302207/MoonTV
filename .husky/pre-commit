@@ -4,6 +4,7 @@
 pnpm check:version
 
 pnpm gen:changelog
+git add src/lib/version.ts
 git add src/lib/changelog.ts
 
 npx lint-staged

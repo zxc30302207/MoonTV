@@ -16,7 +16,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { changelog, ChangelogEntry } from '@/lib/changelog';
-import { CURRENT_VERSION } from '@/lib/version';
+import { compareVersions, CURRENT_VERSION, UpdateStatus } from '@/lib/version';
 
 interface VersionPanelProps {
   isOpen: boolean;
@@ -69,7 +69,9 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
         if (parsed.length > 0) {
           const latest = parsed[0];
           setLatestVersion(latest.version);
-          setIsHasUpdate(latest.version !== CURRENT_VERSION);
+          setIsHasUpdate(
+            compareVersions(latest.version) === UpdateStatus.HAS_UPDATE
+          );
         }
       } else {
         console.error(

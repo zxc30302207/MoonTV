@@ -6,10 +6,9 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * 版本检查脚本
- * 检查以下内容：
- * 1. src/lib/version.ts 中的 CURRENT_VERSION 是否与 VERSION.txt 一致
- * 2. CHANGELOG 中是否包含 VERSION.txt 中版本的日志
+ * 版本更新脚本
+ * 将 VERSION.txt 中的版本号直接覆盖到 src/lib/version.ts 中的 CURRENT_VERSION
+ * 并检查 CHANGELOG 中是否包含该版本的日志
  */
 
 function readFileContent(filePath) {
@@ -21,13 +20,30 @@ function readFileContent(filePath) {
   }
 }
 
-function extractVersionFromTsFile(content) {
-  const match = content.match(/const CURRENT_VERSION = ['"`]([^'"`]+)['"`]/);
-  if (!match) {
-    console.error('❌ 无法从 version.ts 中提取 CURRENT_VERSION');
+function updateVersionInTsFile(content, newVersion) {
+  // 首先检查是否能找到 CURRENT_VERSION 常量
+  if (!/const CURRENT_VERSION = ['"`][^'"`]+['"`];/.test(content)) {
+    console.error('❌ 无法在 version.ts 中找到 CURRENT_VERSION 常量');
     process.exit(1);
   }
-  return match[1];
+
+  // 使用正则表达式替换 CURRENT_VERSION 的值
+  const updatedContent = content.replace(
+    /const CURRENT_VERSION = ['"`][^'"`]+['"`];/,
+    `const CURRENT_VERSION = '${newVersion}';`
+  );
+
+  return updatedContent;
+}
+
+function writeFileContent(filePath, content) {
+  try {
+    fs.writeFileSync(filePath, content, 'utf8');
+    console.log(`✅ 成功更新文件: ${filePath}`);
+  } catch (error) {
+    console.error(`❌ 无法写入文件 ${filePath}:`, error.message);
+    process.exit(1);
+  }
 }
 
 function checkVersionInChangelog(changelogContent, version) {
@@ -40,7 +56,7 @@ function checkVersionInChangelog(changelogContent, version) {
 }
 
 function main() {
-  console.log('🔍 开始版本检查...\n');
+  console.log('🔄 开始版本更新...\n');
 
   // 获取项目根目录
   const projectRoot = path.resolve(__dirname, '..');
@@ -70,37 +86,30 @@ function main() {
 
   console.log('📖 读取文件内容完成\n');
 
-  // 提取版本号
-  const versionFromTxt = versionTxtContent;
-  const versionFromTs = extractVersionFromTsFile(versionTsContent);
+  // 获取新版本号
+  const newVersion = versionTxtContent;
 
   console.log('🔢 版本信息:');
-  console.log(`   VERSION.txt: ${versionFromTxt}`);
-  console.log(`   version.ts: ${versionFromTs}\n`);
+  console.log(`   VERSION.txt: ${newVersion}\n`);
 
-  // 检查 1: 版本一致性
-  console.log('✅ 检查 1: 版本一致性');
-  if (versionFromTxt === versionFromTs) {
-    console.log('   ✅ 版本一致');
-  } else {
-    console.error('   ❌ 版本不一致!');
-    console.error(`      VERSION.txt: ${versionFromTxt}`);
-    console.error(`      version.ts: ${versionFromTs}`);
-    process.exit(1);
-  }
+  // 更新 version.ts 文件
+  console.log('✅ 更新 version.ts 文件');
+  const updatedTsContent = updateVersionInTsFile(versionTsContent, newVersion);
+  writeFileContent(versionTsPath, updatedTsContent);
 
-  // 检查 2: 变更日志
-  console.log('\n✅ 检查 2: 变更日志');
-  if (checkVersionInChangelog(changelogContent, versionFromTxt)) {
+  // 检查变更日志
+  console.log('\n✅ 检查变更日志');
+  if (checkVersionInChangelog(changelogContent, newVersion)) {
     console.log('   ✅ 变更日志包含当前版本');
   } else {
     console.error('   ❌ 变更日志中未找到当前版本!');
-    console.error(`      当前版本: ${versionFromTxt}`);
+    console.error(`      当前版本: ${newVersion}`);
     console.error('      请检查 CHANGELOG 文件格式是否正确');
     process.exit(1);
   }
 
-  console.log('\n🎉 所有检查通过! 版本信息一致且完整。');
+  console.log('\n🎉 版本更新完成!');
+  console.log(`   CURRENT_VERSION 已更新为: ${newVersion}`);
 }
 
 // 运行主函数
