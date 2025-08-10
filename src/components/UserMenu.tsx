@@ -20,6 +20,8 @@ import { createPortal } from 'react-dom';
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 import { checkForUpdates, CURRENT_VERSION, UpdateStatus } from '@/lib/version';
 
+import { VersionPanel } from './VersionPanel';
+
 interface AuthInfo {
   username?: string;
   role?: 'owner' | 'admin' | 'user';
@@ -30,6 +32,7 @@ export const UserMenu: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
   const [authInfo, setAuthInfo] = useState<AuthInfo | null>(null);
   const [storageType, setStorageType] = useState<string>('localstorage');
   const [mounted, setMounted] = useState(false);
@@ -502,9 +505,10 @@ export const UserMenu: React.FC = () => {
 
           {/* 版本信息 */}
           <button
-            onClick={() =>
-              window.open('https://github.com/LunaTechLab/MoonTV', '_blank')
-            }
+            onClick={() => {
+              setIsVersionPanelOpen(true);
+              handleCloseMenu();
+            }}
             className='w-full px-3 py-2 text-center flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors text-xs'
           >
             <div className='flex items-center gap-1'>
@@ -957,6 +961,12 @@ export const UserMenu: React.FC = () => {
       {isChangePasswordOpen &&
         mounted &&
         createPortal(changePasswordPanel, document.body)}
+
+      {/* 版本面板 */}
+      <VersionPanel
+        isOpen={isVersionPanelOpen}
+        onClose={() => setIsVersionPanelOpen(false)}
+      />
     </>
   );
 };
