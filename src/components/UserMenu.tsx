@@ -47,7 +47,7 @@ export const UserMenu: React.FC = () => {
 
   // 豆瓣数据源选项
   const doubanDataSourceOptions = [
-    { value: 'direct', label: '实例服务端（直接请求豆瓣）' },
+    { value: 'direct', label: '直连（服务器直接请求豆瓣）' },
     { value: 'cors-proxy-zwei', label: 'Cors Proxy By Zwei' },
     {
       value: 'cmliussss-cdn-tencent',
@@ -569,7 +569,7 @@ export const UserMenu: React.FC = () => {
           <div className='space-y-3'>
             <div>
               <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                豆瓣数据源
+                豆瓣数据代理
               </h4>
               <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
                 选择获取豆瓣数据的方式
