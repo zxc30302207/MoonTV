@@ -2,7 +2,7 @@
 
 'use client';
 
-const CURRENT_VERSION = '1.0.0';
+const CURRENT_VERSION = '1.0.1';
 
 // 版本检查结果枚举
 export enum UpdateStatus {
@@ -87,16 +87,9 @@ async function fetchVersionFromUrl(url: string): Promise<string | null> {
  * @returns UpdateStatus - 返回版本比较结果
  */
 function compareVersions(remoteVersion: string): UpdateStatus {
-  try {
-    // 将版本号转换为数字进行比较
-    const current = parseInt(CURRENT_VERSION, 10);
-    const remote = parseInt(remoteVersion, 10);
-
-    return remote > current ? UpdateStatus.HAS_UPDATE : UpdateStatus.NO_UPDATE;
-  } catch (error) {
-    console.error('版本比较失败:', error);
-    return UpdateStatus.FETCH_FAILED;
-  }
+  return remoteVersion !== CURRENT_VERSION
+    ? UpdateStatus.HAS_UPDATE
+    : UpdateStatus.NO_UPDATE;
 }
 
 // 导出当前版本号供其他地方使用
