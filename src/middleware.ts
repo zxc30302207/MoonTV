@@ -1,8 +1,48 @@
 /* eslint-disable no-console */
 
 import { NextRequest, NextResponse } from 'next/server';
-
 import { getAuthInfoFromCookie } from '@/lib/auth';
+
+/**
+ * 只有在路由是 /api/search 且 q 看起來包含中文時，
+ * 先呼叫 zhconvert 轉成簡體字，再用 rewrite 把新的 query 交給後續的 handler。
+ * 其他路由一律直接放行。
+ */
+async function passThroughOrRewrite(request: NextRequest): Promise<NextResponse> {
+  const { pathname, searchParams } = request.nextUrl;
+
+  if (pathname.startsWith('/api/search')) {
+    const q = searchParams.get('q');
+    if (q && /[\u4E00-\u9FFF]/.test(q)) {
+      try {
+        const api = new URL('https://api.zhconvert.org/convert');
+        api.searchParams.set('converter', 'Simplified');
+        api.searchParams.set('text', q);
+
+        const resp = await fetch(api.toString(), {
+          headers: { Accept: 'application/json' },
+          cache: 'no-store',
+        });
+
+        if (resp.ok) {
+          const json: any = await resp.json();
+          const simplified = json?.data?.text as string | undefined;
+
+          if (simplified && simplified !== q) {
+            const newUrl = request.nextUrl.clone();
+            newUrl.searchParams.set('q', simplified);
+            // 將轉好的簡體查詢交給 /api/search 原本的處理流程
+            return NextResponse.rewrite(newUrl);
+          }
+        }
+      } catch {
+        // 轉換失敗就當作沒轉，繼續放行
+      }
+    }
+  }
+
+  return NextResponse.next();
+}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -32,7 +72,8 @@ export async function middleware(request: NextRequest) {
     if (!authInfo.password || authInfo.password !== process.env.PASSWORD) {
       return handleAuthFailure(request, pathname);
     }
-    return NextResponse.next();
+    // ✅ 驗證通過後改成呼叫 passThroughOrRewrite（取代原本的 NextResponse.next()）
+    return await passThroughOrRewrite(request);
   }
 
   // 其他模式：只验证签名
@@ -51,7 +92,8 @@ export async function middleware(request: NextRequest) {
 
     // 签名验证通过即可
     if (isValidSignature) {
-      return NextResponse.next();
+      // ✅ 同樣在這裡呼叫 passThroughOrRewrite
+      return await passThroughOrRewrite(request);
     }
   }
 
