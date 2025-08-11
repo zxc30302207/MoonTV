@@ -11,64 +11,72 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
-    version: '1.0.4',
-    date: '2025-08-12',
-    added: ['优化版本管理工作流，实现单点修改'],
-    changed: ['版本号现在从CHANGELOG自动提取，无需手动维护VERSION.txt'],
-    fixed: [
-      // 无修复内容
-    ],
-  },
-  {
-    version: '1.0.3',
-    date: '2025-08-11',
+    version: "1.0.4",
+    date: "2025-08-12",
     added: [
-      // 无新增内容
+    "优化版本管理工作流，实现单点修改"
     ],
-    changed: ['升级播放器 Artplayer 至版本 5.2.5'],
+    changed: [
+    "版本号现在从CHANGELOG自动提取，无需手动维护VERSION.txt"
+    ],
     fixed: [
       // 无修复内容
-    ],
+    ]
   },
   {
-    version: '1.0.2',
-    date: '2025-08-11',
+    version: "1.0.3",
+    date: "2025-08-11",
     added: [
       // 无新增内容
     ],
     changed: [
-      '版本号比较机制恢复为数字比较，仅当最新版本大于本地版本时才认为有更新',
-      '[运维] 自动替换 version.ts 中的版本号为 VERSION.txt 中的版本号',
+    "升级播放器 Artplayer 至版本 5.2.5"
     ],
     fixed: [
       // 无修复内容
-    ],
+    ]
   },
   {
-    version: '1.0.1',
-    date: '2025-08-11',
+    version: "1.0.2",
+    date: "2025-08-11",
     added: [
       // 无新增内容
     ],
     changed: [
-      // 无变更内容
+    "版本号比较机制恢复为数字比较，仅当最新版本大于本地版本时才认为有更新",
+    "[运维] 自动替换 version.ts 中的版本号为 VERSION.txt 中的版本号"
     ],
-    fixed: ['修复版本检查功能，只要与最新版本号不一致即认为有更新'],
+    fixed: [
+      // 无修复内容
+    ]
   },
   {
-    version: '1.0.0',
-    date: '2025-08-10',
+    version: "1.0.1",
+    date: "2025-08-11",
     added: [
-      '基于 Semantic Versioning 的版本号机制',
-      '版本信息面板，展示本地变更日志和远程更新日志',
+      // 无新增内容
     ],
     changed: [
       // 无变更内容
     ],
     fixed: [
-      // 无修复内容
-    ],
+    "修复版本检查功能，只要与最新版本号不一致即认为有更新"
+    ]
   },
+  {
+    version: "1.0.0",
+    date: "2025-08-10",
+    added: [
+    "基于 Semantic Versioning 的版本号机制",
+    "版本信息面板，展示本地变更日志和远程更新日志"
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  }
 ];
 
 export default changelog;
