@@ -11,11 +11,12 @@ concurrency:
 
 permissions:
   contents: write
-  packages: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Shanghai
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
@@ -47,7 +48,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '22'
 
       - name: Update version files and generate changelog
         run: |
