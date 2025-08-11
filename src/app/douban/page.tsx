@@ -73,6 +73,9 @@ function DoubanPageClient() {
     sort: 'T',
   });
 
+  // 星期选择器状态
+  // const [selectedWeekday, setSelectedWeekday] = useState<string>('monday');
+
   // 获取自定义分类数据
   useEffect(() => {
     const runtimeConfig = (window as any).RUNTIME_CONFIG;
@@ -630,6 +633,10 @@ function DoubanPageClient() {
     [multiLevelValues]
   );
 
+  const handleWeekdayChange = useCallback((weekday: string) => {
+    console.log('weekday', weekday);
+  }, []);
+
   const getPageTitle = () => {
     // 根据 type 生成标题
     return type === 'movie'
@@ -641,6 +648,13 @@ function DoubanPageClient() {
       : type === 'show'
       ? '综艺'
       : '自定义';
+  };
+
+  const getPageDescription = () => {
+    if (type === 'anime' && primarySelection === '每日放送') {
+      return '来自 Bangumi 番组计划的精选内容';
+    }
+    return '来自豆瓣的精选内容';
   };
 
   const getActivePath = () => {
@@ -663,7 +677,7 @@ function DoubanPageClient() {
               {getPageTitle()}
             </h1>
             <p className='text-sm sm:text-base text-gray-600 dark:text-gray-400'>
-              来自豆瓣的精选内容
+              {getPageDescription()}
             </p>
           </div>
 
@@ -677,6 +691,7 @@ function DoubanPageClient() {
                 onPrimaryChange={handlePrimaryChange}
                 onSecondaryChange={handleSecondaryChange}
                 onMultiLevelChange={handleMultiLevelChange}
+                onWeekdayChange={handleWeekdayChange}
               />
             </div>
           ) : (
