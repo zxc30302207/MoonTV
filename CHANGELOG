@@ -1,3 +1,12 @@
+## [1.1.1] - 2025-08-12
+
+### Changed
+- 修正 zwei 提供的 cors proxy 地址
+- 移除废弃代码
+
+### Fixed
+- [运维] docker workflow release 日期使用东八区日期
+
 ## [1.1.0] - 2025-08-12
 
 ### Added
