@@ -11,6 +11,19 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "1.0.5",
+    date: "2025-08-11",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+    "实现基于 Git 标签的自动 Release 工作流"
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "1.0.4",
     date: "2025-08-12",
     added: [
