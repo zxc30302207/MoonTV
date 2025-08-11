@@ -10,13 +10,13 @@ interface WeekdaySelectorProps {
 }
 
 const weekdays = [
-  { value: 'monday', label: '周一', shortLabel: '周一' },
-  { value: 'tuesday', label: '周二', shortLabel: '周二' },
-  { value: 'wednesday', label: '周三', shortLabel: '周三' },
-  { value: 'thursday', label: '周四', shortLabel: '周四' },
-  { value: 'friday', label: '周五', shortLabel: '周五' },
-  { value: 'saturday', label: '周六', shortLabel: '周六' },
-  { value: 'sunday', label: '周日', shortLabel: '周日' },
+  { value: 'Mon', label: '周一', shortLabel: '周一' },
+  { value: 'Tue', label: '周二', shortLabel: '周二' },
+  { value: 'Wed', label: '周三', shortLabel: '周三' },
+  { value: 'Thu', label: '周四', shortLabel: '周四' },
+  { value: 'Fri', label: '周五', shortLabel: '周五' },
+  { value: 'Sat', label: '周六', shortLabel: '周六' },
+  { value: 'Sun', label: '周日', shortLabel: '周日' },
 ];
 
 const WeekdaySelector: React.FC<WeekdaySelectorProps> = ({
@@ -27,15 +27,7 @@ const WeekdaySelector: React.FC<WeekdaySelectorProps> = ({
   const getTodayWeekday = (): string => {
     const today = new Date().getDay();
     // getDay() 返回 0-6，0 是周日，1-6 是周一到周六
-    const weekdayMap = [
-      'sunday',
-      'monday',
-      'tuesday',
-      'wednesday',
-      'thursday',
-      'friday',
-      'saturday',
-    ];
+    const weekdayMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     return weekdayMap[today];
   };
 

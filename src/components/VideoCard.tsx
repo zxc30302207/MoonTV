@@ -35,6 +35,7 @@ interface VideoCardProps {
   rate?: string;
   items?: SearchResult[];
   type?: string;
+  isBangumi?: boolean;
 }
 
 export default function VideoCard({
@@ -54,6 +55,7 @@ export default function VideoCard({
   rate,
   items,
   type = '',
+  isBangumi = false,
 }: VideoCardProps) {
   const router = useRouter();
   const [favorited, setFavorited] = useState(false);
@@ -194,15 +196,18 @@ export default function VideoCard({
   const handleClick = useCallback(() => {
     if (from === 'douban') {
       router.push(
-        `/play?title=${encodeURIComponent(actualTitle.trim())}${actualYear ? `&year=${actualYear}` : ''
+        `/play?title=${encodeURIComponent(actualTitle.trim())}${
+          actualYear ? `&year=${actualYear}` : ''
         }${actualSearchType ? `&stype=${actualSearchType}` : ''}`
       );
     } else if (actualSource && actualId) {
       router.push(
         `/play?source=${actualSource}&id=${actualId}&title=${encodeURIComponent(
           actualTitle
-        )}${actualYear ? `&year=${actualYear}` : ''}${isAggregate ? '&prefer=true' : ''
-        }${actualQuery ? `&stitle=${encodeURIComponent(actualQuery.trim())}` : ''
+        )}${actualYear ? `&year=${actualYear}` : ''}${
+          isAggregate ? '&prefer=true' : ''
+        }${
+          actualQuery ? `&stitle=${encodeURIComponent(actualQuery.trim())}` : ''
         }${actualSearchType ? `&stype=${actualSearchType}` : ''}`
       );
     }
@@ -318,10 +323,11 @@ export default function VideoCard({
               <Heart
                 onClick={handleToggleFavorite}
                 size={20}
-                className={`transition-all duration-300 ease-out ${favorited
+                className={`transition-all duration-300 ease-out ${
+                  favorited
                     ? 'fill-red-600 stroke-red-600'
                     : 'fill-transparent stroke-white hover:stroke-red-400'
-                  } hover:scale-[1.1]`}
+                } hover:scale-[1.1]`}
               />
             )}
           </div>
@@ -345,7 +351,11 @@ export default function VideoCard({
         {/* 豆瓣链接 */}
         {config.showDoubanLink && actualDoubanId && actualDoubanId !== 0 && (
           <a
-            href={`https://movie.douban.com/subject/${actualDoubanId.toString()}`}
+            href={
+              isBangumi
+                ? `https://bgm.tv/subject/${actualDoubanId.toString()}`
+                : `https://movie.douban.com/subject/${actualDoubanId.toString()}`
+            }
             target='_blank'
             rel='noopener noreferrer'
             onClick={(e) => e.stopPropagation()}
