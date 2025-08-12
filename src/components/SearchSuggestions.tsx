@@ -129,6 +129,8 @@ export default function SearchSuggestions({
           e.preventDefault();
           if (selectedIndex >= 0 && selectedIndex < suggestions.length) {
             onSelect(suggestions[selectedIndex].text);
+          } else {
+            onSelect(query);
           }
           break;
         case 'Escape':
@@ -140,7 +142,7 @@ export default function SearchSuggestions({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isVisible, suggestions, selectedIndex, onSelect, onClose]);
+  }, [isVisible, query, suggestions, selectedIndex, onSelect, onClose]);
 
   // 点击外部关闭
   useEffect(() => {
