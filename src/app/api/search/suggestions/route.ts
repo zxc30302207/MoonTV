@@ -37,7 +37,8 @@ export async function GET(request: NextRequest) {
     // 生成建议
     const suggestions = await generateSuggestions(query);
 
-    const cacheTime = 300; // 5分钟缓存
+    // 从配置中获取缓存时间，如果没有配置则使用默认值300秒（5分钟）
+    const cacheTime = config.SiteConfig.SiteInterfaceCacheTime || 300;
 
     return NextResponse.json(
       { suggestions },
@@ -58,7 +59,7 @@ export async function GET(request: NextRequest) {
 async function generateSuggestions(query: string): Promise<
   Array<{
     text: string;
-    type: 'related';
+    type: 'exact' | 'related' | 'suggestion';
     score: number;
   }>
 > {
@@ -67,9 +68,12 @@ async function generateSuggestions(query: string): Promise<
   const config = await getConfig();
   const apiSites = config.SourceConfig.filter((site: any) => !site.disabled);
   let realKeywords: string[] = [];
+  
   if (apiSites.length > 0) {
-    // 只取一个数据源的搜索API，传入用户输入的query
-    const results = await searchFromApi(apiSites[10], query); //10是豆瓣资源
+    // 取第一个可用的数据源进行搜索
+    const firstSite = apiSites[0];
+    const results = await searchFromApi(firstSite, query);
+    
     realKeywords = Array.from(
       new Set(
         results
@@ -83,11 +87,47 @@ async function generateSuggestions(query: string): Promise<
     ).slice(0, 8);
   }
 
-  const realSuggestions = realKeywords.map((word) => ({
-    text: word,
-    type: 'related' as const,
-    score: 1.5,
-  }));
+  // 根据关键词与查询的匹配程度计算分数，并动态确定类型
+  const realSuggestions = realKeywords.map((word) => {
+    const wordLower = word.toLowerCase();
+    const queryWords = queryLower.split(/[ -:：·、-]/);
+    
+    // 计算匹配分数：完全匹配得分更高
+    let score = 1.0;
+    if (wordLower === queryLower) {
+      score = 2.0; // 完全匹配
+    } else if (wordLower.startsWith(queryLower) || wordLower.endsWith(queryLower)) {
+      score = 1.8; // 前缀或后缀匹配
+    } else if (queryWords.some(qw => wordLower.includes(qw))) {
+      score = 1.5; // 包含查询词
+    }
+    
+    // 根据匹配程度确定类型
+    let type: 'exact' | 'related' | 'suggestion' = 'related';
+    if (score >= 2.0) {
+      type = 'exact';
+    } else if (score >= 1.5) {
+      type = 'related';
+    } else {
+      type = 'suggestion';
+    }
+    
+    return {
+      text: word,
+      type,
+      score,
+    };
+  });
 
-  return realSuggestions;
+  // 按分数降序排列，相同分数按类型优先级排列
+  const sortedSuggestions = realSuggestions.sort((a, b) => {
+    if (a.score !== b.score) {
+      return b.score - a.score; // 分数高的在前
+    }
+    // 分数相同时，按类型优先级：exact > related > suggestion
+    const typePriority = { exact: 3, related: 2, suggestion: 1 };
+    return typePriority[b.type] - typePriority[a.type];
+  });
+
+  return sortedSuggestions;
 }
