@@ -167,7 +167,12 @@ function SearchPageClient() {
     try {
       setIsLoading(true);
       const response = await fetch(
-        `/api/search?q=${encodeURIComponent(query.trim())}`
+        `/api/search?q=${encodeURIComponent(query.trim())}`,
+        {
+          headers: {
+            'Netlify-Vary': 'query',
+          },
+        }
       );
       const data = await response.json();
       let results = data.results;

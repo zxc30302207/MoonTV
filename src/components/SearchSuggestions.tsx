@@ -42,7 +42,12 @@ export default function SearchSuggestions({
     try {
       const response = await fetch(
         `/api/search/suggestions?q=${encodeURIComponent(searchQuery)}`,
-        { signal: controller.signal }
+        {
+          signal: controller.signal,
+          headers: {
+            'Netlify-Vary': 'query',
+          },
+        }
       );
       if (response.ok) {
         const data = await response.json();
