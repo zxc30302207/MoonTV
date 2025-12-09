@@ -22,7 +22,7 @@ const M3U8_PATTERN = /(https?:\/\/[^"'\s]+?\.m3u8)/g;
 async function fetchWithTimeout(
   url: string,
   options: RequestInit,
-  timeout = 3000
+  timeout = 30000
 ): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -330,4 +330,3 @@ async function handleSpecialSourceDetail(
     douban_id: 0,
   };
 }
-

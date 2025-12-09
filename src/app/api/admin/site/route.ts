@@ -36,6 +36,7 @@ export async function POST(request: NextRequest) {
       DoubanImageProxyType,
       DoubanImageProxy,
       DisableYellowFilter,
+      DanmakuApiBaseUrl,
       TVBoxEnabled,
       TVBoxPassword,
     } = body as {
@@ -48,6 +49,7 @@ export async function POST(request: NextRequest) {
       DoubanImageProxyType: string;
       DoubanImageProxy: string;
       DisableYellowFilter: boolean;
+      DanmakuApiBaseUrl?: string;
       TVBoxEnabled?: boolean;
       TVBoxPassword?: string;
     };
@@ -63,6 +65,8 @@ export async function POST(request: NextRequest) {
       typeof DoubanImageProxyType !== 'string' ||
       typeof DoubanImageProxy !== 'string' ||
       typeof DisableYellowFilter !== 'boolean' ||
+      (DanmakuApiBaseUrl !== undefined &&
+        typeof DanmakuApiBaseUrl !== 'string') ||
       (TVBoxEnabled !== undefined && typeof TVBoxEnabled !== 'boolean') ||
       (TVBoxPassword !== undefined && typeof TVBoxPassword !== 'string')
     ) {
@@ -94,6 +98,7 @@ export async function POST(request: NextRequest) {
       DoubanImageProxyType,
       DoubanImageProxy,
       DisableYellowFilter,
+      DanmakuApiBaseUrl,
       TVBoxEnabled,
       TVBoxPassword,
     };

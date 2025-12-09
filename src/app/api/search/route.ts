@@ -125,8 +125,11 @@ export async function GET(request: NextRequest) {
         // 根据错误类型提供更具体的错误信息
         if ((err as Error).message === '请求超时') {
           errorMessage = '请求超时';
-        } else if ((err as Error).message === '网络连接失败') {
-          errorMessage = '网络连接失败';
+        } else if (
+          (err as Error).message === '请求失败' ||
+          (err as Error).message === '网络连接失败'
+        ) {
+          errorMessage = '请求失败';
         } else if ((err as Error).message.includes('网络错误')) {
           errorMessage = '网络错误';
         }
@@ -263,4 +266,3 @@ export async function GET(request: NextRequest) {
     },
   });
 }
-

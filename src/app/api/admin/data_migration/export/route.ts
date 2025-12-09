@@ -131,6 +131,25 @@ export async function POST(req: NextRequest) {
 // 辅助函数：获取用户密码（通过数据库直接访问）
 async function getUserPassword(username: string): Promise<string | null> {
   try {
+    const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
+
+    if (storageType === 'd1') {
+      type D1Statement = {
+        bind: (...values: (string | number | null | undefined)[]) => {
+          first: () => Promise<{ password: string } | null>;
+        };
+      };
+      const d1Db = (process.env as { DB?: { prepare: (query: string) => D1Statement } }).DB;
+      if (d1Db) {
+        const result = (await d1Db
+          .prepare('SELECT password FROM users WHERE username = ?')
+          .bind(username)
+          .first()) as { password: string } | null;
+        return result?.password || null;
+      }
+      return null;
+    }
+
     // 使用 Redis 存储的直接访问方法
     const storage = (
       db as unknown as {
@@ -144,8 +163,9 @@ async function getUserPassword(username: string): Promise<string | null> {
       const password = await storage.client.get(passwordKey);
       return password;
     }
+
     return null;
-  } catch (error) {
+  } catch {
     return null;
   }
 }
