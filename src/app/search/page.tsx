@@ -158,7 +158,7 @@ function SearchPageClient() {
           const yearMatch = selectedYears.length === 0 || selectedYears.includes(item.year);
           return titleMatch && yearMatch;
         });
-        return [key, filteredGroup] as [string, SearchResult[]];
+        return [_key, filteredGroup] as [string, SearchResult[]];
       })
       .filter(([_, group]) => group.length > 0);
   }, [aggregatedResults, filterSources, selectedTitles, selectedYears]);
