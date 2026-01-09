@@ -527,7 +527,7 @@ const DataMigration = ({ onRefreshConfig }: DataMigrationProps) => {
         type={alertModal.type}
         title={alertModal.title}
         message={alertModal.message}
-        html={alertModal.html}
+        content={alertModal.content}
         confirmText={alertModal.confirmText}
         onConfirm={alertModal.onConfirm}
         showConfirm={alertModal.showConfirm}
