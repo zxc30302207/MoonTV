@@ -15,7 +15,7 @@ function getDoubanImageProxyConfig(): {
   const doubanImageProxyType =
     localStorage.getItem('doubanImageProxyType') ||
     (window as any).RUNTIME_CONFIG?.DOUBAN_IMAGE_PROXY_TYPE ||
-    'direct';
+    'server';
   const doubanImageProxy =
     localStorage.getItem('doubanImageProxyUrl') ||
     (window as any).RUNTIME_CONFIG?.DOUBAN_IMAGE_PROXY ||
@@ -263,4 +263,3 @@ export function getRequestTimeout(): number {
 
   return 30; // 默认30秒
 }
-
