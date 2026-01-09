@@ -172,7 +172,10 @@ async function getUserPassword(username: string): Promise<string | null> {
     const storage = (
       db as unknown as {
         storage?: {
-          client?: { get?: (key: string) => Promise<string | null> };
+          client?: {
+            get?: (key: string) => Promise<string | null>;
+            set?: (key: string, value: string) => Promise<unknown>;
+          };
         };
       }
     ).storage;
