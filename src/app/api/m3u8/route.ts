@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { downloadTsSegment, parseM3U8 } from '@/lib/m3u8-downloader';
+import { getClientIp, getRateLimitHeaders, rateLimit } from '@/lib/rate-limit';
+import { assertSafeUrl, parseAllowedHosts } from '@/lib/url-safety';
 
 export const runtime = 'edge';
 
@@ -10,13 +12,48 @@ export const runtime = 'edge';
  */
 export async function POST(request: NextRequest) {
   try {
+    const rateLimitResult = rateLimit(getClientIp(request), {
+      limit: 60,
+      windowMs: 60_000,
+      prefix: 'm3u8-parse',
+    });
+    if (!rateLimitResult.allowed) {
+      return NextResponse.json(
+        { error: '请求过于频繁，请稍后再试' },
+        {
+          status: 429,
+          headers: getRateLimitHeaders(rateLimitResult),
+        }
+      );
+    }
+
     const { url } = await request.json();
 
     if (!url) {
       return NextResponse.json({ error: '缺少 m3u8 URL' }, { status: 400 });
     }
 
-    const task = await parseM3U8(url);
+    const allowPrivateNetworks =
+      process.env.ALLOW_PRIVATE_NETWORKS === 'true';
+    const allowedHosts = parseAllowedHosts(
+      process.env.ALLOWED_M3U8_HOSTS || process.env.ALLOWED_PROXY_HOSTS
+    );
+    let safeUrl: string;
+    try {
+      safeUrl = assertSafeUrl(url, {
+        allowPrivateNetworks,
+        allowedHosts,
+      }).toString();
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : 'URL 校验失败' },
+        { status: 400 }
+      );
+    }
+    const validateUrl = (targetUrl: string) => {
+      assertSafeUrl(targetUrl, { allowPrivateNetworks, allowedHosts });
+    };
+    const task = await parseM3U8(safeUrl, { validateUrl });
 
     return NextResponse.json({
       success: true,
@@ -51,6 +88,21 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    const rateLimitResult = rateLimit(getClientIp(request), {
+      limit: 1200,
+      windowMs: 60_000,
+      prefix: 'm3u8-proxy',
+    });
+    if (!rateLimitResult.allowed) {
+      return NextResponse.json(
+        { error: '请求过于频繁，请稍后再试' },
+        {
+          status: 429,
+          headers: getRateLimitHeaders(rateLimitResult),
+        }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const url = searchParams.get('url');
 
@@ -58,7 +110,27 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '缺少 URL 参数' }, { status: 400 });
     }
 
-    const data = await downloadTsSegment(url);
+    const allowPrivateNetworks =
+      process.env.ALLOW_PRIVATE_NETWORKS === 'true';
+    const allowedHosts = parseAllowedHosts(
+      process.env.ALLOWED_M3U8_HOSTS || process.env.ALLOWED_PROXY_HOSTS
+    );
+    let safeUrl: string;
+    try {
+      safeUrl = assertSafeUrl(url, {
+        allowPrivateNetworks,
+        allowedHosts,
+      }).toString();
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : 'URL 校验失败' },
+        { status: 400 }
+      );
+    }
+    const data = await downloadTsSegment(safeUrl, undefined, {
+      validateUrl: (targetUrl: string) =>
+        assertSafeUrl(targetUrl, { allowPrivateNetworks, allowedHosts }),
+    });
     
     return new NextResponse(data, {
       headers: {

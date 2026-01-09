@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie } from '@/lib/auth';
+import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { getConfig } from '@/lib/config';
 import { getStorage } from '@/lib/db';
 
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
   }
 
   // 非本地模式：需要已登录用户
-  const authInfo = getAuthInfoFromCookie(request);
+  const authInfo = await getVerifiedAuthInfo(request);
   if (!authInfo || !authInfo.username) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const authInfo = getAuthInfoFromCookie(request);
+  const authInfo = await getVerifiedAuthInfo(request);
   if (!authInfo || !authInfo.username) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

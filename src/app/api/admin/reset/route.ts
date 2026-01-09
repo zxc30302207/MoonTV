@@ -5,7 +5,11 @@ import { resetConfig } from '@/lib/config';
 
 export const runtime = 'edge';
 
-export async function GET(request: NextRequest) {
+export async function POST(request: NextRequest) {
+  const requestedWith = request.headers.get('x-requested-with');
+  if (requestedWith !== 'XMLHttpRequest') {
+    return NextResponse.json({ error: '非法请求' }, { status: 403 });
+  }
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
   if (storageType === 'localstorage') {
     return NextResponse.json(

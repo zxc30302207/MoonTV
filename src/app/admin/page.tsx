@@ -39,7 +39,11 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
 
 import { AdminConfig, AdminConfigResult } from '@/lib/admin.types';
-import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
+import {
+  getCachedAuthInfo,
+  refreshAuthInfo,
+  type AuthInfo,
+} from '@/lib/auth-client';
 
 import DataMigration from '@/components/DataMigration';
 import PageLayout from '@/components/PageLayout';
@@ -135,9 +139,15 @@ interface UserConfigProps {
   config: AdminConfig | null;
   role: 'owner' | 'admin' | null;
   refreshConfig: () => Promise<void>;
+  currentUsername: string | null;
 }
 
-const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
+const UserConfig = ({
+  config,
+  role,
+  refreshConfig,
+  currentUsername,
+}: UserConfigProps) => {
   const [userSettings, setUserSettings] = useState({
     enableRegistration: false,
   });
@@ -156,9 +166,6 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
     username: '',
     password: '',
   });
-
-  // 当前登录用户名
-  const currentUsername = getAuthInfoFromBrowserCookie()?.username || null;
 
   // 注：分类配置不依赖存储类型禁用逻辑
 
@@ -2300,7 +2307,13 @@ const SubscriptionConfig = ({ config, refreshConfig }: { config: AdminConfig | n
 };
 
 // 新增站点配置组件
-const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
+const SiteConfigComponent = ({
+  config,
+  currentUsername,
+}: {
+  config: AdminConfig | null;
+  currentUsername: string | null;
+}) => {
   const [siteSettings, setSiteSettings] = useState<SiteConfig>({
     SiteName: '',
     Announcement: '',
@@ -2325,6 +2338,23 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
     return Array.from({ length: 16 })
       .map(() => alphabet[Math.floor(Math.random() * alphabet.length)])
       .join('');
+  };
+
+  const encodeUsername = (username: string) => {
+    if (!username) return '';
+    const bytes = new TextEncoder().encode(username);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  };
+
+  const getTvboxConfigUrl = () => {
+    if (typeof window === 'undefined') return '';
+    const un = encodeUsername(currentUsername || '');
+    const base = `${window.location.origin}/api/tvbox/config`;
+    return un ? `${base}?un=${encodeURIComponent(un)}` : base;
   };
 
   // 豆瓣数据源相关状态
@@ -2950,51 +2980,16 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
             <div className='flex gap-2'>
               <input
                 type='text'
-                value={
-                  typeof window !== 'undefined'
-                    ? (() => {
-                        const uname =
-                          getAuthInfoFromBrowserCookie()?.username || '';
-                        const un = (() => {
-                          if (!uname) return '';
-                          const bytes = new TextEncoder().encode(uname);
-                          let binary = '';
-                          for (let i = 0; i < bytes.length; i++)
-                            binary += String.fromCharCode(bytes[i]);
-                          return btoa(binary);
-                        })();
-                        return `${
-                          window.location.origin
-                        }/api/tvbox/config?pwd=${encodeURIComponent(
-                          siteSettings.TVBoxPassword || ''
-                        )}${un ? `&un=${encodeURIComponent(un)}` : ''}`;
-                      })()
-                    : ''
-                }
+                value={getTvboxConfigUrl()}
                 readOnly
                 className='flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-sm'
               />
               <button
                 type='button'
                 onClick={() => {
-                  if (typeof window !== 'undefined') {
-                    const uname =
-                      getAuthInfoFromBrowserCookie()?.username || '';
-                    const un = (() => {
-                      if (!uname) return '';
-                      const bytes = new TextEncoder().encode(uname);
-                      let binary = '';
-                      for (let i = 0; i < bytes.length; i++)
-                        binary += String.fromCharCode(bytes[i]);
-                      return btoa(binary);
-                    })();
-                    navigator.clipboard.writeText(
-                      `${
-                        window.location.origin
-                      }/api/tvbox/config?pwd=${encodeURIComponent(
-                        siteSettings.TVBoxPassword || ''
-                      )}${un ? `&un=${encodeURIComponent(un)}` : ''}`
-                    );
+                  const url = getTvboxConfigUrl();
+                  if (url) {
+                    navigator.clipboard.writeText(url);
                   }
                 }}
                 className='px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm'
@@ -3003,7 +2998,8 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
               </button>
             </div>
             <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
-              将该地址填入 TVBox 的订阅/配置接口
+              将该地址填入 TVBox 的订阅/配置接口，并在请求头设置
+              <code className='ml-1'>x-tvbox-password</code>
             </p>
           </div>
 
@@ -3085,6 +3081,10 @@ function AdminPageClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [role, setRole] = useState<'owner' | 'admin' | null>(null);
+  const [authInfo, setAuthInfo] = useState<AuthInfo | null>(() =>
+    getCachedAuthInfo()
+  );
+  const currentUsername = authInfo?.username || null;
   const [expandedTabs, setExpandedTabs] = useState<{ [key: string]: boolean }>({
     userConfig: false,
     videoSource: false,
@@ -3128,6 +3128,10 @@ function AdminPageClient() {
     fetchConfig(true);
   }, [fetchConfig]);
 
+  useEffect(() => {
+    refreshAuthInfo().then(setAuthInfo);
+  }, []);
+
   // 切换标签展开状态
   const toggleTab = (tabKey: string) => {
     setExpandedTabs((prev) => ({
@@ -3149,7 +3153,10 @@ function AdminPageClient() {
     if (!isConfirmed) return;
 
     try {
-      const response = await fetch(`/api/admin/reset`);
+      const response = await fetch(`/api/admin/reset`, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      });
       if (!response.ok) {
         throw new Error(`重置失败: ${response.status}`);
       }
@@ -3263,7 +3270,10 @@ function AdminPageClient() {
             isExpanded={expandedTabs.siteConfig}
             onToggle={() => toggleTab('siteConfig')}
           >
-            <SiteConfigComponent config={config} />
+            <SiteConfigComponent
+              config={config}
+              currentUsername={currentUsername}
+            />
           </CollapsibleTab>
 
           <div className='space-y-4'>
@@ -3280,6 +3290,7 @@ function AdminPageClient() {
                 config={config}
                 role={role}
                 refreshConfig={fetchConfig}
+                currentUsername={currentUsername}
               />
             </CollapsibleTab>
 

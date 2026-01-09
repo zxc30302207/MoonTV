@@ -7,24 +7,34 @@ export const runtime = 'edge';
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  let inputPassword =
-    url.searchParams.get('pwd') || url.searchParams.get('password') || '';
+  const allowQueryPassword =
+    process.env.TVBOX_ALLOW_QUERY_PASSWORD === 'true';
+  const inputPassword =
+    request.headers.get('x-tvbox-password') ||
+    (allowQueryPassword
+      ? url.searchParams.get('pwd') || url.searchParams.get('password')
+      : '') ||
+    '';
 
   const adminConfig = await getConfig();
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
-  // 本地模式下未提供查询参数则自动使用环境变量 PASSWORD
-  if (storageType === 'localstorage' && !inputPassword) {
-    inputPassword = process.env.PASSWORD || '';
-  }
   const enabled =
     storageType === 'localstorage'
       ? process.env.TVBOX_ENABLED == null
         ? true
         : String(process.env.TVBOX_ENABLED).toLowerCase() === 'true'
       : adminConfig.SiteConfig.TVBoxEnabled === true;
+  const password =
+    storageType === 'localstorage'
+      ? process.env.PASSWORD || ''
+      : adminConfig.SiteConfig.TVBoxPassword || '';
 
   if (!enabled) {
     return NextResponse.json({ error: 'TVBox 接口未开启' }, { status: 403 });
+  }
+
+  if (!password || inputPassword !== password) {
+    return NextResponse.json({ error: '密码错误或未提供' }, { status: 401 });
   }
 
   try {

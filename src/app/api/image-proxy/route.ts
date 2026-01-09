@@ -1,9 +1,27 @@
 import { NextResponse } from 'next/server';
 
+import { getClientIp, getRateLimitHeaders, rateLimit } from '@/lib/rate-limit';
+import { assertSafeUrl, parseAllowedHosts } from '@/lib/url-safety';
+
 export const runtime = 'edge';
 
 // OrionTV 兼容接口
 export async function GET(request: Request) {
+  const rateLimitResult = rateLimit(getClientIp(request), {
+    limit: 300,
+    windowMs: 60_000,
+    prefix: 'image-proxy',
+  });
+  if (!rateLimitResult.allowed) {
+    return NextResponse.json(
+      { error: '请求过于频繁，请稍后再试' },
+      {
+        status: 429,
+        headers: getRateLimitHeaders(rateLimitResult),
+      }
+    );
+  }
+
   const { searchParams } = new URL(request.url);
   const imageUrl = searchParams.get('url');
 
@@ -11,8 +29,25 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Missing image URL' }, { status: 400 });
   }
 
+  let safeUrl: URL;
   try {
-    const imageResponse = await fetch(imageUrl, {
+    const allowedHosts = parseAllowedHosts(
+      process.env.ALLOWED_IMAGE_PROXY_HOSTS ||
+        process.env.ALLOWED_PROXY_HOSTS
+    );
+    safeUrl = assertSafeUrl(imageUrl, {
+      allowPrivateNetworks: process.env.ALLOW_PRIVATE_NETWORKS === 'true',
+      allowedHosts,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'URL 校验失败' },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const imageResponse = await fetch(safeUrl.toString(), {
       headers: {
         Referer: 'https://movie.douban.com/',
         'User-Agent':
@@ -55,7 +90,7 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: 'Error fetching image' },
+      { error: error instanceof Error ? error.message : 'Error fetching image' },
       { status: 500 }
     );
   }

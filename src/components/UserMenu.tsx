@@ -17,7 +17,11 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
+import {
+  clearAuthInfoCache,
+  getCachedAuthInfo,
+  refreshAuthInfo,
+} from '@/lib/auth-client';
 import { checkForUpdates, CURRENT_VERSION, UpdateStatus } from '@/lib/version';
 
 import { useNavigationLoading } from './NavigationLoadingProvider';
@@ -150,8 +154,9 @@ export const UserMenu: React.FC = () => {
   // 获取认证信息和存储类型
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const auth = getAuthInfoFromBrowserCookie();
-      setAuthInfo(auth);
+      const cached = getCachedAuthInfo();
+      setAuthInfo(cached);
+      refreshAuthInfo().then(setAuthInfo);
 
       const type =
         (window as any).RUNTIME_CONFIG?.STORAGE_TYPE || 'localstorage';
@@ -314,6 +319,7 @@ export const UserMenu: React.FC = () => {
     } catch (error) {
       console.error('注销请求失败:', error);
     }
+    clearAuthInfoCache();
     window.location.href = '/';
   };
 
@@ -1140,13 +1146,7 @@ export const UserMenu: React.FC = () => {
               {tvboxEnabled && tvboxUrl ? (
                 <>
                   <input
-                    ref={(input) => {
-                      if (input) {
-                        const url = new URL(tvboxUrl);
-                        url.searchParams.set('pwd', tvboxPassword || '');
-                        input.value = url.toString();
-                      }
-                    }}
+                    value={tvboxUrl}
                     type='text'
                     className='flex-1 min-w-0 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
                     readOnly
@@ -1155,9 +1155,7 @@ export const UserMenu: React.FC = () => {
                     type='button'
                     className='shrink-0 px-3 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors'
                     onClick={(e) => {
-                      const input = e.currentTarget
-                        .previousElementSibling as HTMLInputElement;
-                      navigator.clipboard.writeText(input.value);
+                      navigator.clipboard.writeText(tvboxUrl);
                     }}
                   >
                     复制
@@ -1180,8 +1178,28 @@ export const UserMenu: React.FC = () => {
             {tvboxEnabled && tvboxUrl && (
               <div className='space-y-2'>
                 <p className='text-xs text-gray-500 dark:text-gray-400'>
-                  将该地址填入 TVBox 的订阅/配置接口即可使用。
+                  将该地址填入 TVBox 的订阅/配置接口，并在请求头设置
+                  <code className='ml-1'>x-tvbox-password</code>。
                 </p>
+                {tvboxPassword && (
+                  <div className='flex items-center gap-2'>
+                    <input
+                      value={tvboxPassword}
+                      type='text'
+                      readOnly
+                      className='flex-1 min-w-0 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-xs bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+                    />
+                    <button
+                      type='button'
+                      className='shrink-0 px-2 py-1.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors'
+                      onClick={() => {
+                        navigator.clipboard.writeText(tvboxPassword);
+                      }}
+                    >
+                      复制口令
+                    </button>
+                  </div>
+                )}
 
                 {storageType === 'localstorage' && (
                   <p className='text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-3 py-2 rounded-lg'>

@@ -1,6 +1,7 @@
 /* eslint-disable no-console, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
 import { AdminConfig } from './admin.types';
+import { normalizePasswordForStorage, verifyPassword } from './password';
 import { Favorite, IStorage, PlayRecord, SkipConfig } from './types';
 
 // 搜索历史最大条数
@@ -71,19 +72,31 @@ export class D1Storage implements IStorage {
   }
 
   async registerUser(userName: string, password: string): Promise<void> {
+    const hashedPassword = await normalizePasswordForStorage(password);
     await this.db
       .prepare('INSERT INTO users (username, password) VALUES (?, ?)')
-      .bind(userName, password)
+      .bind(userName, hashedPassword)
       .run();
   }
 
   async verifyUser(userName: string, password: string): Promise<boolean> {
     const result = await this.db
-      .prepare('SELECT id FROM users WHERE username = ? AND password = ?')
-      .bind(userName, password)
+      .prepare('SELECT id, password FROM users WHERE username = ?')
+      .bind(userName)
       .first();
 
-    return !!result;
+    if (!result || typeof result.password !== 'string') return false;
+    const { valid, upgradedHash } = await verifyPassword(
+      password,
+      result.password
+    );
+    if (valid && upgradedHash) {
+      await this.db
+        .prepare('UPDATE users SET password = ? WHERE id = ?')
+        .bind(upgradedHash, result.id)
+        .run();
+    }
+    return valid;
   }
 
   async checkUserExist(userName: string): Promise<boolean> {
@@ -99,9 +112,10 @@ export class D1Storage implements IStorage {
     const userId = await this.getUserId(userName);
     if (!userId) throw new Error('User not found');
 
+    const hashedPassword = await normalizePasswordForStorage(newPassword);
     await this.db
       .prepare('UPDATE users SET password = ? WHERE id = ?')
-      .bind(newPassword, userId)
+      .bind(hashedPassword, userId)
       .run();
   }
 

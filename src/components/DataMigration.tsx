@@ -10,7 +10,7 @@ import {
   Lock,
   Upload,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 interface DataMigrationProps {
@@ -23,7 +23,7 @@ interface AlertModalProps {
   type: 'success' | 'error' | 'warning';
   title: string;
   message?: string;
-  html?: string;
+  content?: ReactNode;
   confirmText?: string;
   onConfirm?: () => void;
   showConfirm?: boolean;
@@ -36,7 +36,7 @@ const AlertModal = ({
   type,
   title,
   message,
-  html,
+  content,
   confirmText = '确定',
   onConfirm,
   showConfirm = false,
@@ -110,11 +110,10 @@ const AlertModal = ({
             <p className='text-gray-600 dark:text-gray-400 mb-4'>{message}</p>
           )}
 
-          {html && (
-            <div
-              className='text-left text-gray-600 dark:text-gray-400 mb-4'
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
+          {content && (
+            <div className='text-left text-gray-600 dark:text-gray-400 mb-4'>
+              {content}
+            </div>
           )}
 
           <div className='flex justify-center space-x-3'>
@@ -163,7 +162,7 @@ const DataMigration = ({ onRefreshConfig }: DataMigrationProps) => {
     type: 'success' | 'error' | 'warning';
     title: string;
     message?: string;
-    html?: string;
+    content?: ReactNode;
     confirmText?: string;
     onConfirm?: () => void;
     showConfirm?: boolean;
@@ -300,17 +299,22 @@ const DataMigration = ({ onRefreshConfig }: DataMigrationProps) => {
       showAlert({
         type: 'success',
         title: '导入成功',
-        html: `
-          <div class="text-left">
-            <p><strong>导入完成！</strong></p>
-            <p class="mt-2">导入的用户数量: ${result.importedUsers}</p>
-            <p>备份时间: ${new Date(result.timestamp).toLocaleString(
-              'zh-CN'
-            )}</p>
-            <p>服务器版本: ${result.serverVersion || '未知版本'}</p>
-            <p class="mt-3 text-orange-600">请刷新页面以查看最新数据。</p>
+        content: (
+          <div className='text-left'>
+            <p>
+              <strong>导入完成！</strong>
+            </p>
+            <p className='mt-2'>导入的用户数量: {result.importedUsers}</p>
+            <p>
+              备份时间:{' '}
+              {new Date(result.timestamp).toLocaleString('zh-CN')}
+            </p>
+            <p>服务器版本: {result.serverVersion || '未知版本'}</p>
+            <p className='mt-3 text-orange-600'>
+              请刷新页面以查看最新数据。
+            </p>
           </div>
-        `,
+        ),
         confirmText: '刷新页面',
         showConfirm: true,
         onConfirm: async () => {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie } from '@/lib/auth';
+import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { getCacheTime } from '@/lib/config';
 import { getConfig } from '@/lib/config';
 import { fetchDoubanData } from '@/lib/douban';
@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = url;
 
   // 认证策略：已登录用户 或 TVBox 开启（无需口令）
-  const auth = getAuthInfoFromCookie(request);
+  const auth = await getVerifiedAuthInfo(request);
   if (!auth || !auth.username) {
     const cfg = await getConfig();
     const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { generateSignature } from '@/lib/auth-crypto';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
+import { getClientIp, getRateLimitHeaders, rateLimit } from '@/lib/rate-limit';
 
 export const runtime = 'edge';
 
@@ -13,57 +15,63 @@ const STORAGE_TYPE =
     | 'upstash'
     | undefined) || 'localstorage';
 
-// 生成签名
-async function generateSignature(
-  data: string,
-  secret: string
-): Promise<string> {
-  const encoder = new TextEncoder();
-  const keyData = encoder.encode(secret);
-  const messageData = encoder.encode(data);
+type AuthCookieData = {
+  role: 'user';
+  username: string;
+  timestamp: number;
+  signature?: string;
+};
 
-  // 导入密钥
-  const key = await crypto.subtle.importKey(
-    'raw',
-    keyData,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-
-  // 生成签名
-  const signature = await crypto.subtle.sign('HMAC', key, messageData);
-
-  // 转换为十六进制字符串
-  return Array.from(new Uint8Array(signature))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+function getCookieOptions(request: NextRequest, expires: Date) {
+  return {
+    path: '/',
+    expires,
+    sameSite: 'lax' as const,
+    httpOnly: true,
+    secure: request.nextUrl.protocol === 'https:',
+  };
 }
 
 // 生成认证Cookie（带签名）
-async function generateAuthCookie(username: string): Promise<string> {
-  type AuthCookieData = {
-    role: 'user';
-    username: string;
-    timestamp: number;
-    signature?: string;
-  };
+async function generateAuthCookie(
+  request: NextRequest,
+  username: string
+): Promise<string> {
   const authData: AuthCookieData = {
     role: 'user',
     username,
     timestamp: Date.now(),
   };
 
-  // 使用process.env.PASSWORD作为签名密钥，而不是用户密码
   const signingKey = process.env.PASSWORD || '';
-  const signature = await generateSignature(username, signingKey);
-  authData.signature = signature;
+  if (signingKey) {
+    const signature = await generateSignature(
+      `${username}:${authData.timestamp}`,
+      signingKey
+    );
+    authData.signature = signature;
+  }
 
   return encodeURIComponent(JSON.stringify(authData));
 }
 
 export async function POST(req: NextRequest) {
   try {
+    const rateLimitResult = rateLimit(getClientIp(req), {
+      limit: 5,
+      windowMs: 60_000,
+      prefix: 'register',
+    });
+    if (!rateLimitResult.allowed) {
+      return NextResponse.json(
+        { error: '请求过于频繁，请稍后再试' },
+        {
+          status: 429,
+          headers: getRateLimitHeaders(rateLimitResult),
+        }
+      );
+    }
+
     // localstorage 模式下不支持注册
     if (STORAGE_TYPE === 'localstorage') {
       return NextResponse.json(
@@ -110,17 +118,11 @@ export async function POST(req: NextRequest) {
 
       // 注册成功，设置认证cookie
       const response = NextResponse.json({ ok: true });
-      const cookieValue = await generateAuthCookie(username);
+      const cookieValue = await generateAuthCookie(req, username);
       const expires = new Date();
       expires.setDate(expires.getDate() + 7); // 7天过期
 
-      response.cookies.set('auth', cookieValue, {
-        path: '/',
-        expires,
-        sameSite: 'lax', // 改为 lax 以支持 PWA
-        httpOnly: false, // PWA 需要客户端可访问
-        secure: false, // 根据协议自动设置
-      });
+      response.cookies.set('auth', cookieValue, getCookieOptions(req, expires));
 
       return response;
     } catch (err) {

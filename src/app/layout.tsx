@@ -9,6 +9,7 @@ import 'sweetalert2/dist/sweetalert2.min.css';
 import { getConfig } from '@/lib/config';
 
 import ConditionalNav from '../components/ConditionalNav';
+import AuthBootstrap from '../components/AuthBootstrap';
 import GlobalDownloadManager from '../components/GlobalDownloadManager';
 import { GlobalErrorIndicator } from '../components/GlobalErrorIndicator';
 import { NavigationLoadingIndicator } from '../components/NavigationLoadingIndicator';
@@ -118,6 +119,7 @@ export default async function RootLayout({
           disableTransitionOnChange
         >
           <ServiceWorkerRegistration />
+          <AuthBootstrap />
           <NavigationLoadingProvider>
             <SiteProvider siteName={siteName} announcement={announcement}>
               <NavigationLoadingIndicator />

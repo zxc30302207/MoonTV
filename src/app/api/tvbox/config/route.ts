@@ -12,8 +12,14 @@ export const runtime = 'edge';
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
-    let inputPassword =
-      url.searchParams.get('pwd') || url.searchParams.get('password') || '';
+    const allowQueryPassword =
+      process.env.TVBOX_ALLOW_QUERY_PASSWORD === 'true';
+    const inputPassword =
+      request.headers.get('x-tvbox-password') ||
+      (allowQueryPassword
+        ? url.searchParams.get('pwd') || url.searchParams.get('password')
+        : '') ||
+      '';
     const un = url.searchParams.get('un') || '';
 
     const adminConfig = await getConfig();
@@ -33,10 +39,6 @@ export async function GET(request: Request) {
       }
     }
 
-    // 本地模式下未提供查询参数则自动使用环境变量 PASSWORD
-    if (storageType === 'localstorage' && !inputPassword) {
-      inputPassword = process.env.PASSWORD || '';
-    }
     const enabled =
       storageType === 'localstorage'
         ? process.env.TVBOX_ENABLED == null
@@ -75,9 +77,13 @@ export async function GET(request: Request) {
 
     // 插入“豆瓣｜自定义”为第一个站点，指向分类接口
     const origin = new URL(request.url).origin;
+    const doubanCustomSiteUrl = new URL(`${origin}/api/tvbox/categories`);
+    if (allowQueryPassword && password) {
+      doubanCustomSiteUrl.searchParams.set('pwd', password);
+    }
     const doubanCustomSite = {
       key: 'douban_custom',
-      api: `${origin}/api/tvbox/categories`,
+      api: doubanCustomSiteUrl.toString(),
       name: '豆瓣｜自定义',
       type: 1,
       searchable: 0,

@@ -3,9 +3,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
-import { configSelfCheck,getConfig } from '@/lib/config';
+import { configSelfCheck, getConfig } from '@/lib/config';
 import { getStorage } from '@/lib/db';
 import { IStorage } from '@/lib/types';
+import { assertSafeUrl, parseAllowedHosts } from '@/lib/url-safety';
 
 export const runtime = 'edge';
 
@@ -41,8 +42,21 @@ function decodeBase58(str: string): string {
 }
 
 // 从 URL 获取并解析订阅数据
+function validateSubscriptionUrl(url: string): string {
+  const allowedHosts = parseAllowedHosts(
+    process.env.ALLOWED_SUBSCRIPTION_HOSTS ||
+      process.env.ALLOWED_PROXY_HOSTS
+  );
+  const safeUrl = assertSafeUrl(url, {
+    allowPrivateNetworks: process.env.ALLOW_PRIVATE_NETWORKS === 'true',
+    allowedHosts,
+  });
+  return safeUrl.toString();
+}
+
 async function fetchSubscriptionData(url: string): Promise<any> {
-  const response = await fetch(url);
+  const safeUrl = validateSubscriptionUrl(url);
+  const response = await fetch(safeUrl);
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
@@ -210,7 +224,18 @@ export async function POST(request: NextRequest) {
         // 更新订阅配置
         adminConfig.SubscriptionConfig = adminConfig.SubscriptionConfig || {};
         if (subscriptionUrl !== undefined) {
-          adminConfig.SubscriptionConfig.subscriptionUrl = subscriptionUrl;
+          try {
+            adminConfig.SubscriptionConfig.subscriptionUrl =
+              validateSubscriptionUrl(subscriptionUrl);
+          } catch (error) {
+            return NextResponse.json(
+              {
+                error:
+                  error instanceof Error ? error.message : '订阅地址不合法',
+              },
+              { status: 400 }
+            );
+          }
         }
         if (autoUpdate !== undefined) {
           adminConfig.SubscriptionConfig.autoUpdate = Boolean(autoUpdate);
@@ -233,9 +258,21 @@ export async function POST(request: NextRequest) {
 
       case 'import': {
         const { subscriptionUrl, importMode } = body;
-        const url = subscriptionUrl || adminConfig.SubscriptionConfig?.subscriptionUrl;
+        const url =
+          subscriptionUrl || adminConfig.SubscriptionConfig?.subscriptionUrl;
         if (!url) {
           return NextResponse.json({ error: '订阅地址未提供' }, { status: 400 });
+        }
+        try {
+          validateSubscriptionUrl(url);
+        } catch (error) {
+          return NextResponse.json(
+            {
+              error:
+                error instanceof Error ? error.message : '订阅地址不合法',
+            },
+            { status: 400 }
+          );
         }
         const mode = importMode || adminConfig.SubscriptionConfig?.importMode || 'merge';
         // 获取数据
@@ -264,10 +301,11 @@ export async function POST(request: NextRequest) {
             urlToImport = subscriptionUrl;
           }
         }
-        if (shouldImport) {
-          // 执行导入
-          try {
-            const subscriptionData = await fetchSubscriptionData(urlToImport);
+          if (shouldImport) {
+            // 执行导入
+            try {
+              validateSubscriptionUrl(urlToImport);
+              const subscriptionData = await fetchSubscriptionData(urlToImport);
             const mode = subConfig.importMode || 'merge';
             importSources(adminConfig, subscriptionData, mode);
             adminConfig.SubscriptionConfig = adminConfig.SubscriptionConfig || {};

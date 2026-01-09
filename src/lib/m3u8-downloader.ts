@@ -83,6 +83,10 @@ export interface M3U8Task {
   downloadedSegments?: Map<number, ArrayBuffer>;
 }
 
+export type M3U8ParseOptions = {
+  validateUrl?: (url: string) => void;
+};
+
 /**
  * 应用URL - 处理相对路径和绝对路径
  */
@@ -155,12 +159,17 @@ function extractSubPlaylistUrl(m3u8Content: string, baseUrl: string): string | n
 /**
  * 解析M3U8文件（支持主播放列表自动解析）
  */
-export async function parseM3U8(url: string, depth = 0): Promise<M3U8Task> {
+export async function parseM3U8(
+  url: string,
+  options?: M3U8ParseOptions,
+  depth = 0
+): Promise<M3U8Task> {
   // 防止无限递归
   if (depth > 5) {
     throw new Error('M3U8 解析层级过深，可能存在循环引用');
   }
 
+  options?.validateUrl?.(url);
   const response = await fetch(url);
   const m3u8Str = await response.text();
 
@@ -177,7 +186,8 @@ export async function parseM3U8(url: string, depth = 0): Promise<M3U8Task> {
     }
     
     // 递归解析子播放列表
-    return parseM3U8(subPlaylistUrl, depth + 1);
+    options?.validateUrl?.(subPlaylistUrl);
+    return parseM3U8(subPlaylistUrl, options, depth + 1);
   }
 
   const task: M3U8Task = {
@@ -214,6 +224,7 @@ export async function parseM3U8(url: string, depth = 0): Promise<M3U8Task> {
       task.durationSecond += lastDuration;
     } else if (/^[^#]/.test(line) && line.trim()) {
       const tsUrl = applyURL(line.trim(), url);
+      options?.validateUrl?.(tsUrl);
       task.tsUrlList.push(tsUrl);
       task.finishList.push({ title: line.trim(), status: '' });
       // 记录每个片段的时长
@@ -242,6 +253,7 @@ export async function parseM3U8(url: string, depth = 0): Promise<M3U8Task> {
 
     // 获取 AES key
     if (task.aesConf.uri) {
+      options?.validateUrl?.(task.aesConf.uri);
       const keyResponse = await fetch(task.aesConf.uri);
       const keyArrayBuffer = await keyResponse.arrayBuffer();
       task.aesConf.key = arrayBufferToWordArray(keyArrayBuffer);
@@ -311,7 +323,12 @@ export function aesDecrypt(data: ArrayBuffer, key: any, iv: string): ArrayBuffer
 /**
  * 下载单个 TS 片段
  */
-export async function downloadTsSegment(url: string, signal?: AbortSignal): Promise<ArrayBuffer> {
+export async function downloadTsSegment(
+  url: string,
+  signal?: AbortSignal,
+  options?: { validateUrl?: (url: string) => void }
+): Promise<ArrayBuffer> {
+  options?.validateUrl?.(url);
   const response = await fetch(url, { signal });
   if (!response.ok) {
     throw new Error(`下载失败: ${response.status}`);

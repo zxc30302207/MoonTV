@@ -4,6 +4,7 @@ import { deflate } from 'pako';
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { SimpleCrypto } from '@/lib/crypto';
 import { db } from '@/lib/db';
+import { hashPassword, isPasswordHash } from '@/lib/password';
 import { CURRENT_VERSION } from '@/lib/version';
 
 export const runtime = 'edge';
@@ -88,7 +89,14 @@ export async function POST(req: NextRequest) {
       string,
       unknown
     >;
-    (ownerData as { password?: string }).password = process.env.PASSWORD;
+    if (process.env.PASSWORD) {
+      const ownerPassword = process.env.PASSWORD;
+      (ownerData as { password?: string }).password = isPasswordHash(
+        ownerPassword
+      )
+        ? ownerPassword
+        : await hashPassword(ownerPassword);
+    }
 
     // 将数据转换为JSON字符串
     const jsonData = JSON.stringify(exportData);
@@ -137,15 +145,25 @@ async function getUserPassword(username: string): Promise<string | null> {
       type D1Statement = {
         bind: (...values: (string | number | null | undefined)[]) => {
           first: () => Promise<{ password: string } | null>;
+          run?: () => Promise<unknown>;
         };
       };
-      const d1Db = (process.env as { DB?: { prepare: (query: string) => D1Statement } }).DB;
+      const d1Db = (
+        process.env as { DB?: { prepare: (query: string) => D1Statement } }
+      ).DB;
       if (d1Db) {
         const result = (await d1Db
           .prepare('SELECT password FROM users WHERE username = ?')
           .bind(username)
           .first()) as { password: string } | null;
-        return result?.password || null;
+        if (!result?.password) return null;
+        if (isPasswordHash(result.password)) return result.password;
+        const hashed = await hashPassword(result.password);
+        await d1Db
+          .prepare('UPDATE users SET password = ? WHERE username = ?')
+          .bind(hashed, username)
+          .run?.();
+        return hashed;
       }
       return null;
     }
@@ -161,7 +179,13 @@ async function getUserPassword(username: string): Promise<string | null> {
     if (storage && typeof storage.client?.get === 'function') {
       const passwordKey = `u:${username}:pwd`;
       const password = await storage.client.get(passwordKey);
-      return password;
+      if (!password) return null;
+      if (isPasswordHash(password)) return password;
+      const hashed = await hashPassword(password);
+      if (typeof storage.client?.set === 'function') {
+        await storage.client.set(passwordKey, hashed);
+      }
+      return hashed;
     }
 
     return null;
