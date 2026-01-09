@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
 
       // 验证成功，设置认证cookie
       const response = NextResponse.json({ ok: true });
-      const cookieValue = await generateAuthCookie(request, {
+      const cookieValue = await generateAuthCookie(req, {
         role: 'user',
         mode: 'localstorage',
       });
@@ -143,7 +143,7 @@ export async function POST(req: NextRequest) {
     ) {
       // 验证成功，设置认证cookie
       const response = NextResponse.json({ ok: true });
-      const cookieValue = await generateAuthCookie(request, {
+      const cookieValue = await generateAuthCookie(req, {
         username,
         role: 'owner',
       });
@@ -175,7 +175,7 @@ export async function POST(req: NextRequest) {
 
       // 验证成功，设置认证cookie
       const response = NextResponse.json({ ok: true });
-      const cookieValue = await generateAuthCookie(request, {
+      const cookieValue = await generateAuthCookie(req, {
         username,
         role: user?.role || 'user',
       });
