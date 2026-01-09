@@ -23,11 +23,11 @@ let lastCleanup = 0;
 function cleanupExpiredBuckets(now: number) {
   if (now - lastCleanup < CLEANUP_INTERVAL_MS) return;
   lastCleanup = now;
-  for (const [key, bucket] of buckets.entries()) {
+  buckets.forEach((bucket, key) => {
     if (bucket.resetAt <= now) {
       buckets.delete(key);
     }
-  }
+  });
 }
 
 export function getClientIp(request: { headers: Headers }): string {
