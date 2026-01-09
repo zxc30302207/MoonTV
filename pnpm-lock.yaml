@@ -68,6 +68,9 @@ importers:
       media-icons:
         specifier: ^1.1.5
         version: 1.1.5
+      mux.js:
+        specifier: github:Momo707577045/mux.js
+        version: https://codeload.github.com/Momo707577045/mux.js/tar.gz/6067fc9d9bf81d38d1ffc472e1adeb10e2991f9e
       next:
         specifier: 14.2.30
         version: 14.2.30(@babel/core@7.28.5)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4387,6 +4390,10 @@ packages:
   mustache@4.2.0:
     resolution: {integrity: sha512-71ippSywq5Yb7/tVYyGbkBggbU8H3u5Rz56fH60jGFgr8uHwxs+aSKeqmluIVzM0m0kB7xQjKS6qPfd0b2ZoqQ==}
     hasBin: true
+
+  mux.js@https://codeload.github.com/Momo707577045/mux.js/tar.gz/6067fc9d9bf81d38d1ffc472e1adeb10e2991f9e:
+    resolution: {tarball: https://codeload.github.com/Momo707577045/mux.js/tar.gz/6067fc9d9bf81d38d1ffc472e1adeb10e2991f9e}
+    version: 5.6.7
 
   mz@2.7.0:
     resolution: {integrity: sha512-z81GNO7nnYMEhrGh9LeymoE4+Yr0Wn5McHIZMK5cfQCl+NDX08sCZgUc9/6MHni9IWuFLm1Z3HTCXu2z9fN62Q==}
@@ -10692,6 +10699,8 @@ snapshots:
   ms@2.1.3: {}
 
   mustache@4.2.0: {}
+
+  mux.js@https://codeload.github.com/Momo707577045/mux.js/tar.gz/6067fc9d9bf81d38d1ffc472e1adeb10e2991f9e: {}
 
   mz@2.7.0:
     dependencies:

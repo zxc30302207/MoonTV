@@ -965,6 +965,12 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
                   scope='col'
                   className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'
                 >
+                  最后在线
+                </th>
+                <th
+                  scope='col'
+                  className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'
+                >
                   状态
                 </th>
                 <th
@@ -1044,6 +1050,11 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
                         </td>
                         <td className='px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100'>
                           {user.group || '-'}
+                        </td>
+                        <td className='px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100'>
+                          {user.lastOnline
+                            ? new Date(user.lastOnline).toLocaleString('zh-CN', { hour12: false })
+                            : '-'}
                         </td>
                         <td className='px-6 py-4 whitespace-nowrap'>
                           <span
@@ -2194,23 +2205,23 @@ const SubscriptionConfig = ({ config, refreshConfig }: { config: AdminConfig | n
           </p>
         </div>
 
-        <div className="flex items-center justify-between">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+        <div>
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
               自动更新
             </label>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              用户/管理员登录时检查更新，若超过更新周期则自动导入。
-            </p>
+            <button
+              onClick={() => setAutoUpdate(!autoUpdate)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full ${autoUpdate ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'}`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${autoUpdate ? 'translate-x-6' : 'translate-x-1'}`}
+              />
+            </button>
           </div>
-          <button
-            onClick={() => setAutoUpdate(!autoUpdate)}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full ${autoUpdate ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'}`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${autoUpdate ? 'translate-x-6' : 'translate-x-1'}`}
-            />
-          </button>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            用户/管理员登录时检查更新，若超过更新周期则自动导入。
+          </p>
         </div>
 
         <div>

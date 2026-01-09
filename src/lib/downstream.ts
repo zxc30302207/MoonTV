@@ -30,16 +30,17 @@ async function fetchWithTimeout(
     return await fetch(url, { ...options, signal: controller.signal });
   } catch (error: unknown) {
     // 区分超时错误和网络错误
-    if (error instanceof DOMException && error.name === 'AbortError') {
+    const err = error as Error;
+    if (err.name === 'AbortError') {
       throw new Error('请求超时');
     } else if (
-      (error as Error).message?.includes('Failed to fetch') ||
-      (error as Error).message?.includes('fetch failed') ||
-      (error as Error).message?.includes('NetworkError')
+      err.message?.includes('Failed to fetch') ||
+      err.message?.includes('fetch failed') ||
+      err.message?.includes('NetworkError')
     ) {
       throw new Error('请求失败');
     } else {
-      throw new Error(`网络错误: ${(error as Error).message || '未知错误'}`);
+      throw new Error(`网络错误: ${err.message || '未知错误'}`);
     }
   } finally {
     clearTimeout(timeoutId);
