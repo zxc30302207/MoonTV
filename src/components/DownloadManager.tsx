@@ -4,11 +4,11 @@ import { Download, List, Pause, Play, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Swal from 'sweetalert2';
 
+import { formatTime } from '@/lib/formatTime';
 import { downloadM3U8Video, DownloadProgress, M3U8Task, parseM3U8, PauseResumeController, StreamSaverMode } from '@/lib/m3u8-downloader';
 
 import AddDownloadModal from './AddDownloadModal';
 import SegmentViewer from './SegmentViewer';
-import { formatTime } from '@/lib/formatTime';
 
 
 interface DownloadTask {
@@ -42,9 +42,14 @@ interface DownloadTask {
 interface DownloadManagerProps {
   isOpen: boolean;
   onClose: () => void;
+  onReady?: () => void;
 }
 
-const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
+const DownloadManager = ({
+  isOpen,
+  onClose,
+  onReady,
+}: DownloadManagerProps) => {
   // 任务列表状态
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
   // 添加下载弹窗状态
@@ -64,6 +69,10 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
   useEffect(() => {
     tasksRef.current = tasks;
   }, [tasks]);
+
+  useEffect(() => {
+    onReady?.();
+  }, [onReady]);
 
   // 从 localStorage 加载任务
   useEffect(() => {

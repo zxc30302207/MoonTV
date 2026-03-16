@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import type { Metadata, Viewport } from 'next';
+import dynamic from 'next/dynamic';
 import { Inter } from 'next/font/google';
 
 import './globals.css';
@@ -8,17 +9,25 @@ import 'sweetalert2/dist/sweetalert2.min.css';
 
 import { getConfig } from '@/lib/config';
 
-import ConditionalNav from '../components/ConditionalNav';
 import AuthBootstrap from '../components/AuthBootstrap';
+import ConditionalNav from '../components/ConditionalNav';
 import GlobalDownloadManager from '../components/GlobalDownloadManager';
 import { GlobalErrorIndicator } from '../components/GlobalErrorIndicator';
 import { NavigationLoadingIndicator } from '../components/NavigationLoadingIndicator';
 import { NavigationLoadingProvider } from '../components/NavigationLoadingProvider';
-import ServiceWorkerRegistration from '../components/ServiceWorkerRegistration';
 import { SiteProvider } from '../components/SiteProvider';
-import SubscriptionAutoUpdate from '../components/SubscriptionAutoUpdate';
 import { ThemeProvider } from '../components/ThemeProvider';
-import UserOnlineUpdate from '../components/UserOnlineUpdate';
+const ServiceWorkerRegistration = dynamic(
+  () => import('../components/ServiceWorkerRegistration'),
+  { ssr: false }
+);
+const SubscriptionAutoUpdate = dynamic(
+  () => import('../components/SubscriptionAutoUpdate'),
+  { ssr: false }
+);
+const UserOnlineUpdate = dynamic(() => import('../components/UserOnlineUpdate'), {
+  ssr: false,
+});
 
 export const runtime = 'edge';
 
@@ -66,6 +75,12 @@ export default async function RootLayout({
     process.env.NEXT_PUBLIC_DANMU_API_BASE_URL ||
     '';
   let autoUpdateEnabled = false;
+  const isCloudPlatform =
+    process.env.CF_PAGES === '1' ||
+    process.env.CLOUDFLARE_PAGES === '1' ||
+    process.env.VERCEL === '1' ||
+    process.env.NETLIFY === 'true';
+  const pwaEnabled = process.env.NODE_ENV !== 'development' && !isCloudPlatform;
   if (storageType !== 'localstorage') {
     const config = await getConfig();
     siteName = config.SiteConfig.SiteName;
@@ -118,7 +133,7 @@ export default async function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <ServiceWorkerRegistration />
+          <ServiceWorkerRegistration enabled={pwaEnabled} />
           <AuthBootstrap />
           <NavigationLoadingProvider>
             <SiteProvider siteName={siteName} announcement={announcement}>

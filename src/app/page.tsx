@@ -5,7 +5,6 @@
 import { ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import { Suspense, useEffect, useState } from 'react';
-import Swal from 'sweetalert2';
 
 import {
   BangumiCalendarData,
@@ -19,13 +18,14 @@ import {
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 import { getDoubanCategories } from '@/lib/douban.client';
+import { getSwal } from '@/lib/sweetalert';
 import { DoubanItem } from '@/lib/types';
 
 import CapsuleSwitch from '@/components/CapsuleSwitch';
 import ContinueWatching from '@/components/ContinueWatching';
+import { useNavigationLoading } from '@/components/NavigationLoadingProvider';
 import PageLayout from '@/components/PageLayout';
 import ScrollableRow from '@/components/ScrollableRow';
-import { useNavigationLoading } from '@/components/NavigationLoadingProvider';
 import { useSite } from '@/components/SiteProvider';
 import VideoCard from '@/components/VideoCard';
 
@@ -228,6 +228,7 @@ function HomeClient() {
                   <button
                     className='text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
                     onClick={async () => {
+                      const Swal = await getSwal();
                       const { isConfirmed } = await Swal.fire({
                         title: '确认清空',
                         text: '确定要清空所有收藏吗？',
@@ -239,7 +240,7 @@ function HomeClient() {
                       if (isConfirmed) {
                         await clearAllFavorites();
                         setFavoriteItems([]);
-                        Swal.fire({
+                        await Swal.fire({
                           icon: 'success',
                           title: '已清空',
                           text: '所有收藏已清空',
