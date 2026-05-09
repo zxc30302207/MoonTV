@@ -70,7 +70,7 @@ export default function VideoCard({
   const [favorited, setFavorited] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showSources, setShowSources] = useState(false);
-  const [favoriteChecked, setFavoriteChecked] = useState(false); // 是否已经检查过收藏状态
+  const [favoriteChecked, setFavoriteChecked] = useState(false); // 是否已經檢查過收藏狀態
   const [isActionOpen, setIsActionOpen] = useState(false);
   const [longPressTimer, setLongPressTimer] = useState<number | null>(null);
 
@@ -123,7 +123,7 @@ export default function VideoCard({
       : 'tv'
     : type;
 
-  // 检查收藏状态函数
+  // 檢查收藏狀態函數
   const checkFavoriteStatus = useCallback(async () => {
     if (from === 'douban' || !actualSource || !actualId) return;
     try {
@@ -131,7 +131,7 @@ export default function VideoCard({
       setFavorited(fav);
       setFavoriteChecked(true);
 
-      // 延迟订阅收藏更新
+      // 延遲訂閱收藏更新
       const storageKey = generateStorageKey(actualSource, actualId);
       subscribeToDataUpdates(
         'favoritesUpdated',
@@ -142,7 +142,7 @@ export default function VideoCard({
       );
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.error('检查收藏状态失败', err);
+      console.error('檢查收藏狀態失敗', err);
     }
   }, [from, actualSource, actualId]);
 
@@ -169,7 +169,7 @@ export default function VideoCard({
         }
       } catch (err) {
         // eslint-disable-next-line no-console
-        console.error('切换收藏状态失败', err);
+        console.error('切換收藏狀態失敗', err);
       }
     },
     [
@@ -196,15 +196,15 @@ export default function VideoCard({
         onDelete?.();
       } catch (err) {
         // eslint-disable-next-line no-console
-        console.error('删除播放记录失败', err);
+        console.error('刪除播放記錄失敗', err);
       }
     },
     [from, actualSource, actualId, onDelete]
   );
 
   const handleClick = useCallback(() => {
-    // 点击时不再检查收藏状态
-    // 触发加载动画
+    // 點擊時不再檢查收藏狀態
+    // 觸發加載動畫
     startLoading();
 
     if (from === 'douban') {
@@ -316,7 +316,7 @@ export default function VideoCard({
         }
       }}
       onMouseEnter={() => {
-        // 收藏夹里的卡片直接默认已收藏，不检查数据库
+        // 收藏夾裡的卡片直接默認已收藏，不檢查數據庫
         if (from === 'favorite' && !favorited) {
           setFavorited(true);
           setFavoriteChecked(true);
@@ -327,7 +327,7 @@ export default function VideoCard({
         }
       }}
     >
-      {/* 图片和播放按钮 */}
+      {/* 圖片和播放按鈕 */}
       <div className='relative aspect-[2/3] overflow-hidden rounded-lg'>
         {!isLoading && <ImagePlaceholder aspectRatio='aspect-[2/3]' />}
         <Image
@@ -351,7 +351,7 @@ export default function VideoCard({
 
         <div className='absolute inset-0 bg-gradient-to-t from-black/80 via-black-20 to-transparent opacity-0 transition-opacity duration-300 ease-in-out group-hover:opacity-100' />
 
-        {/* 播放按钮 */}
+        {/* 播放按鈕 */}
         {config.showPlayButton && (
           <div className='absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition'>
             <PlayCircleIcon
@@ -360,7 +360,7 @@ export default function VideoCard({
               className='text-white fill-transparent hover:fill-green-500 hover:scale-[1.1] transition'
               onClick={(e) => {
                 e.stopPropagation(); // 阻止冒泡
-                handleClick(); // 只在点击按钮时触发播放
+                handleClick(); // 只在點擊按鈕時觸發播放
               }}
             />
           </div>
@@ -389,14 +389,14 @@ export default function VideoCard({
           </div>
         )}
 
-        {/* ⭐ 评分显示（左上角小圆圈，可跳转豆瓣或 Bangumi） */}
+        {/* ⭐ 評分顯示（左上角小圓圈，可跳轉豆瓣或 Bangumi） */}
         {config.showRating && rate && actualDoubanId && (
           <div className='absolute top-2 left-2 bg-pink-500 text-white text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full shadow-md cursor-pointer hover:bg-pink-600 transition'>
             {rate}
           </div>
         )}
 
-        {/* 📅 年份显示（左上角） */}
+        {/* 📅 年份顯示（左上角） */}
         {from === 'search' &&
           actualYear &&
           actualYear.toLowerCase() !== 'unknown' && (
@@ -405,20 +405,20 @@ export default function VideoCard({
             </div>
           )}
 
-        {/* 🔗 豆瓣/Bangumi跳转链接（左下角） */}
+        {/* 🔗 豆瓣/Bangumi跳轉鏈接（左下角） */}
         {config.showDoubanLink && actualDoubanId && (
           <div
             onClick={(e) => {
-              e.stopPropagation(); // 阻止触发卡片点击
+              e.stopPropagation(); // 阻止觸發卡片點擊
 
               if (isBangumi) {
-                // 动漫 → Bangumi
+                // 動漫 → Bangumi
                 window.open(
                   `https://bangumi.tv/subject/${actualDoubanId}`,
                   '_blank'
                 );
               } else {
-                // 默认 → 豆瓣
+                // 默認 → 豆瓣
                 window.open(
                   `https://movie.douban.com/subject/${actualDoubanId}`,
                   '_blank'
@@ -426,7 +426,7 @@ export default function VideoCard({
               }
             }}
             className='absolute bottom-2 left-2 bg-green-500 text-white text-xs font-bold w-8 h-8 rounded-full flex items-center justify-center shadow-md hover:bg-green-600 hover:scale-[1.1] transition-all duration-300 ease-out opacity-0 group-hover:opacity-100 cursor-pointer'
-            title={isBangumi ? '跳转到 Bangumi' : '跳转到豆瓣'}
+            title={isBangumi ? '跳轉到 Bangumi' : '跳轉到豆瓣'}
           >
             <svg
               width='16'
@@ -444,7 +444,7 @@ export default function VideoCard({
           </div>
         )}
 
-        {/* 集数 */}
+        {/* 集數 */}
         {actualEpisodes && actualEpisodes > 1 && (
           <div className='absolute top-2 right-2 bg-green-500 text-white text-xs font-semibold px-2 py-1 rounded-md shadow-md transition-all duration-300 ease-out group-hover:scale-110'>
             {currentEpisode
@@ -457,18 +457,18 @@ export default function VideoCard({
         {isAggregate && items && items.length > 0 && (
           <div className='absolute bottom-2 right-2 flex flex-col items-end'>
             <div className='relative group/sources'>
-              {/* 小圆圈按钮：默认显示 */}
+              {/* 小圓圈按鈕：默認顯示 */}
               <div
                 className='bg-gray-700 text-white text-xs sm:text-xs w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center shadow-md hover:bg-gray-600 hover:scale-[1.1] transition-all duration-300 ease-out cursor-pointer'
                 onClick={(e) => {
                   e.stopPropagation();
-                  setShowSources((prev) => !prev); // 点击切换列表显示
+                  setShowSources((prev) => !prev); // 點擊切換列表顯示
                 }}
               >
                 {items.length}
               </div>
 
-              {/* 播放源列表弹窗 */}
+              {/* 播放源列表彈窗 */}
               {showSources && (
                 <div className='absolute bottom-full mb-2 right-0 sm:right-0 z-50'>
                   <div className='bg-gray-800/90 backdrop-blur-sm text-white text-xs sm:text-xs rounded-lg shadow-xl border border-white/10 p-1 sm:p-1.5 min-w-[70px] sm:min-w-[90px] max-w-[120px] sm:max-w-[160px] max-h-20 sm:max-h-40 overflow-auto'>
@@ -489,12 +489,12 @@ export default function VideoCard({
                       ))}
                     </div>
 
-                    {/* 小箭头 */}
+                    {/* 小箭頭 */}
                     <div className='absolute top-full right-2 sm:right-3 w-0 h-0 border-l-[4px] border-r-[4px] border-t-[4px] sm:border-l-[6px] sm:border-r-[6px] sm:border-t-[6px] border-transparent border-t-gray-800/90'></div>
                   </div>
                 </div>
               )}
-              {/* 播放源列表弹窗 */}
+              {/* 播放源列表彈窗 */}
             </div>
           </div>
         )}
@@ -528,7 +528,7 @@ export default function VideoCard({
         )}
       </div>
 
-      {/* 右键 / 长按 操作面板 */}
+      {/* 右鍵 / 長按 操作面板 */}
       <MobileActionSheet
         isOpen={isActionOpen}
         onClose={() => setIsActionOpen(false)}
@@ -554,7 +554,7 @@ export default function VideoCard({
           },
           {
             id: 'play-new-tab',
-            label: '在新标签页播放',
+            label: '在新標簽頁播放',
             icon: <ExternalLink size={20} />,
             color: 'default',
             onClick: () => {
@@ -619,7 +619,7 @@ export default function VideoCard({
             ? [
                 {
                   id: 'delete-record',
-                  label: '删除播放记录',
+                  label: '刪除播放記錄',
                   icon: <Trash2 size={18} />,
                   color: 'danger' as const,
                   onClick: (e?: React.MouseEvent) =>
@@ -631,7 +631,7 @@ export default function VideoCard({
             ? [
                 {
                   id: 'open-link',
-                  label: isBangumi ? '打开 Bangumi 页面' : '打开豆瓣页面',
+                  label: isBangumi ? '打開 Bangumi 頁面' : '打開豆瓣頁面',
                   icon: <Link size={18} />,
                   onClick: () => {
                     if (isBangumi) {

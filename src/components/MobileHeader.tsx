@@ -15,11 +15,11 @@ interface MobileHeaderProps {
 
 const MobileHeader = ({ showBackButton = false }: MobileHeaderProps) => {
   const { siteName } = useSite();
-  
-  // 下载任务数量统计
+
+  // 下載任務數量統計
   const [downloadTaskCount, setDownloadTaskCount] = useState(0);
 
-  // 监听下载任务变化，更新角标
+  // 監聽下載任務變化，更新角標
   useEffect(() => {
     const updateTaskCount = () => {
       if (typeof window !== 'undefined') {
@@ -27,12 +27,12 @@ const MobileHeader = ({ showBackButton = false }: MobileHeaderProps) => {
         if (saved) {
           try {
             const tasks = JSON.parse(saved);
-            // 统计未完成的任务数量（下载中、暂停、等待、错误）
+            // 統計未完成的任務數量（下載中、暫停、等待、錯誤）
             const activeCount = tasks.filter(
-              (t: { status: string }) => 
-                t.status === 'downloading' || 
-                t.status === 'paused' || 
-                t.status === 'waiting' || 
+              (t: { status: string }) =>
+                t.status === 'downloading' ||
+                t.status === 'paused' ||
+                t.status === 'waiting' ||
                 t.status === 'error'
             ).length;
             setDownloadTaskCount(activeCount);
@@ -45,17 +45,17 @@ const MobileHeader = ({ showBackButton = false }: MobileHeaderProps) => {
       }
     };
 
-    // 初始加载
+    // 初始加載
     updateTaskCount();
 
-    // 监听 localStorage 变化
+    // 監聽 localStorage 變化
     const handleStorageChange = () => {
       updateTaskCount();
     };
 
     if (typeof window !== 'undefined') {
       window.addEventListener('storage', handleStorageChange);
-      // 自定义事件：当任务列表更新时
+      // 自定義事件：當任務列表更新時
       window.addEventListener('downloadTasksUpdated', handleStorageChange as EventListener);
     }
 
@@ -71,7 +71,7 @@ const MobileHeader = ({ showBackButton = false }: MobileHeaderProps) => {
     <>
     <header className='md:hidden relative w-full bg-white/70 backdrop-blur-xl border-b border-gray-200/50 shadow-sm dark:bg-gray-900/70 dark:border-gray-700/50'>
       <div className='h-12 flex items-center justify-between px-4'>
-        {/* 左侧：Logo 和返回按钮 */}
+        {/* 左側：Logo 和返回按鈕 */}
         <div className='flex items-center gap-3'>
           {showBackButton && <BackButton />}
           <Link
@@ -82,7 +82,7 @@ const MobileHeader = ({ showBackButton = false }: MobileHeaderProps) => {
           </Link>
         </div>
 
-        {/* 右侧按钮 */}
+        {/* 右側按鈕 */}
         <div className='flex items-center gap-2'>
           <button
             onClick={() => {
@@ -91,7 +91,7 @@ const MobileHeader = ({ showBackButton = false }: MobileHeaderProps) => {
               }
             }}
             className='p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors relative'
-            title='下载管理器'
+            title='下載管理器'
           >
             <Download className='h-5 w-5' />
             {downloadTaskCount > 0 && (
@@ -109,5 +109,5 @@ const MobileHeader = ({ showBackButton = false }: MobileHeaderProps) => {
   );
 };
 
-// 使用 React.memo 优化，避免父组件更新时导致不必要的重新渲染
+// 使用 React.memo 優化，避免父組件更新時導致不必要的重新渲染
 export default memo(MobileHeader);

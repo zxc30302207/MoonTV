@@ -3,10 +3,10 @@
 import { createContext, ReactNode, useContext } from 'react';
 
 const SiteContext = createContext<{ siteName: string; announcement?: string }>({
-  // 默认值
+  // 默認值
   siteName: 'MoonTV',
   announcement:
-    '本网站仅提供影视信息搜索服务，所有内容均来自第三方网站。本站不存储任何视频资源，不对任何内容的准确性、合法性、完整性负责。',
+    '本網站僅提供影視信息搜索服務，所有內容均來自第三方網站。本站不存儲任何視頻資源，不對任何內容的準確性、合法性、完整性負責。',
 });
 
 export const useSite = () => useContext(SiteContext);

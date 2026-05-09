@@ -7,7 +7,7 @@ import { RedisStorage } from './redis.db';
 import { Favorite, IStorage, PlayRecord, SkipConfig } from './types';
 import { UpstashRedisStorage } from './upstash.db';
 
-// storage type 常量: 'localstorage' | 'redis' | 'kvrocks' | 'upstash' | 'd1'，默认 'localstorage'
+// storage type 常量: 'localstorage' | 'redis' | 'kvrocks' | 'upstash' | 'd1'，默認 'localstorage'
 const STORAGE_TYPE =
   (process.env.NEXT_PUBLIC_STORAGE_TYPE as
     | 'localstorage'
@@ -17,7 +17,7 @@ const STORAGE_TYPE =
     | 'd1'
     | undefined) || 'localstorage';
 
-// 创建存储实例
+// 創建存儲實例
 function createStorage(): IStorage {
   switch (STORAGE_TYPE) {
     case 'redis':
@@ -34,7 +34,7 @@ function createStorage(): IStorage {
   }
 }
 
-// 单例存储实例
+// 單例存儲實例
 let storageInstance: IStorage | null = null;
 
 export function getStorage(): IStorage {
@@ -44,12 +44,12 @@ export function getStorage(): IStorage {
   return storageInstance;
 }
 
-// 工具函数：生成存储key
+// 工具函數：生成存儲key
 export function generateStorageKey(source: string, id: string): string {
   return `${source}+${id}`;
 }
 
-// 导出便捷方法
+// 導出便捷方法
 export class DbManager {
   private storage: IStorage;
 
@@ -57,7 +57,7 @@ export class DbManager {
     this.storage = getStorage();
   }
 
-  // 播放记录相关方法
+  // 播放記錄相關方法
   async getPlayRecord(
     userName: string,
     source: string,
@@ -92,7 +92,7 @@ export class DbManager {
     await this.storage.deletePlayRecord(userName, key);
   }
 
-  // 收藏相关方法
+  // 收藏相關方法
   async getFavorite(
     userName: string,
     source: string,
@@ -136,7 +136,7 @@ export class DbManager {
     return favorite !== null;
   }
 
-  // ---------- 用户相关 ----------
+  // ---------- 用戶相關 ----------
   async registerUser(userName: string, password: string): Promise<void> {
     await this.storage.registerUser(userName, password);
   }
@@ -145,12 +145,12 @@ export class DbManager {
     return this.storage.verifyUser(userName, password);
   }
 
-  // 检查用户是否已存在
+  // 檢查用戶是否已存在
   async checkUserExist(userName: string): Promise<boolean> {
     return this.storage.checkUserExist(userName);
   }
 
-  // ---------- 搜索历史 ----------
+  // ---------- 搜索歷史 ----------
   async getSearchHistory(userName: string): Promise<string[]> {
     return this.storage.getSearchHistory(userName);
   }
@@ -163,7 +163,7 @@ export class DbManager {
     await this.storage.deleteSearchHistory(userName, keyword);
   }
 
-  // 获取全部用户名
+  // 獲取全部用戶名
   async getAllUsers(): Promise<string[]> {
     if (typeof (this.storage as any).getAllUsers === 'function') {
       return (this.storage as any).getAllUsers();
@@ -171,7 +171,7 @@ export class DbManager {
     return [];
   }
 
-  // ---------- 管理员配置 ----------
+  // ---------- 管理員配置 ----------
   async getAdminConfig(): Promise<AdminConfig | null> {
     if (typeof (this.storage as any).getAdminConfig === 'function') {
       return (this.storage as any).getAdminConfig();
@@ -185,7 +185,7 @@ export class DbManager {
     }
   }
 
-  // ---------- 跳过片头片尾配置 ----------
+  // ---------- 跳過片頭片尾配置 ----------
   async getSkipConfig(
     userName: string,
     source: string,
@@ -227,15 +227,15 @@ export class DbManager {
     return {};
   }
 
-  // ---------- 数据清理 ----------
+  // ---------- 數據清理 ----------
   async clearAllData(): Promise<void> {
     if (typeof (this.storage as any).clearAllData === 'function') {
       await (this.storage as any).clearAllData();
     } else {
-      throw new Error('存储类型不支持清空数据操作');
+      throw new Error('存儲類型不支持清空數據操作');
     }
   }
 }
 
-// 导出默认实例
+// 導出默認實例
 export const db = new DbManager();

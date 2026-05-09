@@ -4,7 +4,7 @@
 const http = require('http');
 const path = require('path');
 
-// 调用 generate-manifest.js 生成 manifest.json
+// 調用 generate-manifest.js 生成 manifest.json
 function generateManifest() {
   console.log('Generating manifest.json for Docker deployment...');
 
@@ -23,10 +23,10 @@ function generateManifest() {
 
 generateManifest();
 
-// 直接在当前进程中启动 standalone Server（`server.js`）
+// 直接在當前進程中啟動 standalone Server（`server.js`）
 require('./server.js');
 
-// 每 1 秒轮询一次，直到请求成功
+// 每 1 秒輪詢一次，直到請求成功
 const TARGET_URL = `http://${process.env.HOSTNAME || 'localhost'}:${
   process.env.PORT || 3000
 }/login`;
@@ -35,18 +35,18 @@ const intervalId = setInterval(() => {
   console.log(`Fetching ${TARGET_URL} ...`);
 
   const req = http.get(TARGET_URL, (res) => {
-    // 当返回 2xx 状态码时认为成功，然后停止轮询
+    // 當返回 2xx 狀態碼時認為成功，然後停止輪詢
     if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
       console.log('Server is up, stop polling.');
       clearInterval(intervalId);
 
-      // 服务器启动后，立即执行一次 cron 任务
+      // 服務器啟動後，立即執行一次 cron 任務
       executeCronJob();
 
-      // 然后设置每小时执行一次 cron 任务
+      // 然後設置每小時執行一次 cron 任務
       setInterval(() => {
         executeCronJob();
-      }, 60 * 60 * 1000); // 每小时执行一次
+      }, 60 * 60 * 1000); // 每小時執行一次
     }
   });
 
@@ -55,7 +55,7 @@ const intervalId = setInterval(() => {
   });
 }, 1000);
 
-// 执行 cron 任务的函数
+// 執行 cron 任務的函數
 function executeCronJob() {
   const cronUrl = `http://${process.env.HOSTNAME || 'localhost'}:${
     process.env.PORT || 3000

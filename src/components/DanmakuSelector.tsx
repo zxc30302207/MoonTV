@@ -9,16 +9,16 @@ import { AnimeOption, extractEpisodeNumber, searchEpisodes } from '@/lib/danmaku
 
 interface DanmakuSelectorProps {
   videoTitle: string;
-  currentEpisode?: number; // 当前集数（从1开始）
-  currentEpisodeTitle?: string; // 当前集数标题
+  currentEpisode?: number; // 當前集數（從1開始）
+  currentEpisodeTitle?: string; // 當前集數標題
   onSelect: (anime: AnimeOption, episodeNumber?: number, episodeTitle?: string) => void;
   onClose: () => void;
-  isVisible?: boolean; // 弹幕选择器是否可见（用于控制自动搜索时机）
+  isVisible?: boolean; // 彈幕選擇器是否可見（用於控制自動搜索時機）
 }
 
 /**
- * 弹幕选择器组件
- * 显示搜索结果，让用户选择匹配的动漫
+ * 彈幕選擇器組件
+ * 顯示搜索結果，讓用戶選擇匹配的動漫
  */
 export default function DanmakuSelector({
   videoTitle,
@@ -35,12 +35,12 @@ export default function DanmakuSelector({
   const [selectedEpisode, setSelectedEpisode] = useState<number | null>(
     currentEpisode || null
   );
-  const [searchKeyword, setSearchKeyword] = useState<string>(''); // 手动搜索关键词
-  const [hasManualSearched, setHasManualSearched] = useState(false); // 是否已经手动搜索过
-  const [hasSearched, setHasSearched] = useState(false); // 是否已经执行过任何搜索
-  const lastAutoSearchTitleRef = useRef<string>(''); // 记录上次自动搜索的标题
+  const [searchKeyword, setSearchKeyword] = useState<string>(''); // 手動搜索關鍵詞
+  const [hasManualSearched, setHasManualSearched] = useState(false); // 是否已經手動搜索過
+  const [hasSearched, setHasSearched] = useState(false); // 是否已經執行過任何搜索
+  const lastAutoSearchTitleRef = useRef<string>(''); // 記錄上次自動搜索的標題
 
-  // 执行搜索的函数
+  // 執行搜索的函數
   const performSearch = async (keyword: string, isManual = false) => {
     if (!keyword.trim()) return;
 
@@ -55,25 +55,25 @@ export default function DanmakuSelector({
       }
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.error('搜索弹幕选项失败:', err);
-      setError(err instanceof Error ? err.message : '搜索失败');
-      setHasSearched(true); // 即使失败也标记为已搜索
+      console.error('搜索彈幕選項失敗:', err);
+      setError(err instanceof Error ? err.message : '搜索失敗');
+      setHasSearched(true); // 即使失敗也標記為已搜索
     } finally {
       setLoading(false);
     }
   };
 
-  // 当 videoTitle 变化时，重置状态（无论可见性如何）
+  // 當 videoTitle 變化時，重置狀態（無論可見性如何）
   useEffect(() => {
     if (videoTitle && videoTitle !== lastAutoSearchTitleRef.current) {
       lastAutoSearchTitleRef.current = videoTitle;
       setHasManualSearched(false);
-      setHasSearched(false); // 重置搜索状态
+      setHasSearched(false); // 重置搜索狀態
       setSearchKeyword(''); // 清空搜索框
     }
   }, [videoTitle]);
 
-  // 当弹幕选择器变为可见时，执行自动搜索（如果尚未手动搜索）
+  // 當彈幕選擇器變為可見時，執行自動搜索（如果尚未手動搜索）
   useEffect(() => {
     if (!isVisible) return;
     if (!videoTitle) return;
@@ -83,7 +83,7 @@ export default function DanmakuSelector({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isVisible, videoTitle, hasManualSearched]);
 
-  // 处理手动搜索
+  // 處理手動搜索
   const handleSearch = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (searchKeyword.trim()) {
@@ -93,34 +93,34 @@ export default function DanmakuSelector({
 
   const handleAnimeSelect = (anime: AnimeOption) => {
     setSelectedAnime(anime);
-    // 如果当前集数存在，尝试匹配到该动漫的集数
+    // 如果當前集數存在，嘗試匹配到該動漫的集數
     if (currentEpisode && currentEpisodeTitle) {
-      // 从当前集数标题中提取集数
+      // 從當前集數標題中提取集數
       const extractedNumber = extractEpisodeNumber(currentEpisodeTitle);
-      
-      // 尝试找到匹配的集数
+
+      // 嘗試找到匹配的集數
       let matchedEpisode = anime.episodes.find((ep) => {
-        // 1. 完全匹配标题
+        // 1. 完全匹配標題
         if (ep.episodeTitle === currentEpisodeTitle) {
           return true;
         }
         return false;
       });
-      
-      // 2. 如果完全匹配失败，但提取到了集数，使用集数匹配
+
+      // 2. 如果完全匹配失敗，但提取到了集數，使用集數匹配
       if (!matchedEpisode && extractedNumber !== null) {
         matchedEpisode = anime.episodes.find((ep) => {
           const epNumber = extractEpisodeNumber(ep.episodeTitle);
           return epNumber === extractedNumber;
         });
       }
-      
+
       if (matchedEpisode) {
-        // 找到匹配的集数索引
+        // 找到匹配的集數索引
         const episodeIndex = anime.episodes.indexOf(matchedEpisode);
         setSelectedEpisode(episodeIndex + 1);
       } else {
-        // 如果找不到匹配，使用当前集数（如果在该动漫的范围内）
+        // 如果找不到匹配，使用當前集數（如果在該動漫的範圍內）
         if (currentEpisode <= anime.episodes.length) {
           setSelectedEpisode(currentEpisode);
         } else {
@@ -128,7 +128,7 @@ export default function DanmakuSelector({
         }
       }
     } else {
-      // 如果没有当前集数，默认选择第一集
+      // 如果沒有當前集數，默認選擇第一集
       setSelectedEpisode(1);
     }
   };
@@ -139,7 +139,7 @@ export default function DanmakuSelector({
 
   const handleConfirm = () => {
     if (selectedAnime && selectedEpisode) {
-      // 获取选中集数的标题
+      // 獲取選中集數的標題
       const episode = selectedAnime.episodes[selectedEpisode - 1];
       const episodeTitle = episode?.episodeTitle || '';
       onSelect(selectedAnime, selectedEpisode, episodeTitle);
@@ -150,13 +150,13 @@ export default function DanmakuSelector({
   const handleBack = () => {
     setSelectedAnime(null);
     setSelectedEpisode(null);
-    // 返回时不清空搜索结果，但可以重新搜索
+    // 返回時不清空搜索結果，但可以重新搜索
   };
 
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="relative w-full max-w-2xl max-h-[80vh] mx-4 bg-white dark:bg-gray-800 rounded-lg shadow-xl overflow-hidden">
-        {/* 标题栏 */}
+        {/* 標題欄 */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-2">
             {selectedAnime && (
@@ -171,21 +171,21 @@ export default function DanmakuSelector({
               </button>
             )}
             <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-              {selectedAnime ? '选择集数' : '选择弹幕源'}
+              {selectedAnime ? '選擇集數' : '選擇彈幕源'}
             </h3>
           </div>
           <button
             onClick={onClose}
             className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-            aria-label="关闭"
+            aria-label="關閉"
           >
             <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
           </button>
         </div>
 
-        {/* 内容区域 */}
+        {/* 內容區域 */}
         <div className="p-4 overflow-y-auto max-h-[calc(80vh-80px)]">
-          {/* 搜索框 - 只在未选择动漫时显示 */}
+          {/* 搜索框 - 只在未選擇動漫時顯示 */}
           {!selectedAnime && (
             <form onSubmit={handleSearch} className="mb-4">
               <div className="relative">
@@ -194,7 +194,7 @@ export default function DanmakuSelector({
                   type="text"
                   value={searchKeyword}
                   onChange={(e) => setSearchKeyword(e.target.value)}
-                  placeholder={videoTitle ? `自动搜索: ${videoTitle} (可输入其他关键词)` : '输入关键词搜索弹幕源...'}
+                  placeholder={videoTitle ? `自動搜索: ${videoTitle} (可輸入其他關鍵詞)` : '輸入關鍵詞搜索彈幕源...'}
                   className="w-full h-12 pl-10 pr-20 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                 />
                 <button
@@ -223,7 +223,7 @@ export default function DanmakuSelector({
 
           {!loading && !error && animeOptions.length === 0 && hasSearched && (
             <div className="py-8 text-center">
-              <p className="text-gray-500 dark:text-gray-400">未找到匹配的弹幕源</p>
+              <p className="text-gray-500 dark:text-gray-400">未找到匹配的彈幕源</p>
             </div>
           )}
 
@@ -298,7 +298,7 @@ export default function DanmakuSelector({
                   disabled={!selectedEpisode}
                   className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed transition-colors"
                 >
-                  确认
+                  確認
                 </button>
               </div>
             </div>

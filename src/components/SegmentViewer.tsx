@@ -17,8 +17,8 @@ interface SegmentViewerProps {
   onClose: () => void;
   onSegmentRetry?: (index: number) => void;
   taskExists?: () => boolean;
-  concurrency?: number; // 并发下载数量，默认6
-  streamMode?: StreamSaverMode; // 边下边存模式
+  concurrency?: number; // 並發下載數量，默認6
+  streamMode?: StreamSaverMode; // 邊下邊存模式
 }
 
 const SegmentViewer = ({
@@ -35,21 +35,21 @@ const SegmentViewer = ({
   );
   const [, forceUpdate] = useState({});
 
-  // 处理单个片段重试
+  // 處理單個片段重試
   const handleRetrySegment = async (index: number) => {
     if (retryingSegments.has(index)) return;
 
-    // 检查任务是否仍然存在
+    // 檢查任務是否仍然存在
     if (taskExists && !taskExists()) {
       // eslint-disable-next-line no-console
-      console.log(`任务已删除，取消片段 ${index + 1} 的重试`);
+      console.log(`任務已刪除，取消片段 ${index + 1} 的重試`);
       return;
     }
 
     setRetryingSegments((prev) => new Set(prev).add(index));
 
     try {
-      // 下载片段
+      // 下載片段
       let segmentData = await downloadTsSegment(task.tsUrlList[index]);
 
       // AES 解密
@@ -61,30 +61,30 @@ const SegmentViewer = ({
         );
       }
 
-      // 保存片段数据到任务的 downloadedSegments 中
+      // 保存片段數據到任務的 downloadedSegments 中
       if (!task.downloadedSegments) {
         task.downloadedSegments = new Map();
       }
       task.downloadedSegments.set(index, segmentData);
 
-      // 更新片段状态
+      // 更新片段狀態
       task.finishList[index].status = 'success';
       task.finishNum++;
       task.errorNum = Math.max(0, task.errorNum - 1);
 
-      // 触发外部回调
+      // 觸發外部回調
       if (onSegmentRetry) {
         onSegmentRetry(index);
       }
 
-      // 强制更新视图
+      // 強制更新視圖
       forceUpdate({});
 
       // eslint-disable-next-line no-console
-      console.log(`片段 ${index + 1} 重试成功，数据已保存`);
+      console.log(`片段 ${index + 1} 重試成功，數據已保存`);
     } catch (error) {
       // eslint-disable-next-line no-console
-      console.error(`片段 ${index + 1} 重试失败:`, error);
+      console.error(`片段 ${index + 1} 重試失敗:`, error);
     } finally {
       setRetryingSegments((prev) => {
         const newSet = new Set(prev);
@@ -94,12 +94,12 @@ const SegmentViewer = ({
     }
   };
 
-  // 批量重试所有失败的片段（并发控制）
+  // 批量重試所有失敗的片段（並發控制）
   const handleRetryAllFailed = async () => {
-    // 检查任务是否仍然存在
+    // 檢查任務是否仍然存在
     if (taskExists && !taskExists()) {
       // eslint-disable-next-line no-console
-      console.log('任务已删除，取消批量重试');
+      console.log('任務已刪除，取消批量重試');
       return;
     }
 
@@ -110,25 +110,25 @@ const SegmentViewer = ({
 
     if (failedIndices.length === 0) {
       // eslint-disable-next-line no-console
-      console.log('⚠️ 没有失败的片段可重试');
+      console.log('⚠️ 沒有失敗的片段可重試');
       return;
     }
 
     // eslint-disable-next-line no-console
     console.log(
-      `开始批量重试 ${failedIndices.length} 个失败片段，并发数: ${concurrency}`
+      `開始批量重試 ${failedIndices.length} 個失敗片段，並發數: ${concurrency}`
     );
 
-    // 创建重试队列
+    // 創建重試隊列
     const retryQueue = [...failedIndices];
 
-    // 并发控制：同时最多 concurrency 个重试任务
+    // 並發控制：同時最多 concurrency 個重試任務
     const processQueue = async () => {
       while (retryQueue.length > 0) {
-        // 检查任务是否仍然存在
+        // 檢查任務是否仍然存在
         if (taskExists && !taskExists()) {
           // eslint-disable-next-line no-console
-          console.log('任务已删除，停止批量重试');
+          console.log('任務已刪除，停止批量重試');
           return;
         }
 
@@ -139,7 +139,7 @@ const SegmentViewer = ({
       }
     };
 
-    // 启动多个并发 worker
+    // 啟動多個並發 worker
     const workers: Promise<void>[] = [];
     for (let i = 0; i < Math.min(concurrency, failedIndices.length); i++) {
       workers.push(processQueue());
@@ -148,29 +148,29 @@ const SegmentViewer = ({
     try {
       await Promise.all(workers);
 
-      // 检查是否所有失败片段都已重试成功
+      // 檢查是否所有失敗片段都已重試成功
       const remainingErrors = task.finishList.filter(
         (item) => item.status === 'error'
       ).length;
 
       // eslint-disable-next-line no-console
-      console.log(`批量重试完成，剩余失败片段: ${remainingErrors}`);
+      console.log(`批量重試完成，剩餘失敗片段: ${remainingErrors}`);
 
       if (remainingErrors === 0) {
         // eslint-disable-next-line no-console
         console.log(
           `✅ 所有片段已成功！已保存 ${
             task.downloadedSegments?.size || 0
-          } 个片段数据，即将自动合并保存...`
+          } 個片段數據，即將自動合並保存...`
         );
       }
     } catch (error) {
       // eslint-disable-next-line no-console
-      console.error('批量重试出错:', error);
+      console.error('批量重試出錯:', error);
     }
   };
 
-  // 按 ESC 关闭
+  // 按 ESC 關閉
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -189,12 +189,12 @@ const SegmentViewer = ({
 
   if (!isOpen) return null;
 
-  // 根据范围下载配置过滤片段
+  // 根據範圍下載配置過濾片段
   const { startSegment, endSegment } = task.rangeDownload;
   const filteredSegments = task.finishList.slice(startSegment - 1, endSegment);
-  const segmentOffset = startSegment - 1; // 用于计算实际索引
+  const segmentOffset = startSegment - 1; // 用於計算實際索引
 
-  // 计算时长范围
+  // 計算時長範圍
   const segmentDurations = task.segmentDurations || [];
   const startTime = segmentDurations
     .slice(0, startSegment - 1)
@@ -203,7 +203,7 @@ const SegmentViewer = ({
     .slice(0, endSegment)
     .reduce((a, b) => a + b, 0);
 
-  // 使用统一的 formatTime
+  // 使用統一的 formatTime
 
   const successCount = filteredSegments.filter(
     (item) => item.status === 'success'
@@ -221,7 +221,7 @@ const SegmentViewer = ({
   return (
     <div className='fixed inset-0 bg-black/50 backdrop-blur-sm z-[10000] flex items-center justify-center p-4'>
       <div className='bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[80vh] flex flex-col'>
-        {/* 标题栏 */}
+        {/* 標題欄 */}
         <div className='flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700'>
           <div>
             <h2 className='text-lg font-semibold text-gray-900 dark:text-white'>
@@ -231,7 +231,7 @@ const SegmentViewer = ({
               {task.title}
             </p>
             <p className='text-xs text-gray-400 dark:text-gray-500 mt-1'>
-              片段范围：{startSegment} ~ {endSegment} &nbsp;|&nbsp; 时长范围：
+              片段範圍：{startSegment} ~ {endSegment} &nbsp;|&nbsp; 時長範圍：
               {formatTime(startTime)} ~ {formatTime(endTime)}
             </p>
           </div>
@@ -243,12 +243,12 @@ const SegmentViewer = ({
           </button>
         </div>
 
-        {/* 统计信息 */}
+        {/* 統計信息 */}
         <div className='p-4 bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700'>
           <div className='grid grid-cols-2 sm:grid-cols-5 gap-3'>
             <div className='bg-white dark:bg-gray-800 rounded-lg p-3'>
               <div className='text-xs text-gray-500 dark:text-gray-400'>
-                总片段
+                總片段
               </div>
               <div className='text-lg font-semibold text-gray-900 dark:text-white mt-1'>
                 {filteredSegments.length}
@@ -263,7 +263,7 @@ const SegmentViewer = ({
               </div>
             </div>
             <div className='bg-red-50 dark:bg-red-900/20 rounded-lg p-3 relative'>
-              <div className='text-xs text-red-600 dark:text-red-400'>失败</div>
+              <div className='text-xs text-red-600 dark:text-red-400'>失敗</div>
               <div className='flex items-center justify-between mt-1'>
                 <div className='text-lg font-semibold text-red-700 dark:text-red-300'>
                   {errorCount}
@@ -278,8 +278,8 @@ const SegmentViewer = ({
                   className='p-1.5 rounded-md hover:bg-red-200 dark:hover:bg-red-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
                   title={
                     streamMode !== 'disabled'
-                      ? '边下边存模式重试由重试次数控制'
-                      : '重试所有失败片段'
+                      ? '邊下邊存模式重試由重試次數控制'
+                      : '重試所有失敗片段'
                   }
                 >
                   <RefreshCw
@@ -292,7 +292,7 @@ const SegmentViewer = ({
             </div>
             <div className='bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3'>
               <div className='text-xs text-blue-600 dark:text-blue-400'>
-                下载中
+                下載中
               </div>
               <div className='text-lg font-semibold text-blue-700 dark:text-blue-300 mt-1'>
                 {downloadingCount}
@@ -300,7 +300,7 @@ const SegmentViewer = ({
             </div>
             <div className='bg-gray-100 dark:bg-gray-700 rounded-lg p-3'>
               <div className='text-xs text-gray-600 dark:text-gray-400'>
-                待下载
+                待下載
               </div>
               <div className='text-lg font-semibold text-gray-700 dark:text-gray-300 mt-1'>
                 {pendingCount}
@@ -313,7 +313,7 @@ const SegmentViewer = ({
         <div className='flex-1 overflow-y-auto p-4'>
           <div className='grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2'>
             {filteredSegments.map((segment, relativeIndex) => {
-              const index = segmentOffset + relativeIndex; // 实际索引
+              const index = segmentOffset + relativeIndex; // 實際索引
               const isRetrying = retryingSegments.has(index);
               const bgColor =
                 segment.status === 'success'
@@ -355,13 +355,13 @@ const SegmentViewer = ({
                   title={
                     segment.status === 'error'
                       ? streamMode !== 'disabled'
-                        ? '边下边存模式无法重试失败片段'
-                        : '点击重试'
+                        ? '邊下邊存模式無法重試失敗片段'
+                        : '點擊重試'
                       : segment.status === 'success'
-                      ? '下载成功'
+                      ? '下載成功'
                       : segment.status === 'downloading'
-                      ? '下载中'
-                      : '待下载'
+                      ? '下載中'
+                      : '待下載'
                   }
                 >
                   <div className='flex items-center justify-between'>
@@ -380,18 +380,18 @@ const SegmentViewer = ({
                     {segment.status === 'success'
                       ? '✓ 成功'
                       : segment.status === 'error'
-                      ? `✗ 失败${
+                      ? `✗ 失敗${
                           segment.retryCount
-                            ? ` (重试${segment.retryCount}次)`
+                            ? ` (重試${segment.retryCount}次)`
                             : ''
                         }`
                       : segment.status === 'downloading'
                       ? `⟳ ${
                           segment.retryCount && segment.retryCount > 0
-                            ? `重试中(第${segment.retryCount}次)`
-                            : '下载中'
+                            ? `重試中(第${segment.retryCount}次)`
+                            : '下載中'
                         }`
-                      : '○ 待下载'}
+                      : '○ 待下載'}
                   </div>
                 </div>
               );
@@ -402,8 +402,8 @@ const SegmentViewer = ({
         {/* 底部提示 */}
         <div className='p-4 bg-gray-50 dark:bg-gray-900/50 border-t border-gray-200 dark:border-gray-700'>
           <p className='text-xs text-gray-500 dark:text-gray-400 text-center'>
-            点击红色片段可以重试下载 • 绿色表示成功 • 蓝色表示下载中 •
-            灰色表示待下载
+            點擊紅色片段可以重試下載 • 綠色表示成功 • 藍色表示下載中 •
+            灰色表示待下載
           </p>
         </div>
       </div>

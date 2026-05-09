@@ -1,23 +1,23 @@
 #!/usr/bin/env node
 /* eslint-disable */
-// 根据 NEXT_PUBLIC_SITE_NAME 动态生成 manifest.json
+// 根據 NEXT_PUBLIC_SITE_NAME 動態生成 manifest.json
 
 const fs = require('fs');
 const path = require('path');
 
-// 获取项目根目录
+// 獲取項目根目錄
 const projectRoot = path.resolve(__dirname, '..');
 const publicDir = path.join(projectRoot, 'public');
 const manifestPath = path.join(publicDir, 'manifest.json');
 
-// 从环境变量获取站点名称
+// 從環境變量獲取站點名稱
 const siteName = process.env.NEXT_PUBLIC_SITE_NAME || 'MoonTV';
 
 // manifest.json 模板
 const manifestTemplate = {
   name: siteName,
   short_name: siteName,
-  description: '影视聚合',
+  description: '影視聚合',
   start_url: '/',
   scope: '/',
   display: 'standalone',
@@ -49,12 +49,12 @@ const manifestTemplate = {
 };
 
 try {
-  // 确保 public 目录存在
+  // 確保 public 目錄存在
   if (!fs.existsSync(publicDir)) {
     fs.mkdirSync(publicDir, { recursive: true });
   }
 
-  // 写入 manifest.json
+  // 寫入 manifest.json
   fs.writeFileSync(manifestPath, JSON.stringify(manifestTemplate, null, 2));
   console.log(`✅ Generated manifest.json with site name: ${siteName}`);
 } catch (error) {

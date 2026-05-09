@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any,no-console,no-case-declarations */
 
 import { DoubanItem, DoubanResult } from './types';
+import { toSimplified } from './zh';
 
 interface DoubanCategoriesParams {
   kind: 'tv' | 'movie';
@@ -55,16 +56,16 @@ interface DoubanRecommendApiResponse {
 }
 
 /**
- * 带超时的 fetch 请求
+ * 帶超時的 fetch 請求
  */
 async function fetchWithTimeout(
   url: string,
   proxyUrl: string
 ): Promise<Response> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超時
 
-  // 检查是否使用代理
+  // 檢查是否使用代理
   const finalUrl = proxyUrl ? `${proxyUrl}${encodeURIComponent(url)}` : url;
 
   const fetchOptions: RequestInit = {
@@ -111,7 +112,7 @@ function getDoubanProxyConfig(): {
 }
 
 /**
- * 浏览器端豆瓣分类数据获取函数
+ * 瀏覽器端豆瓣分類數據獲取函數
  */
 export async function fetchDoubanCategories(
   params: DoubanCategoriesParams,
@@ -121,28 +122,30 @@ export async function fetchDoubanCategories(
 ): Promise<DoubanResult> {
   const { kind, category, type, pageLimit = 20, pageStart = 0 } = params;
 
-  // 验证参数
+  // 驗證參數
   if (!['tv', 'movie'].includes(kind)) {
-    throw new Error('kind 参数必须是 tv 或 movie');
+    throw new Error('kind 參數必須是 tv 或 movie');
   }
 
   if (!category || !type) {
-    throw new Error('category 和 type 参数不能为空');
+    throw new Error('category 和 type 參數不能為空');
   }
 
   if (pageLimit < 1 || pageLimit > 100) {
-    throw new Error('pageLimit 必须在 1-100 之间');
+    throw new Error('pageLimit 必須在 1-100 之間');
   }
 
   if (pageStart < 0) {
-    throw new Error('pageStart 不能小于 0');
+    throw new Error('pageStart 不能小於 0');
   }
 
+  const categoryForRequest = encodeURIComponent(toSimplified(category));
+  const typeForRequest = encodeURIComponent(toSimplified(type));
   const target = useTencentCDN
-    ? `https://m.douban.cmliussss.net/rexxar/api/v2/subject/recent_hot/${kind}?start=${pageStart}&limit=${pageLimit}&category=${category}&type=${type}`
+    ? `https://m.douban.cmliussss.net/rexxar/api/v2/subject/recent_hot/${kind}?start=${pageStart}&limit=${pageLimit}&category=${categoryForRequest}&type=${typeForRequest}`
     : useAliCDN
-    ? `https://m.douban.cmliussss.com/rexxar/api/v2/subject/recent_hot/${kind}?start=${pageStart}&limit=${pageLimit}&category=${category}&type=${type}`
-    : `https://m.douban.com/rexxar/api/v2/subject/recent_hot/${kind}?start=${pageStart}&limit=${pageLimit}&category=${category}&type=${type}`;
+    ? `https://m.douban.cmliussss.com/rexxar/api/v2/subject/recent_hot/${kind}?start=${pageStart}&limit=${pageLimit}&category=${categoryForRequest}&type=${typeForRequest}`
+    : `https://m.douban.com/rexxar/api/v2/subject/recent_hot/${kind}?start=${pageStart}&limit=${pageLimit}&category=${categoryForRequest}&type=${typeForRequest}`;
 
   try {
     const response = await fetchWithTimeout(
@@ -156,7 +159,7 @@ export async function fetchDoubanCategories(
 
     const doubanData: DoubanCategoryApiResponse = await response.json();
 
-    // 转换数据格式
+    // 轉換數據格式
     const list: DoubanItem[] = doubanData.items.map((item) => ({
       id: item.id,
       title: item.title,
@@ -167,24 +170,24 @@ export async function fetchDoubanCategories(
 
     return {
       code: 200,
-      message: '获取成功',
+      message: '獲取成功',
       list: list,
     };
   } catch (error) {
-    // 触发全局错误提示
+    // 觸發全局錯誤提示
     if (typeof window !== 'undefined') {
       window.dispatchEvent(
         new CustomEvent('globalError', {
-          detail: { message: '获取豆瓣分类数据失败' },
+          detail: { message: '獲取豆瓣分類數據失敗' },
         })
       );
     }
-    throw new Error(`获取豆瓣分类数据失败: ${(error as Error).message}`);
+    throw new Error(`獲取豆瓣分類數據失敗: ${(error as Error).message}`);
   }
 }
 
 /**
- * 统一的豆瓣分类数据获取函数，根据代理设置选择使用服务端 API 或客户端代理获取
+ * 統一的豆瓣分類數據獲取函數，根據代理設置選擇使用服務端 API 或客戶端代理獲取
  */
 export async function getDoubanCategories(
   params: DoubanCategoriesParams
@@ -204,7 +207,11 @@ export async function getDoubanCategories(
     case 'direct':
     default:
       const response = await fetch(
-        `/api/douban/categories?kind=${kind}&category=${category}&type=${type}&limit=${pageLimit}&start=${pageStart}`
+        `/api/douban/categories?kind=${kind}&category=${encodeURIComponent(
+          category
+        )}&type=${encodeURIComponent(
+          type
+        )}&limit=${pageLimit}&start=${pageStart}`
       );
 
       return response.json();
@@ -236,7 +243,9 @@ export async function getDoubanList(
     case 'direct':
     default:
       const response = await fetch(
-        `/api/douban?tag=${tag}&type=${type}&pageSize=${pageLimit}&pageStart=${pageStart}`
+        `/api/douban?tag=${encodeURIComponent(
+          tag
+        )}&type=${type}&pageSize=${pageLimit}&pageStart=${pageStart}`
       );
 
       return response.json();
@@ -251,28 +260,29 @@ export async function fetchDoubanList(
 ): Promise<DoubanResult> {
   const { tag, type, pageLimit = 20, pageStart = 0 } = params;
 
-  // 验证参数
+  // 驗證參數
   if (!tag || !type) {
-    throw new Error('tag 和 type 参数不能为空');
+    throw new Error('tag 和 type 參數不能為空');
   }
 
   if (!['tv', 'movie'].includes(type)) {
-    throw new Error('type 参数必须是 tv 或 movie');
+    throw new Error('type 參數必須是 tv 或 movie');
   }
 
   if (pageLimit < 1 || pageLimit > 100) {
-    throw new Error('pageLimit 必须在 1-100 之间');
+    throw new Error('pageLimit 必須在 1-100 之間');
   }
 
   if (pageStart < 0) {
-    throw new Error('pageStart 不能小于 0');
+    throw new Error('pageStart 不能小於 0');
   }
 
+  const tagForRequest = encodeURIComponent(toSimplified(tag));
   const target = useTencentCDN
-    ? `https://movie.douban.cmliussss.net/j/search_subjects?type=${type}&tag=${tag}&sort=recommend&page_limit=${pageLimit}&page_start=${pageStart}`
+    ? `https://movie.douban.cmliussss.net/j/search_subjects?type=${type}&tag=${tagForRequest}&sort=recommend&page_limit=${pageLimit}&page_start=${pageStart}`
     : useAliCDN
-    ? `https://movie.douban.cmliussss.com/j/search_subjects?type=${type}&tag=${tag}&sort=recommend&page_limit=${pageLimit}&page_start=${pageStart}`
-    : `https://movie.douban.com/j/search_subjects?type=${type}&tag=${tag}&sort=recommend&page_limit=${pageLimit}&page_start=${pageStart}`;
+    ? `https://movie.douban.cmliussss.com/j/search_subjects?type=${type}&tag=${tagForRequest}&sort=recommend&page_limit=${pageLimit}&page_start=${pageStart}`
+    : `https://movie.douban.com/j/search_subjects?type=${type}&tag=${tagForRequest}&sort=recommend&page_limit=${pageLimit}&page_start=${pageStart}`;
 
   try {
     const response = await fetchWithTimeout(
@@ -286,7 +296,7 @@ export async function fetchDoubanList(
 
     const doubanData: DoubanListApiResponse = await response.json();
 
-    // 转换数据格式
+    // 轉換數據格式
     const list: DoubanItem[] = doubanData.subjects.map((item) => ({
       id: item.id,
       title: item.title,
@@ -297,19 +307,19 @@ export async function fetchDoubanList(
 
     return {
       code: 200,
-      message: '获取成功',
+      message: '獲取成功',
       list: list,
     };
   } catch (error) {
-    // 触发全局错误提示
+    // 觸發全局錯誤提示
     if (typeof window !== 'undefined') {
       window.dispatchEvent(
         new CustomEvent('globalError', {
-          detail: { message: '获取豆瓣列表数据失败' },
+          detail: { message: '獲取豆瓣列表數據失敗' },
         })
       );
     }
-    throw new Error(`获取豆瓣分类数据失败: ${(error as Error).message}`);
+    throw new Error(`獲取豆瓣分類數據失敗: ${(error as Error).message}`);
   }
 }
 
@@ -355,7 +365,17 @@ export async function getDoubanRecommends(
     case 'direct':
     default:
       const response = await fetch(
-        `/api/douban/recommends?kind=${kind}&limit=${pageLimit}&start=${pageStart}&category=${category}&format=${format}&region=${region}&year=${year}&platform=${platform}&sort=${sort}&label=${label}`
+        `/api/douban/recommends?kind=${kind}&limit=${pageLimit}&start=${pageStart}&category=${encodeURIComponent(
+          category || ''
+        )}&format=${encodeURIComponent(
+          format || ''
+        )}&region=${encodeURIComponent(region || '')}&year=${encodeURIComponent(
+          year || ''
+        )}&platform=${encodeURIComponent(
+          platform || ''
+        )}&sort=${encodeURIComponent(sort || '')}&label=${encodeURIComponent(
+          label || ''
+        )}`
       );
 
       return response.json();
@@ -392,32 +412,34 @@ async function fetchDoubanRecommends(
     sort = '';
   }
 
-  const selectedCategories = { 类型: category } as any;
+  const selectedCategories = {
+    [toSimplified('類型')]: toSimplified(category),
+  } as any;
   if (format) {
-    selectedCategories['形式'] = format;
+    selectedCategories[toSimplified('形式')] = toSimplified(format);
   }
   if (region) {
-    selectedCategories['地区'] = region;
+    selectedCategories[toSimplified('地區')] = toSimplified(region);
   }
 
   const tags = [] as Array<string>;
   if (category) {
-    tags.push(category);
+    tags.push(toSimplified(category));
   }
   if (!category && format) {
-    tags.push(format);
+    tags.push(toSimplified(format));
   }
   if (label) {
-    tags.push(label);
+    tags.push(toSimplified(label));
   }
   if (region) {
-    tags.push(region);
+    tags.push(toSimplified(region));
   }
   if (year) {
     tags.push(year);
   }
   if (platform) {
-    tags.push(platform);
+    tags.push(toSimplified(platform));
   }
 
   const baseUrl = useTencentCDN
@@ -461,10 +483,10 @@ async function fetchDoubanRecommends(
 
     return {
       code: 200,
-      message: '获取成功',
+      message: '獲取成功',
       list: list,
     };
   } catch (error) {
-    throw new Error(`获取豆瓣推荐数据失败: ${(error as Error).message}`);
+    throw new Error(`獲取豆瓣推薦數據失敗: ${(error as Error).message}`);
   }
 }

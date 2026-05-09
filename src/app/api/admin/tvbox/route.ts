@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
   const adminConfig = await getConfig();
 
-  // 本地模式：不强制要求登录，用环境变量返回只读信息
+  // 本地模式：不強制要求登錄，用環境變量返回只讀信息
   if (storageType === 'localstorage') {
     const base = new URL(request.url);
     base.pathname = '/api/tvbox/config';
@@ -27,17 +27,17 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // 非本地模式：需要已登录用户
+  // 非本地模式：需要已登錄用戶
   const authInfo = await getVerifiedAuthInfo(request);
   if (!authInfo || !authInfo.username) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // 生成接口 URL（基于请求 URL 推导）
+  // 生成接口 URL（基於請求 URL 推導）
   const base = new URL(request.url);
   base.pathname = '/api/tvbox/config';
   base.search = '';
-  // 为生成的订阅 URL 添加加密后的 un 查询参数
+  // 為生成的訂閱 URL 添加加密後的 un 查詢參數
   const un = Buffer.from(authInfo.username, 'utf8').toString('base64');
   const url = `${base.toString()}?un=${encodeURIComponent(un)}`;
 
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
       (u) => u.username === username
     );
     if (!user || user.role !== 'admin' || user.banned) {
-      return NextResponse.json({ error: '权限不足' }, { status: 403 });
+      return NextResponse.json({ error: '權限不足' }, { status: 403 });
     }
   }
 
@@ -77,22 +77,22 @@ export async function POST(request: NextRequest) {
 
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
 
-  // localstorage 模式：开关由环境变量控制，这里只允许返回提示，不修改
+  // localstorage 模式：開關由環境變量控制，這裡只允許返回提示，不修改
   if (storageType === 'localstorage') {
     return NextResponse.json(
-      { error: '本地模式下由环境变量 TVBOX_ENABLED 控制开关，口令=PASSWORD' },
+      { error: '本地模式下由環境變量 TVBOX_ENABLED 控制開關，口令=PASSWORD' },
       { status: 400 }
     );
   }
 
-  // 非本地模式：允许修改配置并持久化
+  // 非本地模式：允許修改配置並持久化
   if (typeof enabled === 'boolean') {
     adminConfig.SiteConfig.TVBoxEnabled = enabled;
   }
 
   let finalPassword = adminConfig.SiteConfig.TVBoxPassword || '';
   if (mode === 'random') {
-    // 简单随机口令
+    // 簡單隨機口令
     const alphabet =
       'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
     finalPassword = Array.from({ length: 16 })

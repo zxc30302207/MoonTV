@@ -11,7 +11,7 @@ import { useNavigationLoading } from './NavigationLoadingProvider';
 
 interface MobileBottomNavProps {
   /**
-   * 主动指定当前激活的路径。当未提供时，自动使用 usePathname() 获取的路径。
+   * 主動指定當前激活的路徑。當未提供時，自動使用 usePathname() 獲取的路徑。
    */
   activePath?: string;
 }
@@ -20,35 +20,35 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
   const pathname = usePathname();
   const { startLoading } = useNavigationLoading();
 
-  // 当前激活路径：优先使用传入的 activePath，否则回退到浏览器地址
+  // 當前激活路徑：優先使用傳入的 activePath，否則回退到瀏覽器地址
   const currentActive = activePath ?? pathname;
 
   const [navItems, setNavItems] = useState([
-    { icon: Home, label: '首页', href: '/' },
+    { icon: Home, label: '首頁', href: '/' },
     { icon: Search, label: '搜索', href: '/search' },
     {
       icon: Film,
-      label: '电影',
+      label: '電影',
       href: '/douban?type=movie',
     },
     {
       icon: Tv,
-      label: '剧集',
+      label: '劇集',
       href: '/douban?type=tv',
     },
     {
       icon: Cat,
-      label: '动漫',
+      label: '動漫',
       href: '/douban?type=anime',
     },
     {
       icon: Clover,
-      label: '综艺',
+      label: '綜藝',
       href: '/douban?type=show',
     },
   ]);
 
-  // 检查是否启用简洁模式 - 使用状态管理
+  // 檢查是否啟用簡潔模式 - 使用狀態管理
   const [simpleMode, setSimpleMode] = useState(false);
   const [isClient, setIsClient] = useState(false);
 
@@ -69,7 +69,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
           ...prevItems,
           {
             icon: Star,
-            label: '自定义',
+            label: '自定義',
             href: '/douban?type=custom',
           },
         ]);
@@ -80,7 +80,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
   const isActive = (href: string) => {
     const typeMatch = href.match(/type=([^&]+)/)?.[1];
 
-    // 解码URL以进行正确的比较
+    // 解碼URL以進行正確的比較
     const decodedActive = decodeURIComponent(currentActive);
     const decodedItemHref = decodeURIComponent(href);
 
@@ -95,7 +95,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
     <nav
       className='md:hidden fixed left-0 right-0 z-[600] bg-white/90 backdrop-blur-xl border-t border-gray-200/50 overflow-hidden dark:bg-gray-900/80 dark:border-gray-700/50'
       style={{
-        /* 紧贴视口底部，同时在内部留出安全区高度 */
+        /* 緊貼視口底部，同時在內部留出安全區高度 */
         bottom: 0,
         paddingBottom: 'env(safe-area-inset-bottom)',
         minHeight: 'calc(3.5rem + env(safe-area-inset-bottom))',
@@ -105,9 +105,9 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
         {navItems.map((item) => {
           const active = isActive(item.href);
 
-          // 简洁模式下只显示首页和搜索，但在服务器端渲染时先不渲染
+          // 簡潔模式下只顯示首頁和搜索，但在服務器端渲染時先不渲染
           if (!isClient) {
-            return null; // 服务器端渲染时不显示任何内容，避免闪烁
+            return null; // 服務器端渲染時不顯示任何內容，避免閃爍
           }
 
           if (simpleMode && !['/', '/search'].includes(item.href)) {
@@ -127,7 +127,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
                 href={item.href}
                 className='flex flex-col items-center justify-center w-full h-14 gap-1 text-xs'
                 onClick={() => {
-                  // 如果不是当前激活的链接，则触发加载动画
+                  // 如果不是當前激活的鏈接，則觸發加載動畫
                   if (!active) {
                     startLoading();
                   }
@@ -158,5 +158,5 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
   );
 };
 
-// 使用 React.memo 优化，避免父组件更新时导致不必要的重新渲染
+// 使用 React.memo 優化，避免父組件更新時導致不必要的重新渲染
 export default memo(MobileBottomNav);

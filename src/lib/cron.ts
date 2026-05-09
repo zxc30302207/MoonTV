@@ -65,10 +65,10 @@ async function refreshRecordAndFavorites() {
     if (process.env.USERNAME && !users.includes(process.env.USERNAME)) {
       users.push(process.env.USERNAME);
     }
-    // 函数级缓存：key 为 `${source}+${id}`，值为 Promise<VideoDetail | null>
+    // 函數級緩存：key 為 `${source}+${id}`，值為 Promise<VideoDetail | null>
     const detailCache = new Map<string, Promise<SearchResult | null>>();
 
-    // 获取详情 Promise（带缓存和错误处理）
+    // 獲取詳情 Promise（帶緩存和錯誤處理）
     const getDetail = async (
       source: string,
       id: string,
@@ -81,10 +81,10 @@ async function refreshRecordAndFavorites() {
           source,
           id,
           fallbackTitle: fallbackTitle.trim(),
-          timeout: 30000, // 定时任务使用30秒超时
+          timeout: 30000, // 定時任務使用30秒超時
         })
           .then((detail) => {
-            // 成功时才缓存结果
+            // 成功時才緩存結果
             const successPromise = Promise.resolve(detail);
             detailCache.set(key, successPromise);
             return detail;
@@ -97,7 +97,7 @@ async function refreshRecordAndFavorites() {
     };
 
     for (const user of users) {
-      // 播放记录
+      // 播放記錄
       try {
         const playRecords = await db.getAllPlayRecords(user);
 
@@ -130,7 +130,7 @@ async function refreshRecordAndFavorites() {
             }
           } catch {
             /* ignore */
-            // 继续处理下一个记录
+            // 繼續處理下一個記錄
           }
         }
       } catch {
@@ -167,7 +167,7 @@ async function refreshRecordAndFavorites() {
             }
           } catch {
             /* ignore */
-            // 继续处理下一个收藏
+            // 繼續處理下一個收藏
           }
         }
       } catch {

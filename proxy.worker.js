@@ -8,7 +8,7 @@ async function handleRequest(request) {
   try {
     const url = new URL(request.url);
 
-    // 如果访问根目录，返回HTML
+    // 如果訪問根目錄，返回HTML
     if (url.pathname === '/') {
       return new Response(getRootHtml(), {
         headers: {
@@ -17,22 +17,22 @@ async function handleRequest(request) {
       });
     }
 
-    // 从请求路径中提取目标 URL
+    // 從請求路徑中提取目標 URL
     let actualUrlStr = decodeURIComponent(url.pathname.replace('/', ''));
 
-    // 判断用户输入的 URL 是否带有协议
+    // 判斷用戶輸入的 URL 是否帶有協議
     actualUrlStr = ensureProtocol(actualUrlStr, url.protocol);
 
-    // 保留查询参数
+    // 保留查詢參數
     actualUrlStr += url.search;
 
-    // 创建新 Headers 对象，排除以 'cf-' 开头的请求头
+    // 創建新 Headers 對象，排除以 'cf-' 開頭的請求頭
     const newHeaders = filterHeaders(
       request.headers,
       (name) => !name.startsWith('cf-')
     );
 
-    // 创建一个新的请求以访问目标 URL
+    // 創建一個新的請求以訪問目標 URL
     const modifiedRequest = new Request(actualUrlStr, {
       headers: newHeaders,
       method: request.method,
@@ -40,14 +40,14 @@ async function handleRequest(request) {
       redirect: 'manual',
     });
 
-    // 发起对目标 URL 的请求
+    // 發起對目標 URL 的請求
     const response = await fetch(modifiedRequest);
     let body = response.body;
 
-    // 处理重定向
+    // 處理重定向
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       body = response.body;
-      // 创建新的 Response 对象以修改 Location 头部
+      // 創建新的 Response 對象以修改 Location 頭部
       return handleRedirect(response, body);
     } else if (response.headers.get('Content-Type')?.includes('text/html')) {
       body = await handleHtmlContent(
@@ -58,22 +58,22 @@ async function handleRequest(request) {
       );
     }
 
-    // 创建修改后的响应对象
+    // 創建修改後的響應對象
     const modifiedResponse = new Response(body, {
       status: response.status,
       statusText: response.statusText,
       headers: response.headers,
     });
 
-    // 添加禁用缓存的头部
+    // 添加禁用緩存的頭部
     setNoCacheHeaders(modifiedResponse.headers);
 
-    // 添加 CORS 头部，允许跨域访问
+    // 添加 CORS 頭部，允許跨域訪問
     setCorsHeaders(modifiedResponse.headers);
 
     return modifiedResponse;
   } catch (error) {
-    // 如果请求目标地址时出现错误，返回带有错误消息的响应和状态码 500（服务器错误）
+    // 如果請求目標地址時出現錯誤，返回帶有錯誤消息的響應和狀態碼 500（服務器錯誤）
     return jsonResponse(
       {
         error: error.message,
@@ -83,14 +83,14 @@ async function handleRequest(request) {
   }
 }
 
-// 确保 URL 带有协议
+// 確保 URL 帶有協議
 function ensureProtocol(url, defaultProtocol) {
   return url.startsWith('http://') || url.startsWith('https://')
     ? url
     : defaultProtocol + '//' + url;
 }
 
-// 处理重定向
+// 處理重定向
 function handleRedirect(response, body) {
   const location = new URL(response.headers.get('location'));
   const modifiedLocation = `/${encodeURIComponent(location.toString())}`;
@@ -104,7 +104,7 @@ function handleRedirect(response, body) {
   });
 }
 
-// 处理 HTML 内容中的相对路径
+// 處理 HTML 內容中的相對路徑
 async function handleHtmlContent(response, protocol, host, actualUrlStr) {
   const originalText = await response.text();
   const regex = new RegExp('((href|src|action)=["\'])/(?!/)', 'g');
@@ -118,13 +118,13 @@ async function handleHtmlContent(response, protocol, host, actualUrlStr) {
   return modifiedText;
 }
 
-// 替换 HTML 内容中的相对路径
+// 替換 HTML 內容中的相對路徑
 function replaceRelativePaths(text, protocol, host, origin) {
   const regex = new RegExp('((href|src|action)=["\'])/(?!/)', 'g');
   return text.replace(regex, `$1${protocol}//${host}/${origin}/`);
 }
 
-// 返回 JSON 格式的响应
+// 返回 JSON 格式的響應
 function jsonResponse(data, status) {
   return new Response(JSON.stringify(data), {
     status: status,
@@ -134,24 +134,24 @@ function jsonResponse(data, status) {
   });
 }
 
-// 过滤请求头
+// 過濾請求頭
 function filterHeaders(headers, filterFunc) {
   return new Headers([...headers].filter(([name]) => filterFunc(name)));
 }
 
-// 设置禁用缓存的头部
+// 設置禁用緩存的頭部
 function setNoCacheHeaders(headers) {
   headers.set('Cache-Control', 'no-store');
 }
 
-// 设置 CORS 头部
+// 設置 CORS 頭部
 function setCorsHeaders(headers) {
   headers.set('Access-Control-Allow-Origin', '*');
   headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
   headers.set('Access-Control-Allow-Headers', '*');
 }
 
-// 返回根目录的 HTML
+// 返回根目錄的 HTML
 function getRootHtml() {
   return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -215,10 +215,10 @@ function getRootHtml() {
                           <span class="card-title center-align"><i class="material-icons left">link</i>Proxy Everything</span>
                           <form id="urlForm" onsubmit="redirectToProxy(event)">
                               <div class="input-field">
-                                  <input type="text" id="targetUrl" placeholder="在此输入目标地址" required>
-                                  <label for="targetUrl">目标地址</label>
+                                  <input type="text" id="targetUrl" placeholder="在此輸入目標地址" required>
+                                  <label for="targetUrl">目標地址</label>
                               </div>
-                              <button type="submit" class="btn waves-effect waves-light teal darken-2 full-width">跳转</button>
+                              <button type="submit" class="btn waves-effect waves-light teal darken-2 full-width">跳轉</button>
                           </form>
                       </div>
                   </div>

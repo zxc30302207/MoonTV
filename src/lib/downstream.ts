@@ -29,18 +29,18 @@ async function fetchWithTimeout(
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } catch (error: unknown) {
-    // 区分超时错误和网络错误
+    // 區分超時錯誤和網絡錯誤
     const err = error as Error;
     if (err.name === 'AbortError') {
-      throw new Error('请求超时');
+      throw new Error('請求超時');
     } else if (
       err.message?.includes('Failed to fetch') ||
       err.message?.includes('fetch failed') ||
       err.message?.includes('NetworkError')
     ) {
-      throw new Error('请求失败');
+      throw new Error('請求失敗');
     } else {
-      throw new Error(`网络错误: ${err.message || '未知错误'}`);
+      throw new Error(`網絡錯誤: ${err.message || '未知錯誤'}`);
     }
   } finally {
     clearTimeout(timeoutId);
@@ -50,8 +50,8 @@ async function fetchWithTimeout(
 /**
  * 通用的播放源解析
  * 支持：
- *  1. vod_play_url (通过 $$$、#、$ 分割)
- *  2. 内容中的 m3u8 链接（正则提取）
+ *  1. vod_play_url (通過 $$$、#、$ 分割)
+ *  2. 內容中的 m3u8 鏈接（正則提取）
  */
 function parseEpisodes(
   vod_play_url?: string,
@@ -75,7 +75,7 @@ function parseEpisodes(
         }
       });
 
-      // 选用分集最多的播放源
+      // 選用分集最多的播放源
       if (currentEpisodes.length > episodes.length) {
         episodes = currentEpisodes;
         titles = currentTitles;
@@ -88,7 +88,7 @@ function parseEpisodes(
     episodes = (fallbackContent.match(M3U8_PATTERN) ?? []).map((link: string) =>
       link.replace(/^\$/, '')
     );
-    titles = episodes.map((_, i) => (i + 1).toString()); // 默认用序号作为标题
+    titles = episodes.map((_, i) => (i + 1).toString()); // 默認用序號作為標題
   }
 
   return { episodes, titles };
@@ -141,12 +141,12 @@ export async function* searchFromApiStream(
   const data = await response.json();
   if (!Array.isArray(data?.list)) return;
 
-  // 第一页
+  // 第一頁
   yield data.list.map((item: ApiSearchItem) =>
     mapItemToResult(item, apiSite, apiSite.name)
   );
 
-  // 分页
+  // 分頁
   const { SiteConfig } = await getConfig();
   const maxPages = SiteConfig.SearchDownstreamMaxPage;
   const pageCount = data.pagecount || 1;
@@ -154,7 +154,7 @@ export async function* searchFromApiStream(
 
   if (pagesToFetch > 1) {
     if (parallel) {
-      // ------------------ 并行模式 ------------------
+      // ------------------ 並行模式 ------------------
       const pagePromises: Promise<{
         page: number;
         results: SearchResult[];
@@ -197,7 +197,7 @@ export async function* searchFromApiStream(
         yield res.results;
       }
     } else {
-      // ------------------ 顺序模式 ------------------
+      // ------------------ 順序模式 ------------------
       for (let page = 2; page <= pagesToFetch; page++) {
         const pageUrl =
           apiSite.api +
@@ -224,7 +224,7 @@ export async function* searchFromApiStream(
   }
 }
 
-/** 获取详情 */
+/** 獲取詳情 */
 export async function getDetailFromApi(
   apiSite: ApiSite,
   id: string
@@ -236,11 +236,11 @@ export async function getDetailFromApi(
     headers: API_CONFIG.detail.headers,
   });
 
-  if (!response.ok) throw new Error(`详情请求失败: ${response.status}`);
+  if (!response.ok) throw new Error(`詳情請求失敗: ${response.status}`);
 
   const data = await response.json();
   if (!Array.isArray(data?.list) || data.list.length === 0) {
-    throw new Error('获取到的详情内容无效');
+    throw new Error('獲取到的詳情內容無效');
   }
 
   const video = data.list[0];
@@ -265,7 +265,7 @@ export async function getDetailFromApi(
   };
 }
 
-/** 特殊站点详情处理 */
+/** 特殊站點詳情處理 */
 async function handleSpecialSourceDetail(
   id: string,
   apiSite: ApiSite
@@ -275,11 +275,11 @@ async function handleSpecialSourceDetail(
     headers: API_CONFIG.detail.headers,
   });
 
-  if (!response.ok) throw new Error(`详情页请求失败: ${response.status}`);
+  if (!response.ok) throw new Error(`詳情頁請求失敗: ${response.status}`);
 
   const html = await response.text();
 
-  // 特定站点规则（优先）
+  // 特定站點規則（優先）
   let matches: string[] = [];
   if (apiSite.key === 'ffzy') {
     matches =
@@ -288,19 +288,19 @@ async function handleSpecialSourceDetail(
       ) || [];
   }
 
-  // 通用正则
+  // 通用正則
   if (matches.length === 0) {
     matches = html.match(/\$(https?:\/\/[^"'\s]+?\.m3u8)/g) || [];
   }
 
-  // 去重并清理
+  // 去重並清理
   matches = Array.from(new Set(matches)).map((link) => {
     const clean = link.substring(1); // 去掉 $
     const parenIndex = clean.indexOf('(');
     return parenIndex > 0 ? clean.substring(0, parenIndex) : clean;
   });
 
-  // 如果依旧没解析到，用 parseEpisodes fallback
+  // 如果依舊沒解析到，用 parseEpisodes fallback
   if (matches.length === 0) {
     const { episodes } = parseEpisodes(undefined, html);
     matches = episodes;

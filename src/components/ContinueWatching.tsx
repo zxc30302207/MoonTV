@@ -16,8 +16,8 @@ import VideoCard from '@/components/VideoCard';
 
 interface ContinueWatchingProps {
   className?: string;
-  showAll?: boolean; // 是否显示所有记录（网格布局）
-  hideHeader?: boolean; // 是否隐藏标题栏
+  showAll?: boolean; // 是否顯示所有記錄（網格佈局）
+  hideHeader?: boolean; // 是否隱藏標題欄
 }
 
 export default function ContinueWatching({ className, showAll = false, hideHeader = false }: ContinueWatchingProps) {
@@ -28,7 +28,7 @@ export default function ContinueWatching({ className, showAll = false, hideHeade
   const [simpleMode, setSimpleMode] = useState(false);
   const [isClient, setIsClient] = useState(false);
 
-  // 检查是否启用简洁模式
+  // 檢查是否啟用簡潔模式
   useEffect(() => {
     setIsClient(true);
     if (typeof window !== 'undefined') {
@@ -39,9 +39,9 @@ export default function ContinueWatching({ className, showAll = false, hideHeade
     }
   }, []);
 
-  // 处理播放记录数据更新的函数
+  // 處理播放記錄數據更新的函數
   const updatePlayRecords = (allRecords: Record<string, PlayRecord>) => {
-    // 将记录转换为数组并根据 save_time 由近到远排序
+    // 將記錄轉換為數組並根據 save_time 由近到遠排序
     const recordsArray = Object.entries(allRecords).map(([key, record]) => ({
       ...record,
       key,
@@ -60,11 +60,11 @@ export default function ContinueWatching({ className, showAll = false, hideHeade
       try {
         setLoading(true);
 
-        // 从缓存或API获取所有播放记录
+        // 從緩存或API獲取所有播放記錄
         const allRecords = await getAllPlayRecords();
         updatePlayRecords(allRecords);
       } catch (error) {
-        console.error('获取播放记录失败:', error);
+        console.error('獲取播放記錄失敗:', error);
         setPlayRecords([]);
       } finally {
         setLoading(false);
@@ -73,7 +73,7 @@ export default function ContinueWatching({ className, showAll = false, hideHeade
 
     fetchPlayRecords();
 
-    // 监听播放记录更新事件
+    // 監聽播放記錄更新事件
     const unsubscribe = subscribeToDataUpdates(
       'playRecordsUpdated',
       (newRecords: Record<string, PlayRecord>) => {
@@ -84,18 +84,18 @@ export default function ContinueWatching({ className, showAll = false, hideHeade
     return unsubscribe;
   }, []);
 
-  // 如果没有播放记录，则不渲染组件
+  // 如果沒有播放記錄，則不渲染組件
   if (!loading && playRecords.length === 0) {
     return null;
   }
 
-  // 计算播放进度百分比
+  // 計算播放進度百分比
   const getProgress = (record: PlayRecord) => {
     if (record.total_time === 0) return 0;
     return (record.play_time / record.total_time) * 100;
   };
 
-  // 从 key 中解析 source 和 id
+  // 從 key 中解析 source 和 id
   const parseKey = (key: string) => {
     const [source, id] = key.split('+');
     return { source, id };
@@ -106,7 +106,7 @@ export default function ContinueWatching({ className, showAll = false, hideHeade
       {!hideHeader && (
         <div className='mb-4 flex items-center justify-between'>
           <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
-            继续观看
+            繼續觀看
           </h2>
           {!loading && playRecords.length > 0 && (
             <button
@@ -114,11 +114,11 @@ export default function ContinueWatching({ className, showAll = false, hideHeade
               onClick={async () => {
                 const Swal = await getSwal();
                 const { isConfirmed } = await Swal.fire({
-                  title: '确认清空',
-                  text: '确定要清空所有播放记录吗？',
+                  title: '確認清空',
+                  text: '確定要清空所有播放記錄嗎？',
                   icon: 'warning',
                   showCancelButton: true,
-                  confirmButtonText: '确定',
+                  confirmButtonText: '確定',
                   cancelButtonText: '取消',
                 });
                 if (isConfirmed) {
@@ -127,7 +127,7 @@ export default function ContinueWatching({ className, showAll = false, hideHeade
                   await Swal.fire({
                     icon: 'success',
                     title: '已清空',
-                    text: '所有播放记录已清空',
+                    text: '所有播放記錄已清空',
                     timer: 2000,
                     showConfirmButton: false,
                   });
@@ -139,12 +139,12 @@ export default function ContinueWatching({ className, showAll = false, hideHeade
           )}
         </div>
       )}
-      
+
       {isClient && (simpleMode || showAll) ? (
-        // 简洁模式：使用网格布局，类似收藏夹
+        // 簡潔模式：使用網格佈局，類似收藏夾
         <div className='justify-start grid grid-cols-3 gap-x-2 gap-y-14 sm:gap-y-20 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,_minmax(11rem,_1fr))] sm:gap-x-8'>
           {loading
-            ? // 加载状态显示灰色占位数据
+            ? // 加載狀態顯示灰色佔位數據
               Array.from({ length: 6 }).map((_, index) => (
                 <div key={index} className='w-full'>
                   <div className='relative aspect-[2/3] w-full overflow-hidden rounded-lg bg-gray-200 animate-pulse dark:bg-gray-800'>
@@ -153,7 +153,7 @@ export default function ContinueWatching({ className, showAll = false, hideHeade
                   <div className='mt-2 h-4 bg-gray-200 rounded animate-pulse dark:bg-gray-800'></div>
                 </div>
               ))
-            : // 显示真实数据
+            : // 顯示真實數據
               playRecords.map((record) => {
                 const { source, id } = parseKey(record.key);
                 return (
@@ -182,10 +182,10 @@ export default function ContinueWatching({ className, showAll = false, hideHeade
               })}
         </div>
       ) : (
-        // 正常模式：使用横向滚动布局
+        // 正常模式：使用橫向滾動佈局
         <ScrollableRow>
           {loading
-            ? // 加载状态显示灰色占位数据
+            ? // 加載狀態顯示灰色佔位數據
               Array.from({ length: 6 }).map((_, index) => (
                 <div
                   key={index}
@@ -198,7 +198,7 @@ export default function ContinueWatching({ className, showAll = false, hideHeade
                   <div className='mt-1 h-3 bg-gray-200 rounded animate-pulse dark:bg-gray-800'></div>
                 </div>
               ))
-            : // 显示真实数据
+            : // 顯示真實數據
               playRecords.map((record) => {
                 const { source, id } = parseKey(record.key);
                 return (

@@ -1,24 +1,24 @@
 /**
- * StreamSaver - 流式下载工具
+ * StreamSaver - 流式下載工具
  * Based on https://github.com/jimmywarting/StreamSaver.js
- * 解决大文件下载时内存不足的问题
+ * 解決大文件下載時內存不足的問題
  */
 
-// 扩展 Window 类型以包含 safari 属性
+// 擴展 Window 類型以包含 safari 屬性
 declare global {
   interface Window {
     safari?: unknown;
   }
 }
 
-// 检查是否为安全上下文（HTTPS）
+// 檢查是否為安全上下文（HTTPS）
 const isSecureContext = window.isSecureContext || location.protocol === 'https:'
 const isFirefox = 'MozAppearance' in document.documentElement.style
 
-// 下载策略：iframe 或 navigate
+// 下載策略：iframe 或 navigate
 const downloadStrategy = isSecureContext || isFirefox ? 'iframe' : 'navigate'
 
-// 是否使用 Blob 降级方案
+// 是否使用 Blob 降級方案
 let useBlobFallback = /constructor/i.test(window.HTMLElement.toString()) || !!window.safari
 
 try {
@@ -30,7 +30,7 @@ try {
   useBlobFallback = true
 }
 
-// 检查是否支持 TransformStream
+// 檢查是否支持 TransformStream
 let supportsTransformStream = false
 try {
   const { readable } = new TransformStream()
@@ -40,7 +40,7 @@ try {
   mc.port2.close()
   supportsTransformStream = true
 } catch (err) {
-  // TransformStream 不支持，使用降级方案
+  // TransformStream 不支持，使用降級方案
   supportsTransformStream = false
 }
 
@@ -56,14 +56,14 @@ interface Transporter {
 
 let middleTransporter: Transporter | null = null
 
-// 创建 iframe
+// 創建 iframe
 function makeIframe(src: string): Transporter {
   const iframe = document.createElement('iframe')
   iframe.hidden = true
   iframe.src = src
   iframe.name = 'iframe'
   document.body.appendChild(iframe)
-  
+
   const transporter: Transporter = {
     frame: iframe,
     loaded: false,
@@ -79,25 +79,25 @@ function makeIframe(src: string): Transporter {
       iframe.addEventListener(type, listener, options)
     }
   }
-  
-  // 监听来自 iframe 的 ready 消息
+
+  // 監聽來自 iframe 的 ready 消息
   const onReady = (event: MessageEvent) => {
     if (event.data === 'stream-saver-ready' && event.source === iframe.contentWindow) {
       transporter.loaded = true
       window.removeEventListener('message', onReady)
-      
-      // 触发 load 事件
+
+      // 觸發 load 事件
       const loadEvent = new Event('load')
       iframe.dispatchEvent(loadEvent)
     }
   }
-  
+
   window.addEventListener('message', onReady)
-  
+
   return transporter
 }
 
-// 创建 popup
+// 創建 popup
 function makePopup(src: string): Transporter {
   const delegate = document.createDocumentFragment()
   const popup: Transporter = {
@@ -133,7 +133,7 @@ function makePopup(src: string): Transporter {
 }
 
 /**
- * 创建写入流
+ * 創建寫入流
  */
 export function createWriteStream(filename: string) {
   let bytesWritten = 0
@@ -142,17 +142,17 @@ export function createWriteStream(filename: string) {
   let ts: TransformStream<Uint8Array, Uint8Array> | null = null
 
   if (!useBlobFallback) {
-    
-    // 创建中间传输器
+
+    // 創建中間傳輸器
     middleTransporter = middleTransporter || (
-      isSecureContext 
+      isSecureContext
         ? makeIframe('/mitm.html')
         : makePopup('/mitm.html')
     )
 
     mc = new MessageChannel()
 
-    // 处理文件名
+    // 處理文件名
     filename = encodeURIComponent(filename.replace(/\//g, ':'))
       .replace(/['()]/g, escape)
       .replace(/\*/g, '%2A')
@@ -166,7 +166,7 @@ export function createWriteStream(filename: string) {
           }
           bytesWritten += chunk.length
           controller.enqueue(chunk)
-          
+
           if (downloadUrl) {
             location.href = downloadUrl
             downloadUrl = null
@@ -187,7 +187,7 @@ export function createWriteStream(filename: string) {
         if (downloadStrategy === 'navigate') {
           middleTransporter?.remove()
           middleTransporter = null
-          
+
           if (bytesWritten) {
             location.href = evt.data.download
           } else {
@@ -289,7 +289,7 @@ export function createWriteStream(filename: string) {
 }
 
 /**
- * 检查是否支持流式下载
+ * 檢查是否支持流式下載
  */
 export function isStreamSaverSupported(): boolean {
   return !useBlobFallback

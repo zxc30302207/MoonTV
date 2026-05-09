@@ -26,7 +26,7 @@ export default function SearchSuggestions({
   const abortControllerRef = useRef<AbortController | null>(null);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 流式获取建议
+  // 流式獲取建議
   const fetchSuggestionsFromAPI = useCallback(async (searchQuery: string) => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -80,7 +80,7 @@ export default function SearchSuggestions({
     }
   }, []);
 
-  // 加载搜索建议设置
+  // 加載搜索建議設置
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const savedEnableSearchSuggestions = localStorage.getItem(
@@ -90,7 +90,7 @@ export default function SearchSuggestions({
         setIsEnabled(savedEnableSearchSuggestions === 'true');
       }
 
-      // 监听设置变化事件，实现实时更新
+      // 監聽設置變化事件，實現實時更新
       const handleSettingsChange = (event: Event) => {
         const customEvent = event as CustomEvent<{
           enableSearchSuggestions: boolean;
@@ -111,13 +111,13 @@ export default function SearchSuggestions({
     }
   }, []);
 
-  // 防抖触发
+  // 防抖觸發
   const debouncedFetchSuggestions = useCallback(
     (searchQuery: string) => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
       debounceTimer.current = setTimeout(() => {
         if (searchQuery.trim() && isVisible && isEnabled) {
-          setSuggestions([]); // 新查询清空旧数据
+          setSuggestions([]); // 新查詢清空舊數據
           fetchSuggestionsFromAPI(searchQuery);
         } else {
           setSuggestions([]);
@@ -142,7 +142,7 @@ export default function SearchSuggestions({
     };
   }, [query, isVisible, isEnabled, debouncedFetchSuggestions]);
 
-  // 键盘导航
+  // 鍵盤導航
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isVisible || suggestions.length === 0) return;
@@ -179,7 +179,7 @@ export default function SearchSuggestions({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isVisible, query, suggestions, selectedIndex, onSelect, onClose]);
 
-  // 点击外部关闭
+  // 點擊外部關閉
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (

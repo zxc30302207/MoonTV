@@ -47,13 +47,13 @@ const CapsuleSwitch: React.FC<CapsuleSwitchProps> = ({
     }
   };
 
-  // 组件挂载时立即计算初始位置
+  // 組件掛載時立即計算初始位置
   useEffect(() => {
     const timeoutId = setTimeout(updateIndicatorPosition, 0);
     return () => clearTimeout(timeoutId);
   }, []);
 
-  // 监听选中项变化
+  // 監聽選中項變化
   useEffect(() => {
     const timeoutId = setTimeout(updateIndicatorPosition, 0);
     return () => clearTimeout(timeoutId);
@@ -66,7 +66,7 @@ const CapsuleSwitch: React.FC<CapsuleSwitchProps> = ({
         className || ''
       }`}
     >
-      {/* 滑动的白色背景指示器 */}
+      {/* 滑動的白色背景指示器 */}
       {indicatorStyle.width > 0 && (
         <div
           className='absolute top-1 bottom-1 bg-white dark:bg-gray-500 rounded-full shadow-sm transition-all duration-300 ease-out'

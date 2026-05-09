@@ -8,33 +8,33 @@ import MobileHeader from './MobileHeader';
 import TopNav from './TopNav';
 
 /**
- * 条件导航栏组件
- * 根据当前路径决定是否显示导航栏
- * 在登录、警告等特殊页面不显示导航栏
+ * 條件導航欄組件
+ * 根據當前路徑決定是否顯示導航欄
+ * 在登錄、警告等特殊頁面不顯示導航欄
  */
 const ConditionalNav = () => {
   const pathname = usePathname();
 
-  // 不显示导航栏的路径列表
+  // 不顯示導航欄的路徑列表
   const hideNavPaths = ['/login', '/warning'];
 
-  // 检查当前路径是否需要隐藏导航栏
+  // 檢查當前路徑是否需要隱藏導航欄
   const shouldHideNav = hideNavPaths.some(path => pathname.startsWith(path));
 
-  // 如果需要隐藏导航栏，返回 null
+  // 如果需要隱藏導航欄，返回 null
   if (shouldHideNav) {
     return null;
   }
 
   return (
     <>
-      {/* 移动端头部 - 固定在根布局，避免页面切换时重新渲染 */}
+      {/* 移動端頭部 - 固定在根佈局，避免頁面切換時重新渲染 */}
       <MobileHeader showBackButton={false} />
 
-      {/* 桌面端顶部导航栏 - 固定在根布局，避免页面切换时重新渲染 */}
+      {/* 桌面端頂部導航欄 - 固定在根佈局，避免頁面切換時重新渲染 */}
       <TopNav />
 
-      {/* 移动端底部导航 - 固定在根布局，避免页面切换时重新渲染 */}
+      {/* 移動端底部導航 - 固定在根佈局，避免頁面切換時重新渲染 */}
       <div className='md:hidden'>
         <MobileBottomNav />
       </div>
@@ -42,5 +42,5 @@ const ConditionalNav = () => {
   );
 };
 
-// 使用 React.memo 优化，避免不必要的重新渲染
+// 使用 React.memo 優化，避免不必要的重新渲染
 export default memo(ConditionalNav);

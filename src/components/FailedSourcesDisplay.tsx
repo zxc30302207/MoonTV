@@ -17,26 +17,26 @@ export default function FailedSourcesDisplay({
   const [showDetails, setShowDetails] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // 错误颜色映射
+  // 錯誤顏色映射
   const getErrorColor = (error: string) => {
     switch (error) {
-      case '结果被过滤':
+      case '結果被過濾':
         return 'text-green-600 dark:text-green-400';
-      case '无搜索结果':
+      case '無搜索結果':
         return 'text-red-600 dark:text-red-400';
-      case '请求超时':
+      case '請求超時':
         return 'text-orange-600 dark:text-orange-400';
-      case '请求失败':
-      case '网络错误':
+      case '請求失敗':
+      case '網絡錯誤':
         return 'text-purple-600 dark:text-purple-400';
-      case '未知的错误':
+      case '未知的錯誤':
         return 'text-gray-600 dark:text-gray-400';
       default:
         return 'text-amber-700 dark:text-amber-300';
     }
   };
 
-  // 点击外部关闭详情
+  // 點擊外部關閉詳情
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -66,7 +66,7 @@ export default function FailedSourcesDisplay({
       >
         <AlertTriangle className='w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0' />
         <span className='text-sm text-amber-700 dark:text-amber-300 whitespace-nowrap'>
-          失败源 ({failedSources.length})
+          失敗源 ({failedSources.length})
         </span>
         {showDetails ? (
           <ChevronUp className='w-3 h-3 text-amber-600 dark:text-amber-400' />
@@ -78,7 +78,7 @@ export default function FailedSourcesDisplay({
       {showDetails && (
         <div className='absolute top-full left-1/2 transform -translate-x-1/2 mt-2 z-10 min-w-[190px] max-w-[300px] bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-700/30 rounded-lg shadow-lg p-4'>
           <h3 className='text-sm font-medium text-amber-800 dark:text-amber-200 mb-3'>
-            搜索失败的数据源详情
+            搜索失敗的數據源詳情
           </h3>
           <div className='space-y-2 max-h-60 overflow-y-auto'>
             {failedSources.map((source, index) => (
@@ -99,7 +99,7 @@ export default function FailedSourcesDisplay({
                     source.error
                   )}`}
                 >
-                  错误信息: {source.error}
+                  錯誤信息: {source.error}
                 </p>
               </div>
             ))}

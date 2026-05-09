@@ -1,33 +1,33 @@
 import { AdminConfig } from './admin.types';
 
-// 播放记录数据结构
+// 播放記錄數據結構
 export interface PlayRecord {
   title: string;
   source_name: string;
   cover: string;
   year: string;
-  index: number; // 第几集
-  total_episodes: number; // 总集数
-  play_time: number; // 播放进度（秒）
-  total_time: number; // 总进度（秒）
-  save_time: number; // 记录保存时间（时间戳）
-  search_title: string; // 搜索时使用的标题
+  index: number; // 第幾集
+  total_episodes: number; // 總集數
+  play_time: number; // 播放進度（秒）
+  total_time: number; // 總進度（秒）
+  save_time: number; // 記錄保存時間（時間戳）
+  search_title: string; // 搜索時使用的標題
 }
 
-// 收藏数据结构
+// 收藏數據結構
 export interface Favorite {
   source_name: string;
-  total_episodes: number; // 总集数
+  total_episodes: number; // 總集數
   title: string;
   year: string;
   cover: string;
-  save_time: number; // 记录保存时间（时间戳）
-  search_title: string; // 搜索时使用的标题
+  save_time: number; // 記錄保存時間（時間戳）
+  search_title: string; // 搜索時使用的標題
 }
 
-// 存储接口
+// 存儲接口
 export interface IStorage {
-  // 播放记录相关
+  // 播放記錄相關
   getPlayRecord(userName: string, key: string): Promise<PlayRecord | null>;
   setPlayRecord(
     userName: string,
@@ -37,35 +37,35 @@ export interface IStorage {
   getAllPlayRecords(userName: string): Promise<{ [key: string]: PlayRecord }>;
   deletePlayRecord(userName: string, key: string): Promise<void>;
 
-  // 收藏相关
+  // 收藏相關
   getFavorite(userName: string, key: string): Promise<Favorite | null>;
   setFavorite(userName: string, key: string, favorite: Favorite): Promise<void>;
   getAllFavorites(userName: string): Promise<{ [key: string]: Favorite }>;
   deleteFavorite(userName: string, key: string): Promise<void>;
 
-  // 用户相关
+  // 用戶相關
   registerUser(userName: string, password: string): Promise<void>;
   verifyUser(userName: string, password: string): Promise<boolean>;
-  // 检查用户是否存在（无需密码）
+  // 檢查用戶是否存在（無需密碼）
   checkUserExist(userName: string): Promise<boolean>;
-  // 修改用户密码
+  // 修改用戶密碼
   changePassword(userName: string, newPassword: string): Promise<void>;
-  // 删除用户（包括密码、搜索历史、播放记录、收藏夹）
+  // 刪除用戶（包括密碼、搜索歷史、播放記錄、收藏夾）
   deleteUser(userName: string): Promise<void>;
 
-  // 搜索历史相关
+  // 搜索歷史相關
   getSearchHistory(userName: string): Promise<string[]>;
   addSearchHistory(userName: string, keyword: string): Promise<void>;
   deleteSearchHistory(userName: string, keyword?: string): Promise<void>;
 
-  // 用户列表
+  // 用戶列表
   getAllUsers(): Promise<string[]>;
 
-  // 管理员配置相关
+  // 管理員配置相關
   getAdminConfig(): Promise<AdminConfig | null>;
   setAdminConfig(config: AdminConfig): Promise<void>;
 
-  // 跳过片头片尾配置相关
+  // 跳過片頭片尾配置相關
   getSkipConfig(
     userName: string,
     source: string,
@@ -80,11 +80,11 @@ export interface IStorage {
   deleteSkipConfig(userName: string, source: string, id: string): Promise<void>;
   getAllSkipConfigs(userName: string): Promise<{ [key: string]: SkipConfig }>;
 
-  // 数据清理
+  // 數據清理
   clearAllData(): Promise<void>;
 }
 
-// 搜索结果数据结构
+// 搜索結果數據結構
 export interface SearchResult {
   id: string;
   title: string;
@@ -100,7 +100,7 @@ export interface SearchResult {
   douban_id?: number;
 }
 
-// 豆瓣数据结构
+// 豆瓣數據結構
 export interface DoubanItem {
   id: string;
   title: string;
@@ -115,34 +115,34 @@ export interface DoubanResult {
   list: DoubanItem[];
 }
 
-// 跳过片头片尾配置数据结构
+// 跳過片頭片尾配置數據結構
 export interface SkipConfig {
-  enable: boolean; // 是否启用跳过片头片尾
-  intro_time: number; // 片头时间（秒）
-  outro_time: number; // 片尾时间（秒）
+  enable: boolean; // 是否啟用跳過片頭片尾
+  intro_time: number; // 片頭時間（秒）
+  outro_time: number; // 片尾時間（秒）
 }
 
-// 弹幕数据结构
+// 彈幕數據結構
 export interface DanmakuItem {
-  time: number; // 弹幕出现时间（秒）
-  type: number; // 弹幕类型：1-滚动，2-顶部，3-底部
-  color: number; // 弹幕颜色（十进制）
-  text: string; // 弹幕文本
-  size?: number; // 字体大小（可选）
-  pool?: number; // 弹幕池（可选）
+  time: number; // 彈幕出現時間（秒）
+  type: number; // 彈幕類型：1-滾動，2-頂部，3-底部
+  color: number; // 彈幕顏色（十進制）
+  text: string; // 彈幕文本
+  size?: number; // 字體大小（可選）
+  pool?: number; // 彈幕池（可選）
 }
 
-// 弹幕 API 响应数据结构（实际格式）
+// 彈幕 API 響應數據結構（實際格式）
 export interface DanmakuComment {
   cid: number;
-  p: string; // 属性字符串，格式: "时间,类型,颜色,作者"
-  m: string; // 弹幕文本内容
-  t: number; // 时间（秒）
+  p: string; // 屬性字符串，格式: "時間,類型,顏色,作者"
+  m: string; // 彈幕文本內容
+  t: number; // 時間（秒）
 }
 
 export interface DanmakuResponse {
   count?: number;
-  comments?: DanmakuComment[]; // 实际的弹幕数组
+  comments?: DanmakuComment[]; // 實際的彈幕數組
   // 兼容其他格式
   code?: number;
   message?: string;

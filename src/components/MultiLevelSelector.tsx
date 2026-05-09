@@ -34,7 +34,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
   const categoryRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // 根据内容类型获取对应的类型选项
+  // 根據內容類型獲取對應的類型選項
   const getTypeOptions = (
     contentType: 'movie' | 'tv' | 'show' | 'anime-tv' | 'anime-movie'
   ) => {
@@ -44,58 +44,58 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
       case 'movie':
         return [
           ...baseOptions,
-          { label: '喜剧', value: 'comedy' },
-          { label: '爱情', value: 'romance' },
-          { label: '动作', value: 'action' },
+          { label: '喜劇', value: 'comedy' },
+          { label: '愛情', value: 'romance' },
+          { label: '動作', value: 'action' },
           { label: '科幻', value: 'sci-fi' },
-          { label: '悬疑', value: 'suspense' },
+          { label: '懸疑', value: 'suspense' },
           { label: '犯罪', value: 'crime' },
-          { label: '惊悚', value: 'thriller' },
-          { label: '冒险', value: 'adventure' },
-          { label: '音乐', value: 'music' },
-          { label: '历史', value: 'history' },
+          { label: '驚悚', value: 'thriller' },
+          { label: '冒險', value: 'adventure' },
+          { label: '音樂', value: 'music' },
+          { label: '歷史', value: 'history' },
           { label: '奇幻', value: 'fantasy' },
           { label: '恐怖', value: 'horror' },
-          { label: '战争', value: 'war' },
-          { label: '传记', value: 'biography' },
+          { label: '戰爭', value: 'war' },
+          { label: '傳記', value: 'biography' },
           { label: '歌舞', value: 'musical' },
-          { label: '武侠', value: 'wuxia' },
+          { label: '武俠', value: 'wuxia' },
           { label: '情色', value: 'erotic' },
-          { label: '灾难', value: 'disaster' },
+          { label: '災難', value: 'disaster' },
           { label: '西部', value: 'western' },
-          { label: '纪录片', value: 'documentary' },
+          { label: '紀錄片', value: 'documentary' },
           { label: '短片', value: 'short' },
         ];
       case 'tv':
         return [
           ...baseOptions,
-          { label: '喜剧', value: 'comedy' },
-          { label: '爱情', value: 'romance' },
-          { label: '悬疑', value: 'suspense' },
-          { label: '武侠', value: 'wuxia' },
-          { label: '古装', value: 'costume' },
+          { label: '喜劇', value: 'comedy' },
+          { label: '愛情', value: 'romance' },
+          { label: '懸疑', value: 'suspense' },
+          { label: '武俠', value: 'wuxia' },
+          { label: '古裝', value: 'costume' },
           { label: '家庭', value: 'family' },
           { label: '犯罪', value: 'crime' },
           { label: '科幻', value: 'sci-fi' },
           { label: '恐怖', value: 'horror' },
-          { label: '历史', value: 'history' },
-          { label: '战争', value: 'war' },
-          { label: '动作', value: 'action' },
-          { label: '冒险', value: 'adventure' },
-          { label: '传记', value: 'biography' },
-          { label: '剧情', value: 'drama' },
+          { label: '歷史', value: 'history' },
+          { label: '戰爭', value: 'war' },
+          { label: '動作', value: 'action' },
+          { label: '冒險', value: 'adventure' },
+          { label: '傳記', value: 'biography' },
+          { label: '劇情', value: 'drama' },
           { label: '奇幻', value: 'fantasy' },
-          { label: '惊悚', value: 'thriller' },
-          { label: '灾难', value: 'disaster' },
+          { label: '驚悚', value: 'thriller' },
+          { label: '災難', value: 'disaster' },
           { label: '歌舞', value: 'musical' },
-          { label: '音乐', value: 'music' },
+          { label: '音樂', value: 'music' },
         ];
       case 'show':
         return [
           ...baseOptions,
           { label: '真人秀', value: 'reality' },
-          { label: '脱口秀', value: 'talkshow' },
-          { label: '音乐', value: 'music' },
+          { label: '脫口秀', value: 'talkshow' },
+          { label: '音樂', value: 'music' },
           { label: '歌舞', value: 'musical' },
         ];
       case 'anime-tv':
@@ -105,7 +105,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
     }
   };
 
-  // 根据内容类型获取对应的地区选项
+  // 根據內容類型獲取對應的地區選項
   const getRegionOptions = (
     contentType: 'movie' | 'tv' | 'show' | 'anime-tv' | 'anime-movie'
   ) => {
@@ -116,57 +116,57 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
       case 'anime-movie':
         return [
           ...baseOptions,
-          { label: '华语', value: 'chinese' },
-          { label: '欧美', value: 'western' },
-          { label: '韩国', value: 'korean' },
+          { label: '華語', value: 'chinese' },
+          { label: '歐美', value: 'western' },
+          { label: '韓國', value: 'korean' },
           { label: '日本', value: 'japanese' },
-          { label: '中国大陆', value: 'mainland_china' },
-          { label: '美国', value: 'usa' },
-          { label: '中国香港', value: 'hong_kong' },
-          { label: '中国台湾', value: 'taiwan' },
-          { label: '英国', value: 'uk' },
-          { label: '法国', value: 'france' },
-          { label: '德国', value: 'germany' },
+          { label: '中國大陸', value: 'mainland_china' },
+          { label: '美國', value: 'usa' },
+          { label: '中國香港', value: 'hong_kong' },
+          { label: '中國臺灣', value: 'taiwan' },
+          { label: '英國', value: 'uk' },
+          { label: '法國', value: 'france' },
+          { label: '德國', value: 'germany' },
           { label: '意大利', value: 'italy' },
           { label: '西班牙', value: 'spain' },
           { label: '印度', value: 'india' },
-          { label: '泰国', value: 'thailand' },
-          { label: '俄罗斯', value: 'russia' },
+          { label: '泰國', value: 'thailand' },
+          { label: '俄羅斯', value: 'russia' },
           { label: '加拿大', value: 'canada' },
-          { label: '澳大利亚', value: 'australia' },
-          { label: '爱尔兰', value: 'ireland' },
+          { label: '澳大利亞', value: 'australia' },
+          { label: '愛爾蘭', value: 'ireland' },
           { label: '瑞典', value: 'sweden' },
           { label: '巴西', value: 'brazil' },
-          { label: '丹麦', value: 'denmark' },
+          { label: '丹麥', value: 'denmark' },
         ];
       case 'tv':
       case 'anime-tv':
       case 'show':
         return [
           ...baseOptions,
-          { label: '华语', value: 'chinese' },
-          { label: '欧美', value: 'western' },
-          { label: '国外', value: 'foreign' },
-          { label: '韩国', value: 'korean' },
+          { label: '華語', value: 'chinese' },
+          { label: '歐美', value: 'western' },
+          { label: '國外', value: 'foreign' },
+          { label: '韓國', value: 'korean' },
           { label: '日本', value: 'japanese' },
-          { label: '中国大陆', value: 'mainland_china' },
-          { label: '中国香港', value: 'hong_kong' },
-          { label: '美国', value: 'usa' },
-          { label: '英国', value: 'uk' },
-          { label: '泰国', value: 'thailand' },
-          { label: '中国台湾', value: 'taiwan' },
+          { label: '中國大陸', value: 'mainland_china' },
+          { label: '中國香港', value: 'hong_kong' },
+          { label: '美國', value: 'usa' },
+          { label: '英國', value: 'uk' },
+          { label: '泰國', value: 'thailand' },
+          { label: '中國臺灣', value: 'taiwan' },
           { label: '意大利', value: 'italy' },
-          { label: '法国', value: 'france' },
-          { label: '德国', value: 'germany' },
+          { label: '法國', value: 'france' },
+          { label: '德國', value: 'germany' },
           { label: '西班牙', value: 'spain' },
-          { label: '俄罗斯', value: 'russia' },
+          { label: '俄羅斯', value: 'russia' },
           { label: '瑞典', value: 'sweden' },
           { label: '巴西', value: 'brazil' },
-          { label: '丹麦', value: 'denmark' },
+          { label: '丹麥', value: 'denmark' },
           { label: '印度', value: 'india' },
           { label: '加拿大', value: 'canada' },
-          { label: '爱尔兰', value: 'ireland' },
-          { label: '澳大利亚', value: 'australia' },
+          { label: '愛爾蘭', value: 'ireland' },
+          { label: '澳大利亞', value: 'australia' },
         ];
       default:
         return baseOptions;
@@ -181,26 +181,26 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
       case 'anime-movie':
         return [
           ...baseOptions,
-          { label: '定格动画', value: 'stop_motion' },
-          { label: '传记', value: 'biography' },
-          { label: '美国动画', value: 'us_animation' },
-          { label: '爱情', value: 'romance' },
+          { label: '定格動畫', value: 'stop_motion' },
+          { label: '傳記', value: 'biography' },
+          { label: '美國動畫', value: 'us_animation' },
+          { label: '愛情', value: 'romance' },
           { label: '黑色幽默', value: 'dark_humor' },
           { label: '歌舞', value: 'musical' },
-          { label: '儿童', value: 'children' },
+          { label: '兒童', value: 'children' },
           { label: '二次元', value: 'anime' },
-          { label: '动物', value: 'animal' },
+          { label: '動物', value: 'animal' },
           { label: '青春', value: 'youth' },
-          { label: '历史', value: 'history' },
-          { label: '励志', value: 'inspirational' },
-          { label: '恶搞', value: 'parody' },
-          { label: '治愈', value: 'healing' },
-          { label: '运动', value: 'sports' },
-          { label: '后宫', value: 'harem' },
+          { label: '歷史', value: 'history' },
+          { label: '勵志', value: 'inspirational' },
+          { label: '惡搞', value: 'parody' },
+          { label: '治癒', value: 'healing' },
+          { label: '運動', value: 'sports' },
+          { label: '後宮', value: 'harem' },
           { label: '情色', value: 'erotic' },
           { label: '人性', value: 'human_nature' },
-          { label: '悬疑', value: 'suspense' },
-          { label: '恋爱', value: 'love' },
+          { label: '懸疑', value: 'suspense' },
+          { label: '戀愛', value: 'love' },
           { label: '魔幻', value: 'fantasy' },
           { label: '科幻', value: 'sci_fi' },
         ];
@@ -208,18 +208,18 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
         return [
           ...baseOptions,
           { label: '黑色幽默', value: 'dark_humor' },
-          { label: '历史', value: 'history' },
+          { label: '歷史', value: 'history' },
           { label: '歌舞', value: 'musical' },
-          { label: '励志', value: 'inspirational' },
-          { label: '恶搞', value: 'parody' },
-          { label: '治愈', value: 'healing' },
-          { label: '运动', value: 'sports' },
-          { label: '后宫', value: 'harem' },
+          { label: '勵志', value: 'inspirational' },
+          { label: '惡搞', value: 'parody' },
+          { label: '治癒', value: 'healing' },
+          { label: '運動', value: 'sports' },
+          { label: '後宮', value: 'harem' },
           { label: '情色', value: 'erotic' },
-          { label: '国漫', value: 'chinese_anime' },
+          { label: '國漫', value: 'chinese_anime' },
           { label: '人性', value: 'human_nature' },
-          { label: '悬疑', value: 'suspense' },
-          { label: '恋爱', value: 'love' },
+          { label: '懸疑', value: 'suspense' },
+          { label: '戀愛', value: 'love' },
           { label: '魔幻', value: 'fantasy' },
           { label: '科幻', value: 'sci_fi' },
         ];
@@ -228,7 +228,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
     }
   };
 
-  // 根据内容类型获取对应的平台选项
+  // 根據內容類型獲取對應的平臺選項
   const getPlatformOptions = (
     contentType: 'movie' | 'tv' | 'show' | 'anime-tv' | 'anime-movie'
   ) => {
@@ -236,16 +236,16 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
 
     switch (contentType) {
       case 'movie':
-        return baseOptions; // 电影不需要平台选项
+        return baseOptions; // 電影不需要平臺選項
       case 'tv':
       case 'anime-tv':
       case 'show':
         return [
           ...baseOptions,
-          { label: '腾讯视频', value: 'tencent' },
-          { label: '爱奇艺', value: 'iqiyi' },
-          { label: '优酷', value: 'youku' },
-          { label: '湖南卫视', value: 'hunan_tv' },
+          { label: '騰訊視頻', value: 'tencent' },
+          { label: '愛奇藝', value: 'iqiyi' },
+          { label: '優酷', value: 'youku' },
+          { label: '湖南衛視', value: 'hunan_tv' },
           { label: 'Netflix', value: 'netflix' },
           { label: 'HBO', value: 'hbo' },
           { label: 'BBC', value: 'bbc' },
@@ -259,26 +259,26 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
     }
   };
 
-  // 分类配置
+  // 分類配置
   const categories: MultiLevelCategory[] = [
     ...(contentType !== 'anime-tv' && contentType !== 'anime-movie'
       ? [
           {
             key: 'type',
-            label: '类型',
+            label: '類型',
             options: getTypeOptions(contentType),
           },
         ]
       : [
           {
             key: 'label',
-            label: '类型',
+            label: '類型',
             options: getLabelOptions(contentType),
           },
         ]),
     {
       key: 'region',
-      label: '地区',
+      label: '地區',
       options: getRegionOptions(contentType),
     },
     {
@@ -303,14 +303,14 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
         { label: '更早', value: 'earlier' },
       ],
     },
-    // 只在电视剧和综艺时显示平台选项
+    // 只在電視劇和綜藝時顯示平臺選項
     ...(contentType === 'tv' ||
     contentType === 'show' ||
     contentType === 'anime-tv'
       ? [
           {
             key: 'platform',
-            label: '平台',
+            label: '平臺',
             options: getPlatformOptions(contentType),
           },
         ]
@@ -319,21 +319,21 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
       key: 'sort',
       label: '排序',
       options: [
-        { label: '综合排序', value: 'T' },
-        { label: '近期热度', value: 'U' },
+        { label: '綜合排序', value: 'T' },
+        { label: '近期熱度', value: 'U' },
         {
           label:
             contentType === 'tv' || contentType === 'show'
-              ? '首播时间'
-              : '首映时间',
+              ? '首播時間'
+              : '首映時間',
           value: 'R',
         },
-        { label: '高分优先', value: 'S' },
+        { label: '高分優先', value: 'S' },
       ],
     },
   ];
 
-  // 计算下拉框位置
+  // 計算下拉框位置
   const calculateDropdownPosition = (categoryKey: string) => {
     const element = categoryRefs.current[categoryKey];
     if (element) {
@@ -343,21 +343,21 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
 
       let x = rect.left;
       let dropdownWidth = Math.max(rect.width, 300);
-      let useFixedWidth = false; // 标记是否使用固定宽度
+      let useFixedWidth = false; // 標記是否使用固定寬度
 
-      // 移动端优化：防止下拉框被右侧视口截断
+      // 移動端優化：防止下拉框被右側視口截斷
       if (isMobile) {
-        const padding = 16; // 左右各留16px的边距
+        const padding = 16; // 左右各留16px的邊距
         const maxWidth = viewportWidth - padding * 2;
         dropdownWidth = Math.min(dropdownWidth, maxWidth);
-        useFixedWidth = true; // 移动端使用固定宽度
+        useFixedWidth = true; // 移動端使用固定寬度
 
-        // 如果右侧超出视口，则调整x位置
+        // 如果右側超出視口，則調整x位置
         if (x + dropdownWidth > viewportWidth - padding) {
           x = viewportWidth - dropdownWidth - padding;
         }
 
-        // 如果左侧超出视口，则贴左边
+        // 如果左側超出視口，則貼左邊
         if (x < padding) {
           x = padding;
         }
@@ -366,12 +366,12 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
       setDropdownPosition({
         x,
         y: rect.bottom,
-        width: useFixedWidth ? dropdownWidth : rect.width, // PC端保持原有逻辑
+        width: useFixedWidth ? dropdownWidth : rect.width, // PC端保持原有邏輯
       });
     }
   };
 
-  // 处理分类点击
+  // 處理分類點擊
   const handleCategoryClick = (categoryKey: string) => {
     if (activeCategory === categoryKey) {
       setActiveCategory(null);
@@ -381,18 +381,18 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
     }
   };
 
-  // 处理选项选择
+  // 處理選項選擇
   const handleOptionSelect = (categoryKey: string, optionValue: string) => {
-    // 更新本地状态
+    // 更新本地狀態
     const newValues = {
       ...values,
       [categoryKey]: optionValue,
     };
 
-    // 更新内部状态
+    // 更新內部狀態
     setValues(newValues);
 
-    // 构建传递给父组件的值，排序传递 value，其他传递 label
+    // 構建傳遞給父組件的值，排序傳遞 value，其他傳遞 label
     const selectionsForParent: Record<string, string> = {
       type: 'all',
       region: 'all',
@@ -408,7 +408,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
         if (category) {
           const option = category.options.find((opt) => opt.value === value);
           if (option) {
-            // 排序传递 value，其他传递 label
+            // 排序傳遞 value，其他傳遞 label
             selectionsForParent[key] =
               key === 'sort' ? option.value : option.label;
           }
@@ -416,13 +416,13 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
       }
     });
 
-    // 调用父组件的回调，传递处理后的选择值
+    // 調用父組件的回調，傳遞處理後的選擇值
     onChange(selectionsForParent);
 
     setActiveCategory(null);
   };
 
-  // 获取显示文本
+  // 獲取顯示文本
   const getDisplayText = (categoryKey: string) => {
     const category = categories.find((cat) => cat.key === categoryKey);
     if (!category) return '';
@@ -440,7 +440,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
     return option?.label || category.label;
   };
 
-  // 检查是否为默认值
+  // 檢查是否為默認值
   const isDefaultValue = (categoryKey: string) => {
     const value = values[categoryKey];
     return (
@@ -448,7 +448,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
     );
   };
 
-  // 检查选项是否被选中
+  // 檢查選項是否被選中
   const isOptionSelected = (categoryKey: string, optionValue: string) => {
     let value = values[categoryKey];
     if (value === undefined) {
@@ -460,7 +460,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
     return value === optionValue;
   };
 
-  // 监听滚动和窗口大小变化事件，重新计算位置
+  // 監聽滾動和窗口大小變化事件，重新計算位置
   useEffect(() => {
     const handleScroll = () => {
       if (activeCategory) {
@@ -482,7 +482,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
     };
   }, [activeCategory]);
 
-  // 点击外部关闭下拉框
+  // 點擊外部關閉下拉框
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -502,7 +502,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
 
   return (
     <>
-      {/* 胶囊样式筛选栏 */}
+      {/* 膠囊樣式篩選欄 */}
       <div className='relative inline-flex rounded-full p-0.5 sm:p-1 bg-transparent gap-1 sm:gap-2'>
         {categories.map((category) => (
           <div
@@ -545,7 +545,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
         ))}
       </div>
 
-      {/* 展开的筛选选项 - 悬浮显示 */}
+      {/* 展開的篩選選項 - 懸浮顯示 */}
       {activeCategory &&
         createPortal(
           <div
@@ -555,8 +555,8 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
               left: `${dropdownPosition.x}px`,
               top: `${dropdownPosition.y}px`,
               ...(window.innerWidth < 768
-                ? { width: `${dropdownPosition.width}px` } // 移动端使用固定宽度
-                : { minWidth: `${Math.max(dropdownPosition.width, 300)}px` }), // PC端使用最小宽度
+                ? { width: `${dropdownPosition.width}px` } // 移動端使用固定寬度
+                : { minWidth: `${Math.max(dropdownPosition.width, 300)}px` }), // PC端使用最小寬度
               maxWidth: '600px',
               position: 'fixed',
             }}

@@ -7,11 +7,11 @@ interface FetchVideoDetailOptions {
   source: string;
   id: string;
   fallbackTitle?: string;
-  timeout?: number; // 超时时间（毫秒）
+  timeout?: number; // 超時時間（毫秒）
 }
 
 /**
- * 根据 source 与 id 获取视频详情（支持流式搜索）。
+ * 根據 source 與 id 獲取視頻詳情（支持流式搜索）。
  */
 export async function fetchVideoDetail({
   source,
@@ -22,10 +22,10 @@ export async function fetchVideoDetail({
   const apiSites = await getAvailableApiSites();
   const apiSite = apiSites.find((site) => site.key === source);
   if (!apiSite) {
-    throw new Error('无效的API来源');
+    throw new Error('無效的API來源');
   }
 
-  // 使用流式搜索尝试精确匹配
+  // 使用流式搜索嘗試精確匹配
   if (fallbackTitle) {
     try {
       for await (const results of searchFromApiStream(
@@ -44,14 +44,14 @@ export async function fetchVideoDetail({
         }
       }
     } catch (error) {
-      // 流式搜索失败时忽略
+      // 流式搜索失敗時忽略
     }
   }
 
-  // 流式搜索未命中或未提供 fallbackTitle，则调用 /api/detail
+  // 流式搜索未命中或未提供 fallbackTitle，則調用 /api/detail
   const detail = await getDetailFromApi(apiSite, id);
   if (!detail) {
-    throw new Error('获取视频详情失败');
+    throw new Error('獲取視頻詳情失敗');
   }
 
   return detail;

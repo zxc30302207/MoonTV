@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
   if (storageType === 'localstorage') {
     return NextResponse.json(
       {
-        error: '不支持本地存储进行管理员配置',
+        error: '不支持本地存儲進行管理員配置',
       },
       { status: 400 }
     );
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
         result.Role = 'admin';
       } else {
         return NextResponse.json(
-          { error: '你是管理员吗你就访问？' },
+          { error: '你是管理員嗎你就訪問？' },
           { status: 401 }
         );
       }
@@ -45,13 +45,13 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(result, {
       headers: {
-        'Cache-Control': 'no-store', // 管理员配置不缓存
+        'Cache-Control': 'no-store', // 管理員配置不緩存
       },
     });
   } catch (error) {
     return NextResponse.json(
       {
-        error: '获取管理员配置失败',
+        error: '獲取管理員配置失敗',
         details: (error as Error).message,
       },
       { status: 500 }

@@ -11,7 +11,7 @@ export const runtime = 'nodejs';
 
 // OrionTV 兼容接口（JSON 非流式）
 export async function GET(request: NextRequest) {
-  // 检查是否为本地存储模式
+  // 檢查是否為本地存儲模式
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
   const isLocalStorage = storageType === 'localstorage';
 
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
   if (!query || !resourceId) {
     const cacheTime = await getCacheTime();
     return NextResponse.json(
-      { result: null, error: '缺少必要参数: q 或 resourceId' },
+      { result: null, error: '缺少必要參數: q 或 resourceId' },
       {
         headers: {
           'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,
@@ -53,14 +53,14 @@ export async function GET(request: NextRequest) {
     if (!targetSite) {
       return NextResponse.json(
         {
-          error: `未找到指定的视频源: ${resourceId}`,
+          error: `未找到指定的視頻源: ${resourceId}`,
           result: null,
         },
         { status: 404 }
       );
     }
 
-    // 聚合搜索（使用流式实现做非流式聚合）
+    // 聚合搜索（使用流式實現做非流式聚合）
     const allResults: SearchResult[] = [];
     for await (const batch of searchFromApiStream(
       targetSite,
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
       allResults.push(...batch);
     }
 
-    // OrionTV 行为：按标题完全匹配过滤
+    // OrionTV 行為：按標題完全匹配過濾
     const cmp = normalizeForCompare(query || '');
     let result = allResults.filter((r) => normalizeForCompare(r.title) === cmp);
     if (!config.SiteConfig.DisableYellowFilter) {
@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
     if (result.length === 0) {
       return NextResponse.json(
         {
-          error: '未找到结果',
+          error: '未找到結果',
           result: null,
         },
         { status: 404 }
@@ -107,7 +107,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       {
-        error: '搜索失败',
+        error: '搜索失敗',
         result: null,
       },
       { status: 500 }

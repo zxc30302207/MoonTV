@@ -41,20 +41,20 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
   const [latestVersion, setLatestVersion] = useState<string>('');
   const [showRemoteContent, setShowRemoteContent] = useState(false);
 
-  // 确保组件已挂载
+  // 確保組件已掛載
   useEffect(() => {
     setMounted(true);
     return () => setMounted(false);
   }, []);
 
-  // 获取远程变更日志
+  // 獲取遠程變更日誌
   useEffect(() => {
     if (isOpen) {
       fetchRemoteChangelog();
     }
   }, [isOpen]);
 
-  // 获取远程变更日志
+  // 獲取遠程變更日誌
   const fetchRemoteChangelog = async () => {
     try {
       const response = await fetch(
@@ -65,7 +65,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
         const parsed = parseChangelog(content);
         setRemoteChangelog(parsed);
 
-        // 检查是否有更新
+        // 檢查是否有更新
         if (parsed.length > 0) {
           const latest = parsed[0];
           setLatestVersion(latest.version);
@@ -75,17 +75,17 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
         }
       } else {
         console.error(
-          '获取远程变更日志失败:',
+          '獲取遠程變更日誌失敗:',
           response.status,
           response.statusText
         );
       }
     } catch (error) {
-      console.error('获取远程变更日志失败:', error);
+      console.error('獲取遠程變更日誌失敗:', error);
     }
   };
 
-  // 解析变更日志格式
+  // 解析變更日誌格式
   const parseChangelog = (content: string): RemoteChangelogEntry[] => {
     const lines = content.split('\n');
     const versions: RemoteChangelogEntry[] = [];
@@ -117,9 +117,9 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
         continue;
       }
 
-      // 如果遇到下一个版本或到达文件末尾，停止处理当前版本
+      // 如果遇到下一個版本或到達文件末尾，停止處理當前版本
       if (inVersionContent && currentVersion) {
-        // 匹配章节标题
+        // 匹配章節標題
         if (trimmedLine === '### Added') {
           currentSection = 'added';
           continue;
@@ -131,7 +131,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
           continue;
         }
 
-        // 匹配条目: - 内容
+        // 匹配條目: - 內容
         if (trimmedLine.startsWith('- ') && currentSection) {
           const entry = trimmedLine.substring(2);
           if (currentSection === 'added') {
@@ -145,7 +145,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
       }
     }
 
-    // 添加最后一个版本
+    // 添加最後一個版本
     if (currentVersion) {
       versions.push(currentVersion);
     }
@@ -153,7 +153,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
     return versions;
   };
 
-  // 渲染变更日志条目
+  // 渲染變更日誌條目
   const renderChangelogEntry = (
     entry: ChangelogEntry | RemoteChangelogEntry,
     isCurrentVersion = false,
@@ -172,7 +172,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
             : 'bg-gray-50 dark:bg-gray-800/60 border-gray-200 dark:border-gray-700'
         }`}
       >
-        {/* 版本标题 */}
+        {/* 版本標題 */}
         <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3'>
           <div className='flex flex-wrap items-center gap-2'>
             <h4 className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
@@ -180,7 +180,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
             </h4>
             {isCurrentVersion && (
               <span className='px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 rounded-full'>
-                当前版本
+                當前版本
               </span>
             )}
             {isUpdate && (
@@ -195,7 +195,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
           </div>
         </div>
 
-        {/* 变更内容 */}
+        {/* 變更內容 */}
         <div className='space-y-3'>
           {entry.added.length > 0 && (
             <div>
@@ -221,7 +221,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
             <div>
               <h5 className='text-sm font-medium text-blue-700 dark:text-blue-400 mb-2 flex items-center gap-1'>
                 <RefreshCw className='w-4 h-4' />
-                功能改进
+                功能改進
               </h5>
               <ul className='space-y-1'>
                 {entry.changed.map((item, index) => (
@@ -241,7 +241,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
             <div>
               <h5 className='text-sm font-medium text-purple-700 dark:text-purple-400 mb-2 flex items-center gap-1'>
                 <Bug className='w-4 h-4' />
-                问题修复
+                問題修復
               </h5>
               <ul className='space-y-1'>
                 {entry.fixed.map((item, index) => (
@@ -261,7 +261,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
     );
   };
 
-  // 版本面板内容
+  // 版本面板內容
   const versionPanelContent = (
     <>
       {/* 背景遮罩 */}
@@ -272,7 +272,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
 
       {/* 版本面板 */}
       <div className='fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-xl max-h-[90vh] bg-white dark:bg-gray-900 rounded-xl shadow-xl z-[1001] overflow-hidden'>
-        {/* 标题栏 */}
+        {/* 標題欄 */}
         <div className='flex items-center justify-between p-3 sm:p-6 border-b border-gray-200 dark:border-gray-700'>
           <div className='flex items-center gap-2 sm:gap-3'>
             <h3 className='text-lg sm:text-xl font-bold text-gray-800 dark:text-gray-200'>
@@ -294,16 +294,16 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
           <button
             onClick={onClose}
             className='w-6 h-6 sm:w-8 sm:h-8 p-1 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors'
-            aria-label='关闭'
+            aria-label='關閉'
           >
             <X className='w-full h-full' />
           </button>
         </div>
 
-        {/* 内容区域 */}
+        {/* 內容區域 */}
         <div className='p-3 sm:p-6 overflow-y-auto max-h-[calc(95vh-140px)] sm:max-h-[calc(90vh-120px)]'>
           <div className='space-y-3 sm:space-y-6'>
-            {/* 远程更新信息 */}
+            {/* 遠程更新信息 */}
             {hasUpdate && (
               <div className='bg-gradient-to-r from-yellow-50 to-amber-50 dark:from-yellow-900/20 dark:to-amber-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 sm:p-4'>
                 <div className='flex flex-col gap-3'>
@@ -313,7 +313,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
                     </div>
                     <div className='min-w-0 flex-1'>
                       <h4 className='text-sm sm:text-base font-semibold text-yellow-800 dark:text-yellow-200'>
-                        发现新版本
+                        發現新版本
                       </h4>
                       <p className='text-xs sm:text-sm text-yellow-700 dark:text-yellow-300 break-all'>
                         v{CURRENT_VERSION} → v{latestVersion}
@@ -327,13 +327,13 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
                     className='inline-flex items-center justify-center gap-2 px-3 py-2 bg-yellow-600 hover:bg-yellow-700 text-white text-xs sm:text-sm rounded-lg transition-colors shadow-sm w-full'
                   >
                     <Download className='w-3 h-3 sm:w-4 sm:h-4' />
-                    前往仓库
+                    前往倉庫
                   </a>
                 </div>
               </div>
             )}
 
-            {/* 当前为最新版本信息 */}
+            {/* 當前為最新版本信息 */}
             {!hasUpdate && (
               <div className='bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3 sm:p-4'>
                 <div className='flex flex-col gap-3'>
@@ -343,7 +343,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
                     </div>
                     <div className='min-w-0 flex-1'>
                       <h4 className='text-sm sm:text-base font-semibold text-green-800 dark:text-green-200'>
-                        当前为最新版本
+                        當前為最新版本
                       </h4>
                       <p className='text-xs sm:text-sm text-green-700 dark:text-green-300 break-all'>
                         已是最新版本 v{CURRENT_VERSION}
@@ -357,19 +357,19 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
                     className='inline-flex items-center justify-center gap-2 px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-xs sm:text-sm rounded-lg transition-colors shadow-sm w-full'
                   >
                     <CheckCircle className='w-3 h-3 sm:w-4 sm:h-4' />
-                    前往仓库
+                    前往倉庫
                   </a>
                 </div>
               </div>
             )}
 
-            {/* 远程可更新内容 */}
+            {/* 遠程可更新內容 */}
             {hasUpdate && (
               <div className='space-y-4'>
                 <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-3'>
                   <h4 className='text-lg font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2'>
                     <Download className='w-5 h-5 text-yellow-500' />
-                    远程更新内容
+                    遠程更新內容
                   </h4>
                   <button
                     onClick={() => setShowRemoteContent(!showRemoteContent)}
@@ -383,7 +383,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
                     ) : (
                       <>
                         <ChevronDown className='w-4 h-4' />
-                        查看更新内容
+                        查看更新內容
                       </>
                     )}
                   </button>
@@ -393,7 +393,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
                   <div className='space-y-4'>
                     {remoteChangelog
                       .filter((entry) => {
-                        // 找到第一个本地版本，过滤掉本地已有的版本
+                        // 找到第一個本地版本，過濾掉本地已有的版本
                         const localVersions = changelog.map(
                           (local) => local.version
                         );
@@ -415,7 +415,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
                               </h4>
                               {entry.version === latestVersion && (
                                 <span className='px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300 rounded-full flex items-center gap-1'>
-                                  远程最新
+                                  遠程最新
                                 </span>
                               )}
                             </div>
@@ -448,7 +448,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
                             <div className='mb-3'>
                               <h5 className='text-sm font-medium text-blue-600 dark:text-blue-400 mb-2 flex items-center gap-1'>
                                 <RefreshCw className='w-4 h-4' />
-                                功能改进
+                                功能改進
                               </h5>
                               <ul className='space-y-1'>
                                 {entry.changed.map((item, itemIndex) => (
@@ -468,7 +468,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
                             <div>
                               <h5 className='text-sm font-medium text-purple-700 dark:text-purple-400 mb-2 flex items-center gap-1'>
                                 <Bug className='w-4 h-4' />
-                                问题修复
+                                問題修復
                               </h5>
                               <ul className='space-y-1'>
                                 {entry.fixed.map((item, itemIndex) => (
@@ -490,14 +490,14 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
               </div>
             )}
 
-            {/* 变更日志标题 */}
+            {/* 變更日誌標題 */}
             <div className='border-b border-gray-200 dark:border-gray-700 pb-4'>
               <h4 className='text-lg font-semibold text-gray-800 dark:text-gray-200 pb-3 sm:pb-4'>
-                变更日志
+                變更日誌
               </h4>
 
               <div className='space-y-4'>
-                {/* 本地变更日志 */}
+                {/* 本地變更日誌 */}
                 {changelog.map((entry) =>
                   renderChangelogEntry(
                     entry,

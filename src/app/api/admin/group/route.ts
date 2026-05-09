@@ -12,14 +12,14 @@ type Action =
   | 'delete'
   | 'rename'
   | 'setSources'
-  | 'assignUsers' // 批量分配用户到某个组
-  | 'removeUsers'; // 批量将用户从其组移除
+  | 'assignUsers' // 批量分配用戶到某個組
+  | 'removeUsers'; // 批量將用戶從其組移除
 
 export async function POST(request: NextRequest) {
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
   if (storageType === 'localstorage') {
     return NextResponse.json(
-      { error: '不支持本地存储进行管理员配置' },
+      { error: '不支持本地存儲進行管理員配置' },
       { status: 400 }
     );
   }
@@ -37,21 +37,21 @@ export async function POST(request: NextRequest) {
     const adminConfig = await getConfig();
     const storage: IStorage | null = getStorage();
 
-    // 权限与身份校验：站长或管理员
+    // 權限與身份校驗：站長或管理員
     if (username !== process.env.USERNAME) {
       const userEntry = adminConfig.UserConfig.Users.find(
         (u) => u.username === username
       );
       if (!userEntry || userEntry.role !== 'admin' || userEntry.banned) {
-        return NextResponse.json({ error: '权限不足' }, { status: 401 });
+        return NextResponse.json({ error: '權限不足' }, { status: 401 });
       }
     }
 
     if (!action) {
-      return NextResponse.json({ error: '参数格式错误' }, { status: 400 });
+      return NextResponse.json({ error: '參數格式錯誤' }, { status: 400 });
     }
 
-    // 确保分组数组存在
+    // 確保分組數組存在
     if (!adminConfig.UserConfig.Groups) {
       adminConfig.UserConfig.Groups = [];
     }
@@ -63,9 +63,9 @@ export async function POST(request: NextRequest) {
           sourceKeys?: string[];
         };
         if (!name)
-          return NextResponse.json({ error: '缺少分组名称' }, { status: 400 });
+          return NextResponse.json({ error: '缺少分組名稱' }, { status: 400 });
         if (adminConfig.UserConfig.Groups.some((g) => g.name === name)) {
-          return NextResponse.json({ error: '分组已存在' }, { status: 400 });
+          return NextResponse.json({ error: '分組已存在' }, { status: 400 });
         }
         adminConfig.UserConfig.Groups.push({
           name,
@@ -76,14 +76,14 @@ export async function POST(request: NextRequest) {
       case 'delete': {
         const { name } = body as { name?: string };
         if (!name)
-          return NextResponse.json({ error: '缺少分组名称' }, { status: 400 });
+          return NextResponse.json({ error: '缺少分組名稱' }, { status: 400 });
         const idx = adminConfig.UserConfig.Groups.findIndex(
           (g) => g.name === name
         );
         if (idx === -1)
-          return NextResponse.json({ error: '分组不存在' }, { status: 404 });
+          return NextResponse.json({ error: '分組不存在' }, { status: 404 });
         adminConfig.UserConfig.Groups.splice(idx, 1);
-        // 同步清除用户上的该组标记
+        // 同步清除用戶上的該組標記
         adminConfig.UserConfig.Users.forEach((u) => {
           if (u.group === name) delete u.group;
         });
@@ -92,10 +92,10 @@ export async function POST(request: NextRequest) {
       case 'rename': {
         const { name, newName } = body as { name?: string; newName?: string };
         if (!name || !newName)
-          return NextResponse.json({ error: '缺少分组名称' }, { status: 400 });
+          return NextResponse.json({ error: '缺少分組名稱' }, { status: 400 });
         if (adminConfig.UserConfig.Groups.some((g) => g.name === newName)) {
           return NextResponse.json(
-            { error: '新分组名已存在' },
+            { error: '新分組名已存在' },
             { status: 400 }
           );
         }
@@ -103,9 +103,9 @@ export async function POST(request: NextRequest) {
           (g) => g.name === name
         );
         if (!group)
-          return NextResponse.json({ error: '分组不存在' }, { status: 404 });
+          return NextResponse.json({ error: '分組不存在' }, { status: 404 });
         group.name = newName;
-        // 同步用户上的分组名
+        // 同步用戶上的分組名
         adminConfig.UserConfig.Users.forEach((u) => {
           if (u.group === name) u.group = newName;
         });
@@ -117,26 +117,26 @@ export async function POST(request: NextRequest) {
           sourceKeys?: string[];
         };
         if (!name || !Array.isArray(sourceKeys)) {
-          return NextResponse.json({ error: '参数格式错误' }, { status: 400 });
+          return NextResponse.json({ error: '參數格式錯誤' }, { status: 400 });
         }
         const group = adminConfig.UserConfig.Groups.find(
           (g) => g.name === name
         );
         if (!group)
-          return NextResponse.json({ error: '分组不存在' }, { status: 404 });
+          return NextResponse.json({ error: '分組不存在' }, { status: 404 });
         group.sourceKeys = sourceKeys;
         break;
       }
       case 'assignUsers': {
         const { name, users } = body as { name?: string; users?: string[] };
         if (!name || !Array.isArray(users)) {
-          return NextResponse.json({ error: '参数格式错误' }, { status: 400 });
+          return NextResponse.json({ error: '參數格式錯誤' }, { status: 400 });
         }
         const group = adminConfig.UserConfig.Groups.find(
           (g) => g.name === name
         );
         if (!group)
-          return NextResponse.json({ error: '分组不存在' }, { status: 404 });
+          return NextResponse.json({ error: '分組不存在' }, { status: 404 });
         const userSet = new Set(users);
         adminConfig.UserConfig.Users.forEach((u) => {
           if (userSet.has(u.username)) u.group = name;
@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
       case 'removeUsers': {
         const { users } = body as { users?: string[] };
         if (!Array.isArray(users)) {
-          return NextResponse.json({ error: '参数格式错误' }, { status: 400 });
+          return NextResponse.json({ error: '參數格式錯誤' }, { status: 400 });
         }
         const userSet = new Set(users);
         adminConfig.UserConfig.Users.forEach((u) => {
@@ -167,7 +167,7 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     return NextResponse.json(
-      { error: '分组管理操作失败', details: (error as Error).message },
+      { error: '分組管理操作失敗', details: (error as Error).message },
       { status: 500 }
     );
   }

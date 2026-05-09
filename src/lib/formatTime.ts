@@ -1,8 +1,8 @@
 // src/lib/formatTime.ts
 
 /**
- * 格式化秒为 00:00 或 00:00:00（与下载配置一致）
- * @param seconds 秒数
+ * 格式化秒為 00:00 或 00:00:00（與下載配置一致）
+ * @param seconds 秒數
  */
 export function formatTime(seconds: number): string {
   if (seconds === 0) return '00:00';

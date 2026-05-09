@@ -10,9 +10,9 @@ export interface AdminConfig {
     DoubanImageProxyType: string;
     DoubanImageProxy: string;
     DisableYellowFilter: boolean;
-    // 弹幕接口配置
+    // 彈幕接口配置
     DanmakuApiBaseUrl?: string;
-    // TVBox 接口开关与访问密码
+    // TVBox 接口開關與訪問密碼
     TVBoxEnabled?: boolean;
     TVBoxPassword?: string;
   };

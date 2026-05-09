@@ -23,7 +23,7 @@ export function NavigationLoadingIndicator() {
 
   return (
     <>
-      {/* 全屏加载遮罩 */}
+      {/* 全屏加載遮罩 */}
       <div
         className='fixed inset-0 z-[50] bg-white/90 backdrop-blur-xl transition-opacity duration-500 dark:bg-gray-900/90'
         style={{
@@ -31,12 +31,12 @@ export function NavigationLoadingIndicator() {
           pointerEvents: doorsClosed ? 'auto' : 'none',
         }}
       >
-        {/* 中心加载动画 */}
+        {/* 中心加載動畫 */}
         <div className='flex items-center justify-center h-full'>
           <div className='relative'>
-            {/* 月亮形状 */}
+            {/* 月亮形狀 */}
             <div className='relative w-20 h-20'>
-              {/* 月亮主体 */}
+              {/* 月亮主體 */}
               <div
                 className='absolute inset-0 bg-gradient-to-br from-yellow-300 to-yellow-500 dark:from-yellow-400 dark:to-yellow-600 rounded-full shadow-lg shadow-yellow-500/30 animate-bounce'
                 style={{ animationDuration: '2s' }}
@@ -61,12 +61,12 @@ export function NavigationLoadingIndicator() {
             </div>
           </div>
 
-          {/* 加载文字 */}
+          {/* 加載文字 */}
           <div className='absolute mt-32 text-gray-700 dark:text-gray-300 font-medium text-sm'>
             <span className='animate-pulse'>🌙</span>
             <span className='animate-pulse' style={{ animationDelay: '0.2s' }}>
               {' '}
-              月亮正在努力加载中
+              月亮正在努力加載中
             </span>
             <span className='animate-pulse' style={{ animationDelay: '0.4s' }}>
               {' '}

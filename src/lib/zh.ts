@@ -1,6 +1,6 @@
 // 簡繁轉換工具（最小依賴）
 // 使用 chinese-conv 以在 Edge/瀏覽器/Node 環境皆可運作
-import { sify } from 'chinese-conv';
+import { sify, tify } from 'chinese-conv';
 
 /**
  * 將輸入字串轉為簡體（失敗時回傳原字串）
@@ -9,6 +9,18 @@ export function toSimplified(input: string | null | undefined): string {
   if (!input) return '';
   try {
     return sify(input);
+  } catch {
+    return input;
+  }
+}
+
+/**
+ * 將輸入字串轉為繁體（失敗時回傳原字串）
+ */
+export function toTraditional(input: string | null | undefined): string {
+  if (!input) return '';
+  try {
+    return tify(input);
   } catch {
     return input;
   }

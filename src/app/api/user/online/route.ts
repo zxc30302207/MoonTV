@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
   if (storageType === 'localstorage') {
     return NextResponse.json(
-      { ok: false, reason: 'localstorage 模式不支持管理员配置写入' },
+      { ok: false, reason: 'localstorage 模式不支持管理員配置寫入' },
       { status: 400 }
     );
   }
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
   try {
     const auth = getAuthInfoFromCookie(request);
     if (!auth?.username) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 });
+      return NextResponse.json({ error: '未登錄' }, { status: 401 });
     }
 
     const username = auth.username;
@@ -30,10 +30,10 @@ export async function POST(request: NextRequest) {
       (u) => u.username === username
     );
     if (!userEntry) {
-      return NextResponse.json({ error: '用户不存在' }, { status: 404 });
+      return NextResponse.json({ error: '用戶不存在' }, { status: 404 });
     }
     if (userEntry.banned) {
-      return NextResponse.json({ error: '用户已被封禁' }, { status: 401 });
+      return NextResponse.json({ error: '用戶已被封禁' }, { status: 401 });
     }
 
     userEntry.lastOnline = Date.now();
@@ -48,9 +48,9 @@ export async function POST(request: NextRequest) {
       { status: 200 }
     );
   } catch (error) {
-    console.error('更新用户上线时间失败:', error);
+    console.error('更新用戶上線時間失敗:', error);
     return NextResponse.json(
-      { error: '更新用户上线时间失败', details: (error as Error).message },
+      { error: '更新用戶上線時間失敗', details: (error as Error).message },
       { status: 500 }
     );
   }

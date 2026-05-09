@@ -7,7 +7,7 @@ import { getClientIp, getRateLimitHeaders, rateLimit } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 
-// 读取存储类型环境变量，默认 localstorage
+// 讀取存儲類型環境變量，默認 localstorage
 const STORAGE_TYPE =
   (process.env.NEXT_PUBLIC_STORAGE_TYPE as
     | 'localstorage'
@@ -33,7 +33,7 @@ function getCookieOptions(request: NextRequest, expires: Date) {
   };
 }
 
-// 生成认证Cookie（带签名）
+// 生成認證Cookie（帶簽名）
 async function generateAuthCookie(
   request: NextRequest,
   options: {
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
     });
     if (!rateLimitResult.allowed) {
       return NextResponse.json(
-        { error: '请求过于频繁，请稍后再试' },
+        { error: '請求過於頻繁，請稍後再試' },
         {
           status: 429,
           headers: getRateLimitHeaders(rateLimitResult),
@@ -82,15 +82,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 本地 / localStorage 模式——仅校验固定密码
+    // 本地 / localStorage 模式——僅校驗固定密碼
     if (STORAGE_TYPE === 'localstorage') {
       const envPassword = process.env.PASSWORD;
 
-      // 未配置 PASSWORD 时直接放行
+      // 未配置 PASSWORD 時直接放行
       if (!envPassword) {
         const response = NextResponse.json({ ok: true });
 
-        // 清除可能存在的认证cookie
+        // 清除可能存在的認證cookie
         response.cookies.set('auth', '', getCookieOptions(req, new Date(0)));
 
         return response;
@@ -98,93 +98,93 @@ export async function POST(req: NextRequest) {
 
       const { password } = await req.json();
       if (typeof password !== 'string') {
-        return NextResponse.json({ error: '密码不能为空' }, { status: 400 });
+        return NextResponse.json({ error: '密碼不能為空' }, { status: 400 });
       }
 
       if (password !== envPassword) {
         return NextResponse.json(
-          { ok: false, error: '密码错误' },
+          { ok: false, error: '密碼錯誤' },
           { status: 401 }
         );
       }
 
-      // 验证成功，设置认证cookie
+      // 驗證成功，設置認證cookie
       const response = NextResponse.json({ ok: true });
       const cookieValue = await generateAuthCookie(req, {
         role: 'user',
         mode: 'localstorage',
       });
       const expires = new Date();
-      expires.setDate(expires.getDate() + 7); // 7天过期
+      expires.setDate(expires.getDate() + 7); // 7天過期
 
       response.cookies.set('auth', cookieValue, getCookieOptions(req, expires));
 
       return response;
     }
 
-    // 数据库 / redis 模式——校验用户名并尝试连接数据库
+    // 數據庫 / redis 模式——校驗用戶名並嘗試連接數據庫
     const { username, password } = await req.json();
 
     if (!username || typeof username !== 'string') {
-      return NextResponse.json({ error: '用户名不能为空' }, { status: 400 });
+      return NextResponse.json({ error: '用戶名不能為空' }, { status: 400 });
     }
     if (!password || typeof password !== 'string') {
-      return NextResponse.json({ error: '密码不能为空' }, { status: 400 });
+      return NextResponse.json({ error: '密碼不能為空' }, { status: 400 });
     }
 
-    // 可能是站长，直接读环境变量
+    // 可能是站長，直接讀環境變量
     if (
       username === process.env.USERNAME &&
       password === process.env.PASSWORD
     ) {
-      // 验证成功，设置认证cookie
+      // 驗證成功，設置認證cookie
       const response = NextResponse.json({ ok: true });
       const cookieValue = await generateAuthCookie(req, {
         username,
         role: 'owner',
       });
       const expires = new Date();
-      expires.setDate(expires.getDate() + 7); // 7天过期
+      expires.setDate(expires.getDate() + 7); // 7天過期
 
       response.cookies.set('auth', cookieValue, getCookieOptions(req, expires));
 
       return response;
     } else if (username === process.env.USERNAME) {
-      return NextResponse.json({ error: '用户名或密码错误' }, { status: 401 });
+      return NextResponse.json({ error: '用戶名或密碼錯誤' }, { status: 401 });
     }
 
     const config = await getConfig();
     const user = config.UserConfig.Users.find((u) => u.username === username);
     if (user && user.banned) {
-      return NextResponse.json({ error: '用户被封禁' }, { status: 401 });
+      return NextResponse.json({ error: '用戶被封禁' }, { status: 401 });
     }
 
-    // 校验用户密码
+    // 校驗用戶密碼
     try {
       const pass = await db.verifyUser(username, password);
       if (!pass) {
         return NextResponse.json(
-          { error: '用户名或密码错误' },
+          { error: '用戶名或密碼錯誤' },
           { status: 401 }
         );
       }
 
-      // 验证成功，设置认证cookie
+      // 驗證成功，設置認證cookie
       const response = NextResponse.json({ ok: true });
       const cookieValue = await generateAuthCookie(req, {
         username,
         role: user?.role || 'user',
       });
       const expires = new Date();
-      expires.setDate(expires.getDate() + 7); // 7天过期
+      expires.setDate(expires.getDate() + 7); // 7天過期
 
       response.cookies.set('auth', cookieValue, getCookieOptions(req, expires));
 
       return response;
     } catch (err) {
-      return NextResponse.json({ error: '数据库错误' }, { status: 500 });
+      return NextResponse.json({ error: '數據庫錯誤' }, { status: 500 });
     }
   } catch (error) {
-    return NextResponse.json({ error: '服务器错误' }, { status: 500 });
+    return NextResponse.json({ error: '服務器錯誤' }, { status: 500 });
   }
 }

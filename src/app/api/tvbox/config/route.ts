@@ -6,8 +6,8 @@ export const runtime = 'nodejs';
 
 /**
  * TVBox 配置接口
- * 参考常见 TVBox JSON 结构，最小可用字段：sites
- * 未来可扩展 parses、lives、ads 等
+ * 參考常見 TVBox JSON 結構，最小可用字段：sites
+ * 未來可擴展 parses、lives、ads 等
  */
 export async function GET(request: Request) {
   try {
@@ -25,9 +25,9 @@ export async function GET(request: Request) {
     const adminConfig = await getConfig();
     const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
 
-    // 本地存储模式下 un 参数可以为空
+    // 本地存儲模式下 un 參數可以為空
     if (storageType !== 'localstorage' && !un.trim()) {
-      return NextResponse.json({ error: '缺少参数 un' }, { status: 400 });
+      return NextResponse.json({ error: '缺少參數 un' }, { status: 400 });
     }
 
     let username = '';
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
       try {
         username = Buffer.from(un, 'base64').toString('utf8');
       } catch (e) {
-        return NextResponse.json({ error: '参数 un 非法' }, { status: 400 });
+        return NextResponse.json({ error: '參數 un 非法' }, { status: 400 });
       }
     }
 
@@ -51,11 +51,11 @@ export async function GET(request: Request) {
         : adminConfig.SiteConfig.TVBoxPassword || '';
 
     if (!enabled) {
-      return NextResponse.json({ error: 'TVBox 接口未开启' }, { status: 403 });
+      return NextResponse.json({ error: 'TVBox 接口未開啟' }, { status: 403 });
     }
 
     if (!password || inputPassword !== password) {
-      return NextResponse.json({ error: '密码错误或未提供' }, { status: 401 });
+      return NextResponse.json({ error: '密碼錯誤或未提供' }, { status: 401 });
     }
 
     const [sites, cacheTime] = await Promise.all([
@@ -63,8 +63,8 @@ export async function GET(request: Request) {
       getCacheTime(),
     ]);
 
-    // 将内部 SourceConfig 映射为 TVBox 兼容的 sites
-    // 常见字段：key/api/name/type/searchable/quickSearch
+    // 將內部 SourceConfig 映射為 TVBox 兼容的 sites
+    // 常見字段：key/api/name/type/searchable/quickSearch
     const tvboxSites = sites.map((s) => ({
       key: s.key,
       api: s.api,
@@ -75,7 +75,7 @@ export async function GET(request: Request) {
       ext: s.detail || '',
     }));
 
-    // 插入“豆瓣｜自定义”为第一个站点，指向分类接口
+    // 插入「豆瓣｜自定義」為第一個站點，指向分類接口
     const origin = new URL(request.url).origin;
     const doubanCustomSiteUrl = new URL(`${origin}/api/tvbox/categories`);
     if (allowQueryPassword && password) {
@@ -84,7 +84,7 @@ export async function GET(request: Request) {
     const doubanCustomSite = {
       key: 'douban_custom',
       api: doubanCustomSiteUrl.toString(),
-      name: '豆瓣｜自定义',
+      name: '豆瓣｜自定義',
       type: 1,
       searchable: 0,
       ext: '',

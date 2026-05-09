@@ -44,7 +44,7 @@ export const API_CONFIG = {
   },
 };
 
-// 在模块加载时根据环境决定配置来源
+// 在模塊加載時根據環境決定配置來源
 let fileConfig: ConfigFileStruct;
 let cachedConfig: AdminConfig;
 
@@ -54,7 +54,7 @@ export function refineConfig(adminConfig: AdminConfig): AdminConfig {
   } catch (e) {
     fileConfig = {} as ConfigFileStruct;
   }
-  // 合并文件中的源信息
+  // 合並文件中的源信息
   const apiSiteEntries = Object.entries(fileConfig.api_site || []);
   const sourceConfigMap = new Map(
     (adminConfig.SourceConfig || []).map((s) => [s.key, s])
@@ -63,13 +63,13 @@ export function refineConfig(adminConfig: AdminConfig): AdminConfig {
   apiSiteEntries.forEach(([key, site]) => {
     const existingSource = sourceConfigMap.get(key);
     if (existingSource) {
-      // 如果已存在，只覆盖 name、api、detail 和 from
+      // 如果已存在，只覆蓋 name、api、detail 和 from
       existingSource.name = site.name;
       existingSource.api = site.api;
       existingSource.detail = site.detail;
       existingSource.from = 'config';
     } else {
-      // 如果不存在，创建新条目
+      // 如果不存在，創建新條目
       sourceConfigMap.set(key, {
         key,
         name: site.name,
@@ -81,7 +81,7 @@ export function refineConfig(adminConfig: AdminConfig): AdminConfig {
     }
   });
 
-  // 检查现有源是否在 fileConfig.api_site 中，如果不在则标记为 custom
+  // 檢查現有源是否在 fileConfig.api_site 中，如果不在則標記為 custom
   const apiSiteKeys = new Set(apiSiteEntries.map(([key]) => key));
   sourceConfigMap.forEach((source) => {
     if (!apiSiteKeys.has(source.key)) {
@@ -89,10 +89,10 @@ export function refineConfig(adminConfig: AdminConfig): AdminConfig {
     }
   });
 
-  // 将 Map 转换回数组
+  // 將 Map 轉換回數組
   adminConfig.SourceConfig = Array.from(sourceConfigMap.values());
 
-  // 覆盖 CustomCategories
+  // 覆蓋 CustomCategories
   const customCategories = fileConfig.custom_category || [];
   const customCategoriesMap = new Map(
     (adminConfig.CustomCategories || []).map((c) => [c.query + c.type, c])
@@ -117,7 +117,7 @@ export function refineConfig(adminConfig: AdminConfig): AdminConfig {
     }
   });
 
-  // 检查现有 CustomCategories 是否在 fileConfig.custom_category 中，如果不在则标记为 custom
+  // 檢查現有 CustomCategories 是否在 fileConfig.custom_category 中，如果不在則標記為 custom
   const customCategoriesKeys = new Set(
     customCategories.map((c) => c.query + c.type)
   );
@@ -127,7 +127,7 @@ export function refineConfig(adminConfig: AdminConfig): AdminConfig {
     }
   });
 
-  // 将 Map 转换回数组
+  // 將 Map 轉換回數組
   adminConfig.CustomCategories = Array.from(customCategoriesMap.values());
 
   // 同步 cache_time 到 SiteConfig.SiteInterfaceCacheTime
@@ -154,34 +154,34 @@ async function initConfig() {
     fileConfig = JSON.parse(raw) as ConfigFileStruct;
     console.log('load dynamic config success');
   } else {
-    // 默认使用编译时生成的配置
+    // 默認使用編譯時生成的配置
     fileConfig = runtimeConfig as unknown as ConfigFileStruct;
   }
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
   if (storageType !== 'localstorage') {
     if (cachedConfig) {
-      // 自检补全配置
+      // 自檢補全配置
       cachedConfig = refineConfig(cachedConfig);
       return;
     }
 
-    // 数据库存储，读取并补全管理员配置
+    // 數據庫存儲，讀取並補全管理員配置
     const storage = getStorage();
 
     try {
-      // 尝试从数据库获取管理员配置
+      // 嘗試從數據庫獲取管理員配置
       let adminConfig: AdminConfig | null = null;
       if (storage && typeof (storage as any).getAdminConfig === 'function') {
         adminConfig = await (storage as any).getAdminConfig();
       }
 
-      // 获取所有用户名，用于补全 Users
+      // 獲取所有用戶名，用於補全 Users
       let userNames: string[] = [];
       if (storage && typeof (storage as any).getAllUsers === 'function') {
         try {
           userNames = await (storage as any).getAllUsers();
         } catch (e) {
-          console.error('获取用户列表失败:', e);
+          console.error('獲取用戶列表失敗:', e);
         }
       }
 
@@ -189,13 +189,13 @@ async function initConfig() {
         try {
           fileConfig = JSON.parse(adminConfig.ConfigFile) as ConfigFileStruct;
         } catch (e) {
-          console.error('解析配置文件失败:', e);
+          console.error('解析配置文件失敗:', e);
           fileConfig = {} as ConfigFileStruct;
         }
         const apiSiteEntries = Object.entries(fileConfig.api_site || []);
         const customCategories = fileConfig.custom_category || [];
 
-        // 补全 SourceConfig
+        // 補全 SourceConfig
         const sourceConfigMap = new Map(
           (adminConfig.SourceConfig || []).map((s) => [s.key, s])
         );
@@ -211,10 +211,10 @@ async function initConfig() {
           });
         });
 
-        // 将 Map 转换回数组
+        // 將 Map 轉換回數組
         adminConfig.SourceConfig = Array.from(sourceConfigMap.values());
 
-        // 检查现有源是否在 fileConfig.api_site 中，如果不在则标记为 custom
+        // 檢查現有源是否在 fileConfig.api_site 中，如果不在則標記為 custom
         const apiSiteKeys = new Set(apiSiteEntries.map(([key]) => key));
         adminConfig.SourceConfig.forEach((source) => {
           if (!apiSiteKeys.has(source.key)) {
@@ -222,12 +222,12 @@ async function initConfig() {
           }
         });
 
-        // 确保 CustomCategories 被初始化
+        // 確保 CustomCategories 被初始化
         if (!adminConfig.CustomCategories) {
           adminConfig.CustomCategories = [];
         }
 
-        // 补全 CustomCategories
+        // 補全 CustomCategories
         const customCategoriesMap = new Map(
           adminConfig.CustomCategories.map((c) => [c.query + c.type, c])
         );
@@ -242,7 +242,7 @@ async function initConfig() {
           });
         });
 
-        // 检查现有 CustomCategories 是否在 fileConfig.custom_category 中，如果不在则标记为 custom
+        // 檢查現有 CustomCategories 是否在 fileConfig.custom_category 中，如果不在則標記為 custom
         const customCategoriesKeys = new Set(
           customCategories.map((c) => c.query + c.type)
         );
@@ -252,7 +252,7 @@ async function initConfig() {
           }
         });
 
-        // 将 Map 转换回数组
+        // 將 Map 轉換回數組
         adminConfig.CustomCategories = Array.from(customCategoriesMap.values());
 
         const existedUsers = new Set(
@@ -266,7 +266,7 @@ async function initConfig() {
             });
           }
         });
-        // 站长
+        // 站長
         const ownerUser = process.env.USERNAME;
         if (ownerUser) {
           adminConfig!.UserConfig.Users = adminConfig!.UserConfig.Users.filter(
@@ -277,7 +277,7 @@ async function initConfig() {
             role: 'owner',
           });
         }
-        // 初始化分组结构（若缺失）
+        // 初始化分組結構（若缺失）
         if (!adminConfig.UserConfig) {
           adminConfig.UserConfig = {
             AllowRegister: false,
@@ -292,7 +292,7 @@ async function initConfig() {
           (adminConfig.UserConfig as any).Groups = [];
         }
       } else {
-        // 数据库中没有配置，使用默认的运行时配置
+        // 數據庫中沒有配置，使用默認的運行時配置
         if (process.env.DOCKER_ENV === 'true') {
           // eslint-disable-next-line @typescript-eslint/no-implied-eval
           const _require = eval('require') as NodeJS.Require;
@@ -303,10 +303,10 @@ async function initConfig() {
           const raw = fs.readFileSync(configPath, 'utf-8');
           fileConfig = JSON.parse(raw) as ConfigFileStruct;
         } else {
-          // 默认使用编译时生成的配置
+          // 默認使用編譯時生成的配置
           fileConfig = runtimeConfig as unknown as ConfigFileStruct;
         }
-        // 数据库中没有配置，创建新的管理员配置
+        // 數據庫中沒有配置，創建新的管理員配置
         let allUsers = userNames.map((uname) => ({
           username: uname,
           role: 'user',
@@ -325,7 +325,7 @@ async function initConfig() {
             SiteName: process.env.NEXT_PUBLIC_SITE_NAME || 'MoonTV',
             Announcement:
               process.env.ANNOUNCEMENT ||
-              '本网站仅提供影视信息搜索服务，所有内容均来自第三方网站。本站不存储任何视频资源，不对任何内容的准确性、合法性、完整性负责。',
+              '本網站僅提供影視信息搜索服務，所有內容均來自第三方網站。本站不存儲任何視頻資源，不對任何內容的準確性、合法性、完整性負責。',
             SearchDownstreamMaxPage:
               Number(process.env.NEXT_PUBLIC_SEARCH_MAX_PAGE) || 5,
             SiteInterfaceCacheTime: fileConfig.cache_time || 7200,
@@ -370,25 +370,25 @@ async function initConfig() {
         };
       }
 
-      // 写回数据库（更新/创建）
+      // 寫回數據庫（更新/創建）
       if (storage && typeof (storage as any).setAdminConfig === 'function') {
         await (storage as any).setAdminConfig(adminConfig);
       }
 
-      // 更新缓存
+      // 更新緩存
       cachedConfig = adminConfig;
     } catch (err) {
-      console.error('加载管理员配置失败:', err);
+      console.error('加載管理員配置失敗:', err);
     }
   } else {
-    // 本地存储直接使用文件配置
+    // 本地存儲直接使用文件配置
     cachedConfig = {
       ConfigFile: JSON.stringify(fileConfig),
       SiteConfig: {
         SiteName: process.env.SITE_NAME || 'MoonTV',
         Announcement:
           process.env.ANNOUNCEMENT ||
-          '本网站仅提供影视信息搜索服务，所有内容均来自第三方网站。本站不存储任何视频资源，不对任何内容的准确性、合法性、完整性负责。',
+          '本網站僅提供影視信息搜索服務，所有內容均來自第三方網站。本站不存儲任何視頻資源，不對任何內容的準確性、合法性、完整性負責。',
         SearchDownstreamMaxPage:
           Number(process.env.NEXT_PUBLIC_SEARCH_MAX_PAGE) || 5,
         SiteInterfaceCacheTime: fileConfig.cache_time || 7200,
@@ -439,7 +439,7 @@ export async function getConfig(): Promise<AdminConfig> {
     return cachedConfig;
   }
 
-  // 非 docker 环境且 DB 存储，直接读 db 配置
+  // 非 docker 環境且 DB 存儲，直接讀 db 配置
   const storage = getStorage();
   let adminConfig: AdminConfig | null = null;
   if (storage && typeof (storage as any).getAdminConfig === 'function') {
@@ -447,12 +447,12 @@ export async function getConfig(): Promise<AdminConfig> {
   }
 
   if (adminConfig) {
-    // 确保 CustomCategories 被初始化
+    // 確保 CustomCategories 被初始化
     if (!adminConfig.CustomCategories) {
       adminConfig.CustomCategories = [];
     }
 
-    // 数据库优先，环境变量仅在缺省时回退
+    // 數據庫優先，環境變量僅在缺省時回退
     adminConfig.SiteConfig.SiteName =
       adminConfig.SiteConfig.SiteName ||
       process.env.NEXT_PUBLIC_SITE_NAME ||
@@ -460,7 +460,7 @@ export async function getConfig(): Promise<AdminConfig> {
     adminConfig.SiteConfig.Announcement =
       adminConfig.SiteConfig.Announcement ||
       process.env.ANNOUNCEMENT ||
-      '本网站仅提供影视信息搜索服务，所有内容均来自第三方网站。本站不存储任何视频资源，不对任何内容的准确性、合法性、完整性负责。';
+      '本網站僅提供影視信息搜索服務，所有內容均來自第三方網站。本站不存儲任何視頻資源，不對任何內容的準確性、合法性、完整性負責。';
     adminConfig.UserConfig.AllowRegister =
       typeof adminConfig.UserConfig.AllowRegister === 'boolean'
         ? adminConfig.UserConfig.AllowRegister
@@ -486,12 +486,12 @@ export async function getConfig(): Promise<AdminConfig> {
         ? adminConfig.SiteConfig.DisableYellowFilter
         : process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true';
 
-    // 弹幕接口配置：数据库优先，其次环境变量，最后使用默认值
+    // 彈幕接口配置：數據庫優先，其次環境變量，最後使用默認值
     adminConfig.SiteConfig.DanmakuApiBaseUrl =
       adminConfig.SiteConfig.DanmakuApiBaseUrl ||
       process.env.NEXT_PUBLIC_DANMU_API_BASE_URL ||
       '';
-    // TVBox 开关与密码默认值
+    // TVBox 開關與密碼默認值
     const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
     if (storageType === 'localstorage') {
       const raw = process.env.TVBOX_ENABLED;
@@ -512,11 +512,11 @@ export async function getConfig(): Promise<AdminConfig> {
     try {
       fileConfig = JSON.parse(adminConfig.ConfigFile) as ConfigFileStruct;
     } catch (e) {
-      console.error('解析配置文件失败:', e);
+      console.error('解析配置文件失敗:', e);
       fileConfig = {} as ConfigFileStruct;
     }
 
-    // 合并文件中的源信息
+    // 合並文件中的源信息
     const apiSiteEntries = Object.entries(fileConfig.api_site || []);
     const sourceConfigMap = new Map(
       (adminConfig.SourceConfig || []).map((s) => [s.key, s])
@@ -525,13 +525,13 @@ export async function getConfig(): Promise<AdminConfig> {
     apiSiteEntries.forEach(([key, site]) => {
       const existingSource = sourceConfigMap.get(key);
       if (existingSource) {
-        // 如果已存在，只覆盖 name、api、detail 和 from
+        // 如果已存在，只覆蓋 name、api、detail 和 from
         existingSource.name = site.name;
         existingSource.api = site.api;
         existingSource.detail = site.detail;
         existingSource.from = 'config';
       } else {
-        // 如果不存在，创建新条目
+        // 如果不存在，創建新條目
         sourceConfigMap.set(key, {
           key,
           name: site.name,
@@ -543,7 +543,7 @@ export async function getConfig(): Promise<AdminConfig> {
       }
     });
 
-    // 检查现有源是否在 fileConfig.api_site 中，如果不在则标记为 custom
+    // 檢查現有源是否在 fileConfig.api_site 中，如果不在則標記為 custom
     const apiSiteKeys = new Set(apiSiteEntries.map(([key]) => key));
     sourceConfigMap.forEach((source) => {
       if (!apiSiteKeys.has(source.key)) {
@@ -551,10 +551,10 @@ export async function getConfig(): Promise<AdminConfig> {
       }
     });
 
-    // 将 Map 转换回数组
+    // 將 Map 轉換回數組
     adminConfig.SourceConfig = Array.from(sourceConfigMap.values());
 
-    // 覆盖 CustomCategories - 只覆盖 from 为 config 的项
+    // 覆蓋 CustomCategories - 只覆蓋 from 為 config 的項
     const customCategories = fileConfig.custom_category || [];
     const customCategoriesMap = new Map(
       (adminConfig.CustomCategories || []).map((c) => [c.query + c.type, c])
@@ -564,7 +564,7 @@ export async function getConfig(): Promise<AdminConfig> {
       const key = category.query + category.type;
       const existingCategory = customCategoriesMap.get(key);
       if (existingCategory) {
-        // 如果已存在，只覆盖 from 为 config 的项
+        // 如果已存在，只覆蓋 from 為 config 的項
         if (existingCategory.from === 'config') {
           existingCategory.name = category.name;
           existingCategory.type = category.type;
@@ -573,7 +573,7 @@ export async function getConfig(): Promise<AdminConfig> {
           existingCategory.disabled = false;
         }
       } else {
-        // 如果不存在，创建新条目
+        // 如果不存在，創建新條目
         customCategoriesMap.set(key, {
           name: category.name,
           type: category.type,
@@ -584,7 +584,7 @@ export async function getConfig(): Promise<AdminConfig> {
       }
     });
 
-    // 检查现有分类是否在 fileConfig.custom_category 中，如果不在则标记为 custom
+    // 檢查現有分類是否在 fileConfig.custom_category 中，如果不在則標記為 custom
     const customCategoryKeys = new Set(
       customCategories.map((c) => c.query + c.type)
     );
@@ -594,7 +594,7 @@ export async function getConfig(): Promise<AdminConfig> {
       }
     });
 
-    // 将 Map 转换回数组
+    // 將 Map 轉換回數組
     adminConfig.CustomCategories = Array.from(customCategoriesMap.values());
 
     // 同步 cache_time 到 SiteConfig.SiteInterfaceCacheTime
@@ -602,7 +602,7 @@ export async function getConfig(): Promise<AdminConfig> {
       adminConfig.SiteConfig.SiteInterfaceCacheTime = fileConfig.cache_time;
     }
 
-    // 初始化分组结构（若缺失）
+    // 初始化分組結構（若缺失）
     if (!adminConfig.UserConfig) {
       adminConfig.UserConfig = {
         AllowRegister: false,
@@ -618,7 +618,7 @@ export async function getConfig(): Promise<AdminConfig> {
     }
 
     const ownerUser = process.env.USERNAME || '';
-    // 检查配置中的站长用户是否和 USERNAME 匹配，如果不匹配则降级为普通用户
+    // 檢查配置中的站長用戶是否和 USERNAME 匹配，如果不匹配則降級為普通用戶
     let containOwner = false;
     adminConfig.UserConfig.Users.forEach((user) => {
       if (user.username !== ownerUser && user.role === 'owner') {
@@ -630,7 +630,7 @@ export async function getConfig(): Promise<AdminConfig> {
       }
     });
 
-    // 如果不在则添加
+    // 如果不在則添加
     if (!containOwner) {
       adminConfig.UserConfig.Users.unshift({
         username: ownerUser,
@@ -646,7 +646,7 @@ export async function getConfig(): Promise<AdminConfig> {
 }
 
 export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
-  // 确保必要的属性存在和初始化
+  // 確保必要的屬性存在和初始化
   if (!adminConfig.UserConfig) {
     adminConfig.UserConfig = { AllowRegister: false, Users: [] };
   }
@@ -669,7 +669,7 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
     adminConfig.SubscriptionConfig = {};
   }
 
-  // 站长变更自检
+  // 站長變更自檢
   const ownerUser = process.env.USERNAME;
   const originalOwner = adminConfig.UserConfig.Users.find((u) => u.username === ownerUser);
 
@@ -682,17 +682,17 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
     seenUsernames.add(user.username);
     return true;
   });
-  // 过滤站长
+  // 過濾站長
   adminConfig.UserConfig.Users = adminConfig.UserConfig.Users.filter(
     (user) => user.username !== ownerUser
   );
-  // 其他用户不得拥有 owner 权限
+  // 其他用戶不得擁有 owner 權限
   adminConfig.UserConfig.Users.forEach((user) => {
     if (user.role === 'owner') {
       user.role = 'user';
     }
   });
-  // 重新添加回站长
+  // 重新添加回站長
   adminConfig.UserConfig.Users.unshift({
     username: ownerUser!,
     role: 'owner',
@@ -701,7 +701,7 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
     lastOnline: originalOwner?.lastOnline,
   });
 
-  // 采集源去重
+  // 採集源去重
   const seenSourceKeys = new Set<string>();
   adminConfig.SourceConfig = adminConfig.SourceConfig.filter((source) => {
     if (seenSourceKeys.has(source.key)) {
@@ -711,7 +711,7 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
     return true;
   });
 
-  // 自定义分类去重
+  // 自定義分類去重
   const seenCustomCategoryKeys = new Set<string>();
   adminConfig.CustomCategories = adminConfig.CustomCategories.filter(
     (category) => {
@@ -729,13 +729,13 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
 export async function resetConfig() {
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
   const storage = getStorage();
-  // 获取所有用户名，用于补全 Users
+  // 獲取所有用戶名，用於補全 Users
   let userNames: string[] = [];
   if (storage && typeof (storage as any).getAllUsers === 'function') {
     try {
       userNames = await (storage as any).getAllUsers();
     } catch (e) {
-      console.error('获取用户列表失败:', e);
+      console.error('獲取用戶列表失敗:', e);
     }
   }
 
@@ -750,7 +750,7 @@ export async function resetConfig() {
     fileConfig = JSON.parse(raw) as ConfigFileStruct;
     console.log('load dynamic config success');
   } else {
-    // 默认使用编译时生成的配置
+    // 默認使用編譯時生成的配置
     fileConfig = runtimeConfig as unknown as ConfigFileStruct;
   }
 
@@ -774,7 +774,7 @@ export async function resetConfig() {
       SiteName: process.env.SITE_NAME || 'MoonTV',
       Announcement:
         process.env.ANNOUNCEMENT ||
-        '本网站仅提供影视信息搜索服务，所有内容均来自第三方网站。本站不存储任何视频资源，不对任何内容的准确性、合法性、完整性负责。',
+        '本網站僅提供影視信息搜索服務，所有內容均來自第三方網站。本站不存儲任何視頻資源，不對任何內容的準確性、合法性、完整性負責。',
       SearchDownstreamMaxPage:
         Number(process.env.NEXT_PUBLIC_SEARCH_MAX_PAGE) || 5,
       SiteInterfaceCacheTime: fileConfig.cache_time || 7200,
@@ -818,7 +818,7 @@ export async function resetConfig() {
     await (storage as any).setAdminConfig(adminConfig);
   }
   if (cachedConfig == null) {
-    // serverless 环境，直接使用 adminConfig
+    // serverless 環境，直接使用 adminConfig
     cachedConfig = adminConfig;
   }
   cachedConfig.ConfigFile = adminConfig.ConfigFile;

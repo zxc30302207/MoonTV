@@ -30,16 +30,16 @@ function parseChangelog(content) {
         added: [],
         changed: [],
         fixed: [],
-        content: [], // 用于存储原始内容，当没有分类时使用
+        content: [], // 用於存儲原始內容，當沒有分類時使用
       };
       currentSection = null;
       inVersionContent = true;
       continue;
     }
 
-    // 如果遇到下一个版本或到达文件末尾，停止处理当前版本
+    // 如果遇到下一個版本或到達文件末尾，停止處理當前版本
     if (inVersionContent && currentVersion) {
-      // 匹配章节标题
+      // 匹配章節標題
       if (trimmedLine === '### Added') {
         currentSection = 'added';
         continue;
@@ -51,7 +51,7 @@ function parseChangelog(content) {
         continue;
       }
 
-      // 匹配条目: - 内容
+      // 匹配條目: - 內容
       if (trimmedLine.startsWith('- ') && currentSection) {
         const entry = trimmedLine.substring(2);
         currentVersion[currentSection].push(entry);
@@ -65,12 +65,12 @@ function parseChangelog(content) {
     }
   }
 
-  // 添加最后一个版本
+  // 添加最後一個版本
   if (currentVersion) {
     versions.push(currentVersion);
   }
 
-  // 后处理：如果某个版本没有分类内容，但有 content，则将 content 放到 changed 中
+  // 後處理：如果某個版本沒有分類內容，但有 content，則將 content 放到 changed 中
   versions.forEach((version) => {
     const hasCategories =
       version.added.length > 0 ||
@@ -103,20 +103,20 @@ function generateTypeScript(changelogData) {
     version: "${version.version}",
     date: "${version.date}",
     added: [
-${addedEntries || '      // 无新增内容'}
+${addedEntries || '      // 無新增內容'}
     ],
     changed: [
-${changedEntries || '      // 无变更内容'}
+${changedEntries || '      // 無變更內容'}
     ],
     fixed: [
-${fixedEntries || '      // 无修复内容'}
+${fixedEntries || '      // 無修復內容'}
     ]
   }`;
     })
     .join(',\n');
 
-  return `// 此文件由 scripts/convert-changelog.js 自动生成
-// 请勿手动编辑
+  return `// 此文件由 scripts/convert-changelog.js 自動生成
+// 請勿手動編輯
 
 export interface ChangelogEntry {
   version: string;
@@ -140,7 +140,7 @@ function updateVersionFile(version) {
     fs.writeFileSync(versionTxtPath, version, 'utf8');
     console.log(`✅ 已更新 VERSION.txt: ${version}`);
   } catch (error) {
-    console.error(`❌ 无法更新 VERSION.txt:`, error.message);
+    console.error(`❌ 無法更新 VERSION.txt:`, error.message);
     process.exit(1);
   }
 }
@@ -150,7 +150,7 @@ function updateVersionTs(version) {
   try {
     let content = fs.readFileSync(versionTsPath, 'utf8');
 
-    // 替换 CURRENT_VERSION 常量
+    // 替換 CURRENT_VERSION 常量
     const updatedContent = content.replace(
       /const CURRENT_VERSION = ['"`][^'"`]+['"`];/,
       `const CURRENT_VERSION = '${version}';`
@@ -159,7 +159,7 @@ function updateVersionTs(version) {
     fs.writeFileSync(versionTsPath, updatedContent, 'utf8');
     console.log(`✅ 已更新 version.ts: ${version}`);
   } catch (error) {
-    console.error(`❌ 无法更新 version.ts:`, error.message);
+    console.error(`❌ 無法更新 version.ts:`, error.message);
     process.exit(1);
   }
 }
@@ -169,10 +169,10 @@ function main() {
     const changelogPath = path.join(process.cwd(), 'CHANGELOG');
     const outputPath = path.join(process.cwd(), 'src/lib/changelog.ts');
 
-    console.log('正在读取 CHANGELOG 文件...');
+    console.log('正在讀取 CHANGELOG 文件...');
     const changelogContent = fs.readFileSync(changelogPath, 'utf-8');
 
-    console.log('正在解析 CHANGELOG 内容...');
+    console.log('正在解析 CHANGELOG 內容...');
     const changelogData = parseChangelog(changelogContent);
 
     if (changelogData.versions.length === 0) {
@@ -180,14 +180,14 @@ function main() {
       process.exit(1);
     }
 
-    // 获取最新版本号（CHANGELOG中的第一个版本）
+    // 獲取最新版本號（CHANGELOG中的第一個版本）
     const latestVersion = changelogData.versions[0].version;
     console.log(`🔢 最新版本: ${latestVersion}`);
 
     console.log('正在生成 TypeScript 文件...');
     const tsContent = generateTypeScript(changelogData);
 
-    // 确保输出目录存在
+    // 確保輸出目錄存在
     const outputDir = path.dirname(outputPath);
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
@@ -195,7 +195,7 @@ function main() {
 
     fs.writeFileSync(outputPath, tsContent, 'utf-8');
 
-    // 检查是否在 GitHub Actions 环境中运行
+    // 檢查是否在 GitHub Actions 環境中運行
     const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
 
     if (isGitHubActions) {
@@ -204,22 +204,22 @@ function main() {
       updateVersionFile(latestVersion);
       updateVersionTs(latestVersion);
     } else {
-      // 在本地运行时，只提示但不更新版本文件
-      console.log('🔧 本地运行模式：跳过版本文件更新');
-      console.log('💡 版本文件更新将在 git tag 触发的 release 工作流中完成');
+      // 在本地運行時，只提示但不更新版本文件
+      console.log('🔧 本地運行模式：跳過版本文件更新');
+      console.log('💡 版本文件更新將在 git tag 觸發的 release 工作流中完成');
     }
 
     console.log(`✅ 成功生成 ${outputPath}`);
-    console.log(`📊 版本统计:`);
+    console.log(`📊 版本統計:`);
     changelogData.versions.forEach((version) => {
       console.log(
         `   ${version.version} (${version.date}): +${version.added.length} ~${version.changed.length} !${version.fixed.length}`
       );
     });
 
-    console.log('\n🎉 转换完成!');
+    console.log('\n🎉 轉換完成!');
   } catch (error) {
-    console.error('❌ 转换失败:', error);
+    console.error('❌ 轉換失敗:', error);
     process.exit(1);
   }
 }

@@ -4,9 +4,9 @@
 import { useEffect } from 'react';
 
 /**
- * 订阅自动更新检查组件
- * 在页面加载时检查是否需要自动更新订阅，并执行导入（如果需要）
- * 仅执行一次（组件挂载时）
+ * 訂閱自動更新檢查組件
+ * 在頁面加載時檢查是否需要自動更新訂閱，並執行導入（如果需要）
+ * 僅執行一次（組件掛載時）
  */
 export default function SubscriptionAutoUpdate() {
   useEffect(() => {
@@ -20,23 +20,23 @@ export default function SubscriptionAutoUpdate() {
         if (response.ok) {
           const data = await response.json();
           if (data.updated) {
-            
-            console.log('订阅自动更新已执行', data);
+
+            console.log('訂閱自動更新已執行', data);
           } else {
-            console.log('订阅自动更新未执行:', data.reason);
+            console.log('訂閱自動更新未執行:', data.reason);
           }
         } else {
-          console.warn('订阅自动更新检查失败:', response.status);
+          console.warn('訂閱自動更新檢查失敗:', response.status);
         }
       } catch (error) {
-        // 静默失败，不影响用户体验
-        console.error('订阅自动更新检查异常:', error);
+        // 靜默失敗，不影響用戶體驗
+        console.error('訂閱自動更新檢查異常:', error);
       }
     };
 
     checkUpdate();
-  }, []); // 空依赖数组确保只运行一次
+  }, []); // 空依賴數組確保只運行一次
 
-  // 该组件不渲染任何内容
+  // 該組件不渲染任何內容
   return null;
 }

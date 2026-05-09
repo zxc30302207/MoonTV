@@ -29,44 +29,44 @@ export async function GET(request: Request) {
       : adminConfig.SiteConfig.TVBoxPassword || '';
 
   if (!enabled) {
-    return NextResponse.json({ error: 'TVBox 接口未开启' }, { status: 403 });
+    return NextResponse.json({ error: 'TVBox 接口未開啟' }, { status: 403 });
   }
 
   if (!password || inputPassword !== password) {
-    return NextResponse.json({ error: '密码错误或未提供' }, { status: 401 });
+    return NextResponse.json({ error: '密碼錯誤或未提供' }, { status: 401 });
   }
 
   try {
     const [cfg, cacheTime] = await Promise.all([getConfig(), getCacheTime()]);
 
-    // 豆瓣默认分类（来源于 README 可用分类）
+    // 豆瓣默認分類（來源於 README 可用分類）
     const doubanDefaults = {
-      movie: ['热门', '最新', '经典', '豆瓣高分'],
-      tv: ['热门', '美剧', '英剧', '韩剧', '日剧', '国产剧', '日本动画'],
+      movie: ['熱門', '最新', '經典', '豆瓣高分'],
+      tv: ['熱門', '美劇', '英劇', '韓劇', '日劇', '國產劇', '日本動畫'],
     };
 
-    // 用户自定义分类（从配置获取）
+    // 用戶自定義分類（從配置獲取）
     const custom = (cfg.CustomCategories || []).map((c) => ({
       name: c.name || c.query,
       type: c.type,
       query: c.query,
     }));
 
-    // Apple CMS 类似分类返回（参考 provide/vod 的分类结构）
+    // Apple CMS 類似分類返回（參考 provide/vod 的分類結構）
     const classes: { type_id: number; type_name: string }[] = [];
     let nextId = 1;
 
     doubanDefaults.movie.forEach((name) => {
-      classes.push({ type_id: nextId++, type_name: `电影·${name}` });
+      classes.push({ type_id: nextId++, type_name: `電影·${name}` });
     });
     doubanDefaults.tv.forEach((name) => {
-      classes.push({ type_id: nextId++, type_name: `剧集·${name}` });
+      classes.push({ type_id: nextId++, type_name: `劇集·${name}` });
     });
     custom.forEach((c) => {
       classes.push({ type_id: nextId++, type_name: `${c.name}` });
     });
 
-    // 分页参数：t（分类 id），pg（页码，默认1），wd（关键字）
+    // 分頁參數：t（分類 id），pg（頁碼，默認1），wd（關鍵字）
     const tParam = Number(url.searchParams.get('t') || '');
     const wdParam = url.searchParams.get('wd') || '';
     const pgParam = Math.max(1, parseInt(url.searchParams.get('pg') || '1'));
@@ -76,7 +76,7 @@ export async function GET(request: Request) {
     );
 
     if (tParam || wdParam) {
-      // 重建与 classes 相同顺序的选择器映射
+      // 重建與 classes 相同順序的選擇器映射
       const selectors: Array<{
         kind: 'movie' | 'tv';
         category?: string;
@@ -107,17 +107,17 @@ export async function GET(request: Request) {
       const origin = url.origin;
       const qs = new URLSearchParams();
       qs.set('kind', kind);
-      // 处理“热门/最新”无数据的问题：
-      // - 热门：不传 category/label，由后端按默认推荐返回
-      // - 最新：不传 category/label，传 sort=time
+      // 處理「熱門/最新」無數據的問題：
+      // - 熱門：不傳 category/label，由後端按默認推薦返回
+      // - 最新：不傳 category/label，傳 sort=time
       if (category === '最新') {
         sort = 'time';
         category = '';
         label = '';
-        // 按首页策略靠近“最新上映”：限定年份为当年
+        // 按首頁策略靠近「最新上映」：限定年份為當年
         const year = new Date().getFullYear();
         qs.set('year', String(year));
-      } else if (category === '热门') {
+      } else if (category === '熱門') {
         category = '';
         label = '';
       }
@@ -157,7 +157,7 @@ export async function GET(request: Request) {
       });
     }
 
-    // 返回分类
+    // 返回分類
     return NextResponse.json(
       { code: 1, msg: 'success', class: classes, list: [] },
       {

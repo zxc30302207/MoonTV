@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     });
     if (!rateLimitResult.allowed) {
       return NextResponse.json(
-        { error: '请求过于频繁，请稍后再试' },
+        { error: '請求過於頻繁，請稍後再試' },
         {
           status: 429,
           headers: getRateLimitHeaders(rateLimitResult),
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
       }).toString();
     } catch (error) {
       return NextResponse.json(
-        { error: error instanceof Error ? error.message : 'URL 校验失败' },
+        { error: error instanceof Error ? error.message : 'URL 校驗失敗' },
         { status: 400 }
       );
     }
@@ -70,11 +70,11 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     // eslint-disable-next-line no-console
-    console.error('解析M3U8失败:', error);
+    console.error('解析M3U8失敗:', error);
     return NextResponse.json(
       {
-        error: '解析M3U8文件失败',
-        message: error instanceof Error ? error.message : '未知错误',
+        error: '解析M3U8文件失敗',
+        message: error instanceof Error ? error.message : '未知錯誤',
       },
       { status: 500 }
     );
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * 代理下载TS片段（避免CORS问题）
+ * 代理下載TS片段（避免CORS問題）
  * GET /api/m3u8/proxy?url=xxx
  */
 export async function GET(request: NextRequest) {
@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
     });
     if (!rateLimitResult.allowed) {
       return NextResponse.json(
-        { error: '请求过于频繁，请稍后再试' },
+        { error: '請求過於頻繁，請稍後再試' },
         {
           status: 429,
           headers: getRateLimitHeaders(rateLimitResult),
@@ -106,7 +106,7 @@ export async function GET(request: NextRequest) {
     const url = searchParams.get('url');
 
     if (!url) {
-      return NextResponse.json({ error: '缺少 URL 参数' }, { status: 400 });
+      return NextResponse.json({ error: '缺少 URL 參數' }, { status: 400 });
     }
 
     const allowPrivateNetworks = process.env.ALLOW_PRIVATE_NETWORKS === 'true';
@@ -121,7 +121,7 @@ export async function GET(request: NextRequest) {
       }).toString();
     } catch (error) {
       return NextResponse.json(
-        { error: error instanceof Error ? error.message : 'URL 校验失败' },
+        { error: error instanceof Error ? error.message : 'URL 校驗失敗' },
         { status: 400 }
       );
     }
@@ -138,11 +138,11 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     // eslint-disable-next-line no-console
-    console.error('代理下载失败:', error);
+    console.error('代理下載失敗:', error);
     return NextResponse.json(
       {
-        error: '下载失败',
-        message: error instanceof Error ? error.message : '未知错误',
+        error: '下載失敗',
+        message: error instanceof Error ? error.message : '未知錯誤',
       },
       { status: 500 }
     );

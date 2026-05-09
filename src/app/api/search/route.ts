@@ -10,13 +10,13 @@ import { toSimplified } from '@/lib/zh';
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
-  // 检查是否为本地存储模式
+  // 檢查是否為本地存儲模式
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
   const isLocalStorage = storageType === 'localstorage';
 
   let authInfo = null;
   if (!isLocalStorage) {
-    // 非本地存储模式才需要认证
+    // 非本地存儲模式才需要認證
     authInfo = getAuthInfoFromCookie(request);
     if (!authInfo || !authInfo.username) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -30,16 +30,16 @@ export async function GET(request: NextRequest) {
   const query = searchParams.get('q');
   const queryForSearch = toSimplified(query || '');
   const streamParam = searchParams.get('stream');
-  const enableStream = streamParam ? streamParam !== '0' : false; // 无该参数关闭流式
+  const enableStream = streamParam ? streamParam !== '0' : false; // 無該參數關閉流式
   const timeoutParam = searchParams.get('timeout');
-  const timeout = timeoutParam ? parseInt(timeoutParam, 10) * 1000 : undefined; // 转换为毫秒
+  const timeout = timeoutParam ? parseInt(timeoutParam, 10) * 1000 : undefined; // 轉換為毫秒
 
   const config = await getConfig();
 
-  // 获取用户可用的搜索源
+  // 獲取用戶可用的搜索源
   let apiSites = await getAvailableApiSites(authInfo?.username);
 
-  // 如果指定了搜索源，只使用选中的搜索源
+  // 如果指定了搜索源，只使用選中的搜索源
   const selectedSourcesParam = searchParams.get('sources');
   if (selectedSourcesParam) {
     const selectedSources = selectedSourcesParam.split(',');
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
   const writer = writable.getWriter();
 
   if (!query) {
-    // 空查询，明确不缓存
+    // 空查詢，明確不緩存
     return new Response(JSON.stringify({ results: [] }), {
       headers: {
         'Content-Type': 'application/json',
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // 安全写入与断连处理
+  // 安全寫入與斷連處理
   let shouldStop = false;
   const abortSignal = request.signal as AbortSignal | undefined;
   abortSignal?.addEventListener('abort', () => {
@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
   };
 
   // -------------------------
-  // 非流式：并发
+  // 非流式：並發
   // -------------------------
   if (!enableStream) {
     const tasks = apiSites.map(async (site) => {
@@ -111,27 +111,27 @@ export async function GET(request: NextRequest) {
             });
           }
           if (hasResults && filteredResults.length === 0) {
-            throw new Error('结果被过滤');
+            throw new Error('結果被過濾');
           }
           siteResults.push(...filteredResults);
         }
         if (!hasResults) {
-          throw new Error('无搜索结果');
+          throw new Error('無搜索結果');
         }
         return { siteResults, failed: null };
       } catch (err: unknown) {
-        let errorMessage = (err as Error).message || '未知的错误';
+        let errorMessage = (err as Error).message || '未知的錯誤';
 
-        // 根据错误类型提供更具体的错误信息
-        if ((err as Error).message === '请求超时') {
-          errorMessage = '请求超时';
+        // 根據錯誤類型提供更具體的錯誤信息
+        if ((err as Error).message === '請求超時') {
+          errorMessage = '請求超時';
         } else if (
-          (err as Error).message === '请求失败' ||
-          (err as Error).message === '网络连接失败'
+          (err as Error).message === '請求失敗' ||
+          (err as Error).message === '網絡連接失敗'
         ) {
-          errorMessage = '请求失败';
-        } else if ((err as Error).message.includes('网络错误')) {
-          errorMessage = '网络错误';
+          errorMessage = '請求失敗';
+        } else if ((err as Error).message.includes('網絡錯誤')) {
+          errorMessage = '網絡錯誤';
         }
 
         return {
@@ -168,7 +168,7 @@ export async function GET(request: NextRequest) {
   }
 
   // -------------------------
-  // 流式：并发
+  // 流式：並發
   // -------------------------
   (async () => {
     const aggregatedResults: SearchResult[] = [];
@@ -200,7 +200,7 @@ export async function GET(request: NextRequest) {
             failedSources.push({
               name: site.name,
               key: site.key,
-              error: '结果被过滤',
+              error: '結果被過濾',
             });
             await safeWrite({ failedSources });
             return;
@@ -218,20 +218,20 @@ export async function GET(request: NextRequest) {
           failedSources.push({
             name: site.name,
             key: site.key,
-            error: '无搜索结果',
+            error: '無搜索結果',
           });
           await safeWrite({ failedSources });
         }
       } catch (err: unknown) {
-        let errorMessage = (err as Error).message || '未知的错误';
+        let errorMessage = (err as Error).message || '未知的錯誤';
 
-        // 根据错误类型提供更具体的错误信息
-        if ((err as Error).message === '请求超时') {
-          errorMessage = '请求超时';
-        } else if ((err as Error).message === '请求失败') {
-          errorMessage = '请求失败';
-        } else if ((err as Error).message.includes('网络错误')) {
-          errorMessage = '网络错误';
+        // 根據錯誤類型提供更具體的錯誤信息
+        if ((err as Error).message === '請求超時') {
+          errorMessage = '請求超時';
+        } else if ((err as Error).message === '請求失敗') {
+          errorMessage = '請求失敗';
+        } else if ((err as Error).message.includes('網絡錯誤')) {
+          errorMessage = '網絡錯誤';
         }
 
         failedSources.push({

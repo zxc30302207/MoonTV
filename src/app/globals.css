@@ -21,7 +21,7 @@ html,
 body {
   height: 100%;
   overflow-x: hidden;
-  /* 阻止 iOS Safari 拉动回弹 */
+  /* 阻止 iOS Safari 拉動回彈 */
   overscroll-behavior: none;
 }
 
@@ -42,7 +42,7 @@ html:not(.dark) body {
   background-attachment: fixed;
 }
 
-/* 自定义滚动条样式 */
+/* 自定義滾動條樣式 */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -61,7 +61,7 @@ html:not(.dark) body {
   background: rgba(107, 114, 128, 0.5);
 }
 
-/* 视频卡片悬停效果 */
+/* 視頻卡片懸停效果 */
 .video-card-hover {
   transition: transform 0.3s ease;
 }
@@ -70,7 +70,7 @@ html:not(.dark) body {
   transform: scale(1.05);
 }
 
-/* 渐变遮罩 */
+/* 漸變遮罩 */
 .gradient-overlay {
   background: linear-gradient(
     to bottom,
@@ -79,7 +79,7 @@ html:not(.dark) body {
   );
 }
 
-/* 隐藏移动端（<768px）垂直滚动条 */
+/* 隱藏移動端（<768px）垂直滾動條 */
 @media (max-width: 767px) {
   html,
   body {
@@ -93,7 +93,7 @@ html:not(.dark) body {
   }
 }
 
-/* View Transitions API 动画 - 整体渐变模式 */
+/* View Transitions API 動畫 - 整體漸變模式 */
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -120,7 +120,7 @@ html:not(.dark) body {
 }
 
 /*
-  整体渐变模式：旧视图淡出，新视图淡入
+  整體漸變模式：舊視圖淡出，新視圖淡入
 */
 ::view-transition-old(root) {
   animation-name: fade-out;
@@ -130,20 +130,20 @@ html:not(.dark) body {
   animation-name: fade-in;
 }
 
-/* 强制播放器内部的 video 元素高度为 100%，并保持内容完整显示 */
+/* 強製播放器內部的 video 元素高度為 100%，並保持內容完整顯示 */
 div[data-media-provider] video {
   height: 100%;
   object-fit: contain;
 }
 
 .art-poster {
-  background-size: contain !important; /* 使图片完整展示 */
-  background-position: center center !important; /* 居中显示 */
-  background-repeat: no-repeat !important; /* 防止重复 */
-  background-color: #000 !important; /* 其余区域填充为黑色 */
+  background-size: contain !important; /* 使圖片完整展示 */
+  background-position: center center !important; /* 居中顯示 */
+  background-repeat: no-repeat !important; /* 防止重復 */
+  background-color: #000 !important; /* 其餘區域填充為黑色 */
 }
 
-/* 隐藏移动端竖屏时的 pip 按钮 */
+/* 隱藏移動端豎屏時的 pip 按鈕 */
 @media (max-width: 768px) {
   .art-control-pip {
     display: none !important;

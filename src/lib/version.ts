@@ -4,55 +4,55 @@
 
 const CURRENT_VERSION = '3.8.2';
 
-// 版本检查结果枚举
+// 版本檢查結果枚舉
 export enum UpdateStatus {
   HAS_UPDATE = 'has_update', // 有新版本
-  NO_UPDATE = 'no_update', // 无新版本
-  FETCH_FAILED = 'fetch_failed', // 获取失败
+  NO_UPDATE = 'no_update', // 無新版本
+  FETCH_FAILED = 'fetch_failed', // 獲取失敗
 }
 
-// 远程版本检查URL配置
+// 遠程版本檢查URL配置
 const VERSION_CHECK_URLS = [
   'https://raw.githubusercontent.com/Stardm0/MoonTV/main/VERSION.txt',
 ];
 
 /**
- * 检查是否有新版本可用
- * @returns Promise<UpdateStatus> - 返回版本检查状态
+ * 檢查是否有新版本可用
+ * @returns Promise<UpdateStatus> - 返回版本檢查狀態
  */
 export async function checkForUpdates(): Promise<UpdateStatus> {
   try {
-    // 尝试从主要URL获取版本信息
+    // 嘗試從主要URL獲取版本信息
     const primaryVersion = await fetchVersionFromUrl(VERSION_CHECK_URLS[0]);
     if (primaryVersion) {
       return compareVersions(primaryVersion);
     }
 
-    // 如果主要URL失败，尝试备用URL
+    // 如果主要URL失敗，嘗試備用URL
     const backupVersion = await fetchVersionFromUrl(VERSION_CHECK_URLS[1]);
     if (backupVersion) {
       return compareVersions(backupVersion);
     }
 
-    // 如果两个URL都失败，返回获取失败状态
+    // 如果兩個URL都失敗，返回獲取失敗狀態
     return UpdateStatus.FETCH_FAILED;
   } catch (error) {
-    console.error('版本检查失败:', error);
+    console.error('版本檢查失敗:', error);
     return UpdateStatus.FETCH_FAILED;
   }
 }
 
 /**
- * 从指定URL获取版本信息
+ * 從指定URL獲取版本信息
  * @param url - 版本信息URL
  * @returns Promise<string | null> - 版本字符串或null
  */
 async function fetchVersionFromUrl(url: string): Promise<string | null> {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超时
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超時
 
-    // 添加时间戳参数以避免缓存
+    // 添加時間戳參數以避免緩存
     const timestamp = Date.now();
     const urlWithTimestamp = url.includes('?')
       ? `${url}&_t=${timestamp}`
@@ -75,28 +75,28 @@ async function fetchVersionFromUrl(url: string): Promise<string | null> {
     const version = await response.text();
     return version.trim();
   } catch (error) {
-    console.warn(`从 ${url} 获取版本信息失败:`, error);
+    console.warn(`從 ${url} 獲取版本信息失敗:`, error);
     return null;
   }
 }
 
 /**
- * 比较版本号
- * @param remoteVersion - 远程版本号
- * @returns UpdateStatus - 返回版本比较结果
+ * 比較版本號
+ * @param remoteVersion - 遠程版本號
+ * @returns UpdateStatus - 返回版本比較結果
  */
 function compareVersions(remoteVersion: string): UpdateStatus {
-  // 如果版本号相同，无需更新
+  // 如果版本號相同，無需更新
   if (remoteVersion === CURRENT_VERSION) {
     return UpdateStatus.NO_UPDATE;
   }
 
   try {
-    // 解析版本号为数字数组 [X, Y, Z]
+    // 解析版本號為數字數組 [X, Y, Z]
     const currentParts = CURRENT_VERSION.split('.').map((part) => {
       const num = parseInt(part, 10);
       if (isNaN(num) || num < 0) {
-        throw new Error(`无效的版本号格式: ${CURRENT_VERSION}`);
+        throw new Error(`無效的版本號格式: ${CURRENT_VERSION}`);
       }
       return num;
     });
@@ -104,17 +104,17 @@ function compareVersions(remoteVersion: string): UpdateStatus {
     const remoteParts = remoteVersion.split('.').map((part) => {
       const num = parseInt(part, 10);
       if (isNaN(num) || num < 0) {
-        throw new Error(`无效的版本号格式: ${remoteVersion}`);
+        throw new Error(`無效的版本號格式: ${remoteVersion}`);
       }
       return num;
     });
 
-    // 标准化版本号到3个部分
+    // 標準化版本號到3個部分
     const normalizeVersion = (parts: number[]) => {
       if (parts.length >= 3) {
-        return parts.slice(0, 3); // 取前三个元素
+        return parts.slice(0, 3); // 取前三個元素
       } else {
-        // 不足3个的部分补0
+        // 不足3個的部分補0
         const normalized = [...parts];
         while (normalized.length < 3) {
           normalized.push(0);
@@ -126,26 +126,26 @@ function compareVersions(remoteVersion: string): UpdateStatus {
     const normalizedCurrent = normalizeVersion(currentParts);
     const normalizedRemote = normalizeVersion(remoteParts);
 
-    // 逐级比较版本号
+    // 逐級比較版本號
     for (let i = 0; i < 3; i++) {
       if (normalizedRemote[i] > normalizedCurrent[i]) {
         return UpdateStatus.HAS_UPDATE;
       } else if (normalizedRemote[i] < normalizedCurrent[i]) {
         return UpdateStatus.NO_UPDATE;
       }
-      // 如果当前级别相等，继续比较下一级
+      // 如果當前級別相等，繼續比較下一級
     }
 
-    // 所有级别都相等，无需更新
+    // 所有級別都相等，無需更新
     return UpdateStatus.NO_UPDATE;
   } catch (error) {
-    console.error('版本号比较失败:', error);
-    // 如果版本号格式无效，回退到字符串比较
+    console.error('版本號比較失敗:', error);
+    // 如果版本號格式無效，回退到字符串比較
     return remoteVersion !== CURRENT_VERSION
       ? UpdateStatus.HAS_UPDATE
       : UpdateStatus.NO_UPDATE;
   }
 }
 
-// 导出当前版本号供其他地方使用
+// 導出當前版本號供其他地方使用
 export { compareVersions, CURRENT_VERSION };

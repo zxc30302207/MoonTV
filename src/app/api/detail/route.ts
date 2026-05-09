@@ -11,11 +11,11 @@ export async function GET(request: Request) {
   const sourceCode = searchParams.get('source');
 
   if (!id || !sourceCode) {
-    return NextResponse.json({ error: '缺少必要参数' }, { status: 400 });
+    return NextResponse.json({ error: '缺少必要參數' }, { status: 400 });
   }
 
   if (!/^[\w-]+$/.test(id)) {
-    return NextResponse.json({ error: '无效的视频ID格式' }, { status: 400 });
+    return NextResponse.json({ error: '無效的視頻ID格式' }, { status: 400 });
   }
 
   try {
@@ -23,7 +23,7 @@ export async function GET(request: Request) {
     const apiSite = apiSites.find((site) => site.key === sourceCode);
 
     if (!apiSite) {
-      return NextResponse.json({ error: '无效的API来源' }, { status: 400 });
+      return NextResponse.json({ error: '無效的API來源' }, { status: 400 });
     }
 
     const result = await getDetailFromApi(apiSite, id);

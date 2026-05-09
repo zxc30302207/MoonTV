@@ -229,7 +229,7 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
                 )}
               </div>
               <p className='text-sm text-gray-500 dark:text-gray-400'>
-                选择操作
+                選擇操作
               </p>
             </div>
           </div>
@@ -309,7 +309,7 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
                 可用播放源
               </h4>
               <p className='text-xs text-gray-500 dark:text-gray-400'>
-                共 {sources.length} 个播放源
+                共 {sources.length} 個播放源
               </p>
             </div>
 

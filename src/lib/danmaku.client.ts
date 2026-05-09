@@ -3,13 +3,13 @@
 import { DanmakuItem, DanmakuResponse } from './types';
 
 /**
- * 弹幕格式类型
+ * 彈幕格式類型
  */
 export type DanmakuFormat = 'json' | 'xml';
 
 /**
- * 获取弹幕 API 基础 URL
- * 从环境变量或配置中获取，默认为空（使用相对路径）
+ * 獲取彈幕 API 基礎 URL
+ * 從環境變量或配置中獲取，默認為空（使用相對路徑）
  */
 function getDanmakuApiBaseUrl(): string {
   if (typeof window === 'undefined') return '';
@@ -23,44 +23,44 @@ function getDanmakuApiBaseUrl(): string {
 }
 
 /**
- * 获取弹幕格式配置
- * 固定为 xml 格式（允许通过查询参数临时覆盖）
+ * 獲取彈幕格式配置
+ * 固定為 xml 格式（允許通過查詢參數臨時覆蓋）
  */
 function getDanmakuFormat(format?: string): DanmakuFormat {
-  // 查询参数优先级最高（允许临时覆盖）
+  // 查詢參數優先級最高（允許臨時覆蓋）
   if (format === 'xml' || format === 'json') {
     return format;
   }
 
-  // 默认固定为 xml
+  // 默認固定為 xml
   return 'xml';
 }
 
 /**
- * 解析 JSON 格式的弹幕数据（实际 API 格式）
+ * 解析 JSON 格式的彈幕數據（實際 API 格式）
  */
 function parseJsonDanmaku(json: DanmakuResponse): DanmakuItem[] {
   const danmakuList: DanmakuItem[] = [];
 
-  // 处理实际格式：{ count, comments: [{ cid, p, m, t }] }
+  // 處理實際格式：{ count, comments: [{ cid, p, m, t }] }
   if (json.comments && Array.isArray(json.comments)) {
     for (const comment of json.comments) {
-      if (!comment.m) continue; // 没有文本内容，跳过
+      if (!comment.m) continue; // 沒有文本內容，跳過
 
-      // 解析 p 字段：格式为 "时间,类型,颜色,作者"
+      // 解析 p 字段：格式為 "時間,類型,顏色,作者"
       // 例如："0.45,5,16777215,[bilibili1]"
       const pParts = comment.p ? comment.p.split(',') : [];
 
-      // 优先使用 t 字段作为时间，如果没有则从 p 解析
+      // 優先使用 t 字段作為時間，如果沒有則從 p 解析
       const time =
         comment.t !== undefined
           ? comment.t
           : pParts[0]
           ? parseFloat(pParts[0])
           : 0;
-      const type = pParts[1] ? parseInt(pParts[1]) : 1; // 默认滚动弹幕
-      const color = pParts[2] ? parseInt(pParts[2]) : 16777215; // 默认白色
-      const size = 25; // 默认大小
+      const type = pParts[1] ? parseInt(pParts[1]) : 1; // 默認滾動彈幕
+      const color = pParts[2] ? parseInt(pParts[2]) : 16777215; // 默認白色
+      const size = 25; // 默認大小
       const pool = pParts.length > 4 ? parseInt(pParts[4]) : 0;
 
       danmakuList.push({
@@ -74,7 +74,7 @@ function parseJsonDanmaku(json: DanmakuResponse): DanmakuItem[] {
     }
   }
 
-  // 兼容旧格式：{ data: [...] } 或 { comments: DanmakuItem[] }
+  // 兼容舊格式：{ data: [...] } 或 { comments: DanmakuItem[] }
   if (json.data && Array.isArray(json.data)) {
     danmakuList.push(...json.data);
   }
@@ -83,7 +83,7 @@ function parseJsonDanmaku(json: DanmakuResponse): DanmakuItem[] {
 }
 
 /**
- * 解析 XML 格式的弹幕数据
+ * 解析 XML 格式的彈幕數據
  */
 function parseXmlDanmaku(xmlText: string): DanmakuItem[] {
   const parser = new DOMParser();
@@ -105,7 +105,7 @@ function parseXmlDanmaku(xmlText: string): DanmakuItem[] {
     const time = parseFloat(parts[0]) || 0;
     const type = parseInt(parts[1]) || 1;
     const size = parseInt(parts[2]) || 25;
-    const color = parseInt(parts[3]) || 16777215; // 默认白色
+    const color = parseInt(parts[3]) || 16777215; // 默認白色
     const pool = parts.length > 4 ? parseInt(parts[4]) : 0;
 
     danmakuList.push({
@@ -122,16 +122,16 @@ function parseXmlDanmaku(xmlText: string): DanmakuItem[] {
 }
 
 /**
- * 通过评论 ID 获取弹幕
- * @param commentId 评论 ID
- * @param format 弹幕格式（json 或 xml）
+ * 通過評論 ID 獲取彈幕
+ * @param commentId 評論 ID
+ * @param format 彈幕格式（json 或 xml）
  */
 export async function getDanmakuByCommentId(
   commentId: string,
   format?: string
 ): Promise<DanmakuItem[]> {
   if (!commentId) {
-    throw new Error('评论 ID 不能为空');
+    throw new Error('評論 ID 不能為空');
   }
 
   const baseUrl = getDanmakuApiBaseUrl();
@@ -154,13 +154,13 @@ export async function getDanmakuByCommentId(
     }
   } catch (error) {
     // eslint-disable-next-line no-console
-    console.error('获取弹幕失败:', error);
-    throw new Error(`获取弹幕失败: ${(error as Error).message}`);
+    console.error('獲取彈幕失敗:', error);
+    throw new Error(`獲取彈幕失敗: ${(error as Error).message}`);
   }
 }
 
 /**
- * 搜索动漫接口响应
+ * 搜索動漫接口響應
  */
 interface AnimeSearchResult {
   code?: number;
@@ -180,7 +180,7 @@ interface AnimeSearchResult {
 }
 
 /**
- * 剧集信息接口响应（实际 API 格式）
+ * 劇集信息接口響應（實際 API 格式）
  */
 export interface EpisodeSearchResult {
   errorCode: number;
@@ -199,7 +199,7 @@ export interface EpisodeSearchResult {
 }
 
 /**
- * 动漫选项（用于用户选择）
+ * 動漫選項（用於用戶選擇）
  */
 export interface AnimeOption {
   animeId: number;
@@ -214,7 +214,7 @@ export interface AnimeOption {
 }
 
 /**
- * 动漫详情接口响应
+ * 動漫詳情接口響應
  */
 interface BangumiDetailResult {
   code?: number;
@@ -235,14 +235,14 @@ interface BangumiDetailResult {
 }
 
 /**
- * 根据关键字搜索动漫
- * @param keyword 搜索关键字（通常是视频标题）
+ * 根據關鍵字搜索動漫
+ * @param keyword 搜索關鍵字（通常是視頻標題）
  */
 export async function searchAnime(
   keyword: string
 ): Promise<AnimeSearchResult['data']> {
   if (!keyword) {
-    throw new Error('搜索关键字不能为空');
+    throw new Error('搜索關鍵字不能為空');
   }
 
   const baseUrl = getDanmakuApiBaseUrl();
@@ -261,19 +261,19 @@ export async function searchAnime(
     return json.data || json.list || [];
   } catch (error) {
     // eslint-disable-next-line no-console
-    console.error('搜索动漫失败:', error);
-    throw new Error(`搜索动漫失败: ${(error as Error).message}`);
+    console.error('搜索動漫失敗:', error);
+    throw new Error(`搜索動漫失敗: ${(error as Error).message}`);
   }
 }
 
 /**
- * 根据关键词搜索所有匹配的剧集信息
- * @param animeTitle 动漫标题（搜索关键字）
+ * 根據關鍵詞搜索所有匹配的劇集信息
+ * @param animeTitle 動漫標題（搜索關鍵字）
  */
 
 export async function matchAnime(fileName: string, signal?: AbortSignal) {
   if (!fileName) {
-    throw new Error("fileName 不能为空");
+    throw new Error("fileName 不能為空");
   }
 
   const baseUrl = getDanmakuApiBaseUrl();
@@ -298,20 +298,20 @@ export async function matchAnime(fileName: string, signal?: AbortSignal) {
     return json.matches || [];
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.error("matchAnime 失败:", err);
+    console.error("matchAnime 失敗:", err);
     throw err;
   }
 }
 
 /**
- * 根据关键词搜索所有匹配的剧集信息
- * @param animeTitle 动漫标题（搜索关键字）
+ * 根據關鍵詞搜索所有匹配的劇集信息
+ * @param animeTitle 動漫標題（搜索關鍵字）
  */
 export async function searchEpisodes(
   animeTitle: string
 ): Promise<AnimeOption[]> {
   if (!animeTitle) {
-    throw new Error('搜索关键字不能为空');
+    throw new Error('搜索關鍵字不能為空');
   }
 
   const baseUrl = getDanmakuApiBaseUrl();
@@ -329,10 +329,10 @@ export async function searchEpisodes(
     const json: EpisodeSearchResult = await response.json();
 
     if (!json.success || json.errorCode !== 0) {
-      throw new Error(json.errorMessage || '搜索失败');
+      throw new Error(json.errorMessage || '搜索失敗');
     }
 
-    // 转换为选项格式
+    // 轉換為選項格式
     return (json.animes || []).map((anime) => ({
       animeId: anime.animeId,
       animeTitle: anime.animeTitle,
@@ -343,20 +343,20 @@ export async function searchEpisodes(
     }));
   } catch (error) {
     // eslint-disable-next-line no-console
-    console.error('搜索剧集失败:', error);
-    throw new Error(`搜索剧集失败: ${(error as Error).message}`);
+    console.error('搜索劇集失敗:', error);
+    throw new Error(`搜索劇集失敗: ${(error as Error).message}`);
   }
 }
 
 /**
- * 获取指定动漫的详细信息
- * @param animeId 动漫 ID
+ * 獲取指定動漫的詳細信息
+ * @param animeId 動漫 ID
  */
 export async function getBangumiDetail(
   animeId: string
 ): Promise<BangumiDetailResult['data'] | undefined> {
   if (!animeId) {
-    throw new Error('动漫 ID 不能为空');
+    throw new Error('動漫 ID 不能為空');
   }
 
   const baseUrl = getDanmakuApiBaseUrl();
@@ -373,86 +373,86 @@ export async function getBangumiDetail(
     return json.data;
   } catch (error) {
     // eslint-disable-next-line no-console
-    console.error('获取动漫详情失败:', error);
-    throw new Error(`获取动漫详情失败: ${(error as Error).message}`);
+    console.error('獲取動漫詳情失敗:', error);
+    throw new Error(`獲取動漫詳情失敗: ${(error as Error).message}`);
   }
 }
 
 /**
- * 根据视频信息获取弹幕
- * @param videoInfo 视频信息
- * @param format 弹幕格式（json 或 xml）
+ * 根據視頻信息獲取彈幕
+ * @param videoInfo 視頻信息
+ * @param format 彈幕格式（json 或 xml）
  */
 export interface VideoInfo {
   title: string;
   year?: string;
-  episode?: number; // 集数（从1开始）
-  type?: 'tv' | 'movie'; // 类型：电视剧或电影
+  episode?: number; // 集數（從1開始）
+  type?: 'tv' | 'movie'; // 類型：電視劇或電影
 }
 
 /**
- * 从标题中提取季数（Season）
- * @param title 动漫标题
- * @returns 季数（从 1 开始），如果无法提取则返回 1
+ * 從標題中提取季數（Season）
+ * @param title 動漫標題
+ * @returns 季數（從 1 開始），如果無法提取則返回 1
  */
 export function extractSeasonFromTitle(title: string): number {
   if (!title) return 1;
 
   title = title.toLowerCase();
 
-  // 正则1：S01、S1、Season 1、Season01
+  // 正則1：S01、S1、Season 1、Season01
   const match = title.match(/(?:season|s)\s*?(\d{1,2})/i);
   if (match && match[1]) {
     return Number(match[1]);
   }
 
-  // 正则2：中文“第1季、第2季”
+  // 正則2：中文「第1季、第2季」
   const cnMatch = title.match(/第\s*(\d+)\s*季/);
   if (cnMatch && cnMatch[1]) {
     return Number(cnMatch[1]);
   }
 
-  // 默认季别
+  // 默認季別
   return 1;
 }
 
 /**
- * 从集数标题中提取集数
- * @param episodeTitle 集数标题
- * @returns 集数（从1开始），如果无法提取则返回 null
+ * 從集數標題中提取集數
+ * @param episodeTitle 集數標題
+ * @returns 集數（從1開始），如果無法提取則返回 null
  */
 export function extractEpisodeNumber(episodeTitle: string): number | null {
   if (!episodeTitle) return null;
 
-  // 1. "第X集" 或 "第X话"
-  let match = episodeTitle.match(/第(\d+)[集话]/);
+  // 1. "第X集" 或 "第X話"
+  let match = episodeTitle.match(/第(\d+)[集話]/);
   if (match) {
     return parseInt(match[1]);
   }
 
-  // 2. 匹配所有数字，优先选择较大的数字（通常是集数）
-  // 支持格式如: "[youku] 166", "166", "EP166", "第166话" 等
+  // 2. 匹配所有數字，優先選擇較大的數字（通常是集數）
+  // 支持格式如: "[youku] 166", "166", "EP166", "第166話" 等
   const allNumbers = episodeTitle.match(/\d+/g);
   if (allNumbers && allNumbers.length > 0) {
-    // 如果有多个数字，选择最大的（通常是集数）
+    // 如果有多個數字，選擇最大的（通常是集數）
     const numbers = allNumbers
       .map((n) => parseInt(n))
       .filter((n) => n >= 1 && n <= 10000);
     if (numbers.length > 0) {
-      // 优先选择较大的数字（通常是集数），但也要考虑合理性
+      // 優先選擇較大的數字（通常是集數），但也要考慮合理性
       const maxNum = Math.max(...numbers);
-      // 如果最大数字在合理范围内，使用它
+      // 如果最大數字在合理範圍內，使用它
       if (maxNum >= 1 && maxNum <= 10000) {
         return maxNum;
       }
     }
   }
 
-  // 3. 旧的正则匹配（作为备选）
-  match = episodeTitle.match(/(?:^|[^0-9])(\d+)(?:[集话]|$)/);
+  // 3. 舊的正則匹配（作為備選）
+  match = episodeTitle.match(/(?:^|[^0-9])(\d+)(?:[集話]|$)/);
   if (match) {
     const num = parseInt(match[1]);
-    // 如果数字在合理范围内（1-10000），认为是集数
+    // 如果數字在合理範圍內（1-10000），認為是集數
     if (num >= 1 && num <= 10000) {
       return num;
     }
@@ -462,10 +462,10 @@ export function extractEpisodeNumber(episodeTitle: string): number | null {
 }
 
 /**
- * 根据选中的动漫和集数获取弹幕 URL 地址
- * @param selectedAnime 选中的动漫选项
- * @param episodeNumber 集数（从1开始，基于弹幕选择器中选择的集数）
- * @param format 弹幕格式（json 或 xml）
+ * 根據選中的動漫和集數獲取彈幕 URL 地址
+ * @param selectedAnime 選中的動漫選項
+ * @param episodeNumber 集數（從1開始，基於彈幕選擇器中選擇的集數）
+ * @param format 彈幕格式（json 或 xml）
  */
 export async function getDanmakuBySelectedAnime(
   selectedAnime: AnimeOption,
@@ -473,22 +473,22 @@ export async function getDanmakuBySelectedAnime(
   format?: string
 ): Promise<string> {
   if (!selectedAnime) {
-    throw new Error('未选择动漫');
+    throw new Error('未選擇動漫');
   }
 
   const danmakuFormat = getDanmakuFormat(format);
 
-  // 直接使用集数索引（episodeNumber 是从弹幕选择器中选择的，已经是正确的索引）
+  // 直接使用集數索引（episodeNumber 是從彈幕選擇器中選擇的，已經是正確的索引）
   if (episodeNumber < 1 || episodeNumber > selectedAnime.episodes.length) {
     throw new Error(
-      `集数 ${episodeNumber} 超出范围（共 ${selectedAnime.episodes.length} 集）`
+      `集數 ${episodeNumber} 超出範圍（共 ${selectedAnime.episodes.length} 集）`
     );
   }
 
   const targetEpisode = selectedAnime.episodes[episodeNumber - 1];
 
   if (!targetEpisode) {
-    throw new Error(`未找到第 ${episodeNumber} 集的弹幕`);
+    throw new Error(`未找到第 ${episodeNumber} 集的彈幕`);
   }
 
   const baseUrl = getDanmakuApiBaseUrl();

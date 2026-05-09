@@ -5,12 +5,12 @@ interface FilterOptionsProps {
   openFilter: string | null;
   setOpenFilter: React.Dispatch<React.SetStateAction<string | null>>;
 
-  // 来源
+  // 來源
   sourceOptions: string[];
   filterSources: string[];
   setFilterSources: (opts: string[]) => void;
 
-  // 标题
+  // 標題
   titleOptions: string[];
   selectedTitles: string[];
   setSelectedTitles: (opts: string[]) => void;
@@ -47,11 +47,11 @@ const FilterOptions: React.FC<FilterOptionsProps> = ({
   sortOptions,
 }) => {
   const [collapsed, setCollapsed] = useState(true);
-  const [activeTab, setActiveTab] = useState<'筛选' | '排序'>('筛选');
+  const [activeTab, setActiveTab] = useState<'篩選' | '排序'>('篩選');
 
   const filterButtons = [
-    { key: '来源', label: '来源' },
-    { key: '标题', label: '标题' },
+    { key: '來源', label: '來源' },
+    { key: '標題', label: '標題' },
     { key: '年份', label: '年份' },
   ];
 
@@ -60,13 +60,13 @@ const FilterOptions: React.FC<FilterOptionsProps> = ({
   };
 
   const handleOptionClick = (category: string, option: string) => {
-    if (category === '来源') {
+    if (category === '來源') {
       setFilterSources(
         filterSources.includes(option)
           ? filterSources.filter((o) => o !== option)
           : [...filterSources, option]
       );
-    } else if (category === '标题') {
+    } else if (category === '標題') {
       setSelectedTitles(
         selectedTitles.includes(option)
           ? selectedTitles.filter((o) => o !== option)
@@ -94,35 +94,35 @@ const FilterOptions: React.FC<FilterOptionsProps> = ({
         !selectedTitles.length &&
         !selectedYears.length
       ) {
-        return <div className='text-gray-400'>请展开选择筛选条件</div>;
+        return <div className='text-gray-400'>請展開選擇篩選條件</div>;
       }
       return (
         <div className='space-y-2 text-sm text-gray-500 dark:text-gray-400'>
           {filterSources.length > 0 && (
-            <div>已选来源: {filterSources.join('、')}</div>
+            <div>已選來源: {filterSources.join('、')}</div>
           )}
           {selectedTitles.length > 0 && (
-            <div>已选标题: {selectedTitles.join('、')}</div>
+            <div>已選標題: {selectedTitles.join('、')}</div>
           )}
           {selectedYears.length > 0 && (
-            <div>已选年份: {selectedYears.join('、')}</div>
+            <div>已選年份: {selectedYears.join('、')}</div>
           )}
         </div>
       );
     }
 
     if (!openFilter) {
-      return <div className='text-gray-400'>请选择一个筛选分类</div>;
+      return <div className='text-gray-400'>請選擇一個篩選分類</div>;
     }
 
     switch (openFilter) {
-      case '来源':
+      case '來源':
         return (
           <div className='grid gap-2 grid-cols-2 sm:grid-cols-3 md:grid-cols-4'>
             {sourceOptions.map((opt) => (
               <button
                 key={opt}
-                onClick={() => handleOptionClick('来源', opt)}
+                onClick={() => handleOptionClick('來源', opt)}
                 className={`px-3 py-2 text-sm rounded-lg border transition-all duration-200 ${
                   filterSources.includes(opt)
                     ? 'bg-green-100 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700'
@@ -134,13 +134,13 @@ const FilterOptions: React.FC<FilterOptionsProps> = ({
             ))}
           </div>
         );
-      case '标题':
+      case '標題':
         return (
           <div className='grid gap-2 grid-cols-2 sm:grid-cols-3 md:grid-cols-4'>
             {titleOptions.map((opt) => (
               <button
                 key={opt}
-                onClick={() => handleOptionClick('标题', opt)}
+                onClick={() => handleOptionClick('標題', opt)}
                 className={`px-3 py-2 text-sm rounded-lg border transition-all duration-200 ${
                   selectedTitles.includes(opt)
                     ? 'bg-green-100 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700'
@@ -199,18 +199,18 @@ const FilterOptions: React.FC<FilterOptionsProps> = ({
 
   return (
     <div className='flex w-full border rounded-lg overflow-hidden shadow-sm dark:border-gray-700 flex-col'>
-      {/* Tab 栏 + 排序按钮 */}
+      {/* Tab 欄 + 排序按鈕 */}
       <div className='flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'>
         <div className='flex gap-4'>
           <button
             className={`px-3 py-1 font-semibold rounded ${
-              activeTab === '筛选'
+              activeTab === '篩選'
                 ? 'bg-green-500 text-white'
                 : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
             }`}
-            onClick={() => setActiveTab('筛选')}
+            onClick={() => setActiveTab('篩選')}
           >
-            筛选
+            篩選
           </button>
           <button
             className={`px-3 py-1 font-semibold rounded ${
@@ -224,13 +224,13 @@ const FilterOptions: React.FC<FilterOptionsProps> = ({
           </button>
         </div>
         <div className='flex items-center gap-2'>
-          {activeTab === '筛选' && (
+          {activeTab === '篩選' && (
             <>
               <button
                 onClick={clearAllFilters}
                 className='text-sm text-blue-600 hover:underline dark:text-blue-400'
               >
-                清空筛选
+                清空篩選
               </button>
               <button
                 onClick={() => setCollapsed(!collapsed)}
@@ -260,8 +260,8 @@ const FilterOptions: React.FC<FilterOptionsProps> = ({
       </div>
 
       <div className='flex w-full'>
-        {/* 左侧筛选分类按钮 */}
-        {activeTab === '筛选' && !collapsed && (
+        {/* 左側篩選分類按鈕 */}
+        {activeTab === '篩選' && !collapsed && (
           <div className='w-28 bg-gray-100 dark:bg-gray-800 flex flex-col'>
             {filterButtons.map((btn) => (
               <button
@@ -279,9 +279,9 @@ const FilterOptions: React.FC<FilterOptionsProps> = ({
           </div>
         )}
 
-        {/* 右侧内容 */}
+        {/* 右側內容 */}
         <div className='flex-1 max-h-[60vh] overflow-y-auto bg-white dark:bg-gray-900 p-4'>
-          {activeTab === '筛选' ? renderFilterOptions() : renderSortOptions()}
+          {activeTab === '篩選' ? renderFilterOptions() : renderSortOptions()}
         </div>
       </div>
     </div>

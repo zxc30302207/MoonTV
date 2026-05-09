@@ -44,12 +44,12 @@ export function NavigationLoadingProvider({
     setIsLoading(false);
   }, []);
 
-  // 监听路由变化，自动停止加载状态
+  // 監聽路由變化，自動停止加載狀態
   useEffect(() => {
-    // 路由变化完成后，停止加载
+    // 路由變化完成後，停止加載
     const timer = setTimeout(() => {
       setIsLoading(false);
-    }, 300); // 给一个短暂延迟确保页面已经渲染
+    }, 300); // 給一個短暫延遲確保頁面已經渲染
 
     return () => clearTimeout(timer);
   }, [pathname, searchParams]);

@@ -78,32 +78,32 @@ export function assertSafeUrl(
   try {
     url = new URL(input);
   } catch {
-    throw new Error('URL 格式错误');
+    throw new Error('URL 格式錯誤');
   }
 
   const allowedProtocols = options.allowedProtocols || ['http:', 'https:'];
   if (!allowedProtocols.includes(url.protocol)) {
-    throw new Error('不支持的 URL 协议');
+    throw new Error('不支持的 URL 協議');
   }
 
   if (url.username || url.password) {
-    throw new Error('URL 不允许包含用户名或密码');
+    throw new Error('URL 不允許包含用戶名或密碼');
   }
 
   const hostname = url.hostname;
   if (!options.allowLocalhost && isLocalHostname(hostname)) {
-    throw new Error('不允许访问本地地址');
+    throw new Error('不允許訪問本地地址');
   }
 
   if (!options.allowPrivateNetworks) {
     if (isPrivateIpv4(hostname) || isPrivateIpv6(hostname)) {
-      throw new Error('不允许访问内网地址');
+      throw new Error('不允許訪問內網地址');
     }
   }
 
   if (options.allowedHosts && options.allowedHosts.length > 0) {
     if (!isAllowedHostname(hostname, options.allowedHosts)) {
-      throw new Error('目标地址不在允许列表');
+      throw new Error('目標地址不在允許列表');
     }
   }
 

@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     const timeoutParam = searchParams.get('timeout');
     const timeout = timeoutParam
       ? parseInt(timeoutParam, 10) * 1000
-      : undefined; // 转换为毫秒
+      : undefined; // 轉換為毫秒
 
     if (!query) {
       return NextResponse.json({ suggestions: [] });
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
 
     const cacheTime = await getCacheTime();
 
-    // 用 ReadableStream 流式返回搜索建议
+    // 用 ReadableStream 流式返回搜索建議
     const stream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    return NextResponse.json({ error: '获取搜索建议失败' }, { status: 500 });
+    return NextResponse.json({ error: '獲取搜索建議失敗' }, { status: 500 });
   }
 }
 
@@ -58,7 +58,7 @@ async function* generateSuggestionsStream(query: string, timeout?: number) {
   const apiSites = config.SourceConfig.filter((site) => !site.disabled);
 
   if (apiSites.length > 0) {
-    // 使用第一个可用的数据源进行流式搜索
+    // 使用第一個可用的數據源進行流式搜索
     const site = apiSites[0];
 
     for await (const results of searchFromApiStream(
@@ -67,7 +67,7 @@ async function* generateSuggestionsStream(query: string, timeout?: number) {
       true,
       timeout
     )) {
-      // 统计关键词出现频率
+      // 統計關鍵詞出現頻率
       const keywordFrequency = new Map<string, number>();
       const allKeywords = results
         .map((r: SearchResult) => r.title)
@@ -92,30 +92,30 @@ async function* generateSuggestionsStream(query: string, timeout?: number) {
         const queryWords = queryLower.split(/[ -:：·、-]/);
         const frequency = keywordFrequency.get(wordLower) || 1;
 
-        // 计算基础匹配分数
+        // 計算基礎匹配分數
         let score = 1.0;
         if (wordLower === queryLower) {
-          score = 3.0; // 完全匹配 - 最高优先级
+          score = 3.0; // 完全匹配 - 最高優先級
         } else if (wordLower.startsWith(queryLower)) {
-          score = 2.5; // 开头匹配 - 高优先级
+          score = 2.5; // 開頭匹配 - 高優先級
         } else if (wordLower.endsWith(queryLower)) {
-          score = 2.0; // 结尾匹配 - 中高优先级
+          score = 2.0; // 結尾匹配 - 中高優先級
         } else if (queryWords.some((qw) => wordLower.startsWith(qw))) {
-          score = 1.8; // 包含查询词开头
+          score = 1.8; // 包含查詢詞開頭
         } else if (queryWords.some((qw) => wordLower.includes(qw))) {
-          score = 1.5; // 包含查询词
+          score = 1.5; // 包含查詢詞
         }
 
-        // 长度相似度加分（长度接近查询的更相关）
+        // 長度相似度加分（長度接近查詢的更相關）
         const lengthDiff = Math.abs(wordLower.length - queryLower.length);
         const lengthSimilarity = 1 / (1 + lengthDiff * 0.1);
         score += lengthSimilarity * 0.3;
 
-        // 频率加分（出现次数多的更相关，但使用对数避免过度影响）
+        // 頻率加分（出現次數多的更相關，但使用對數避免過度影響）
         const frequencyBonus = Math.log(frequency + 1) * 0.2;
         score += frequencyBonus;
 
-        // 长度惩罚（过长的关键词稍微降权）
+        // 長度懲罰（過長的關鍵詞稍微降權）
         if (wordLower.length > queryLower.length * 2) {
           score -= 0.2;
         }
@@ -125,20 +125,20 @@ async function* generateSuggestionsStream(query: string, timeout?: number) {
 
       const sortedSuggestions = realSuggestions
         .sort((a, b) => {
-          // 首先按分数排序
+          // 首先按分數排序
           if (Math.abs(a.score - b.score) > 0.01) {
             return b.score - a.score;
           }
-          // 分数相近时，按频率排序
+          // 分數相近時，按頻率排序
           if (a.frequency !== b.frequency) {
             return b.frequency - a.frequency;
           }
-          // 频率相同时，按长度排序（较短的优先）
+          // 頻率相同時，按長度排序（較短的優先）
           return a.text.length - b.text.length;
         })
         .map(({ text }) => ({ text })); // 只保留 text 字段
 
-      // 每次 yield 一批建议
+      // 每次 yield 一批建議
       yield sortedSuggestions;
     }
   }

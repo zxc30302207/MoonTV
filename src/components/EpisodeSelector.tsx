@@ -12,26 +12,26 @@ import React, {
 import { SearchResult } from '@/lib/types';
 import { getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
 
-// 定义视频信息类型
+// 定義視頻信息類型
 interface VideoInfo {
   quality: string;
   loadSpeed: string;
   pingTime: number;
-  hasError?: boolean; // 添加错误状态标识
+  hasError?: boolean; // 添加錯誤狀態標識
 }
 
 interface EpisodeSelectorProps {
-  /** 总集数 */
+  /** 總集數 */
   totalEpisodes: number;
-  /** 剧集标题 */
+  /** 劇集標題 */
   episodes_titles: string[];
-  /** 每页显示多少集，默认 50 */
+  /** 每頁顯示多少集，默認 50 */
   episodesPerPage?: number;
-  /** 当前选中的集数（1 开始） */
+  /** 當前選中的集數（1 開始） */
   value?: number;
-  /** 用户点击选集后的回调 */
+  /** 用戶點擊選集後的回調 */
   onChange?: (episodeNumber: number) => void;
-  /** 换源相关 */
+  /** 換源相關 */
   onSourceChange?: (source: string, id: string, title: string) => void;
   currentSource?: string;
   currentId?: string;
@@ -40,21 +40,21 @@ interface EpisodeSelectorProps {
   availableSources?: SearchResult[];
   sourceSearchLoading?: boolean;
   sourceSearchError?: string | null;
-  /** 预计算的测速结果，避免重复测速 */
+  /** 預計算的測速結果，避免重復測速 */
   precomputedVideoInfo?: Map<string, VideoInfo>;
-  /** 优选播放源相关 */
+  /** 優選播放源相關 */
   preferBestSource?: (sources: SearchResult[], isCancelled?: () => boolean) => Promise<SearchResult>;
   setLoading: (loading: boolean) => void;
-  /** 设置视频是否正在加载中的状态 */
+  /** 設置視頻是否正在加載中的狀態 */
   setIsVideoLoading: (loading: boolean) => void;
-  /** 设置视频加载阶段的状态 */
+  /** 設置視頻加載階段的狀態 */
   setVideoLoadingStage: (
     stage: 'initing' | 'sourceChanging' | 'optimizing'
   ) => void;
 }
 
 /**
- * 选集组件，支持分页、自动滚动聚焦当前分页标签，以及换源功能。
+ * 選集組件，支持分頁、自動滾動聚焦當前分頁標簽，以及換源功能。
  */
 const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   totalEpisodes,
@@ -78,7 +78,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   const router = useRouter();
   const pageCount = Math.ceil(totalEpisodes / episodesPerPage);
 
-  // 存储每个源的视频信息
+  // 存儲每個源的視頻信息
   const [videoInfoMap, setVideoInfoMap] = useState<Map<string, VideoInfo>>(
     new Map()
   );
@@ -86,11 +86,11 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     new Set()
   );
 
-  // 使用 ref 来避免闭包问题
+  // 使用 ref 來避免閉包問題
   const attemptedSourcesRef = useRef<Set<string>>(new Set());
   const videoInfoMapRef = useRef<Map<string, VideoInfo>>(new Map());
 
-  // 同步状态到 ref
+  // 同步狀態到 ref
   useEffect(() => {
     attemptedSourcesRef.current = attemptedSources;
   }, [attemptedSources]);
@@ -99,24 +99,24 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     videoInfoMapRef.current = videoInfoMap;
   }, [videoInfoMap]);
 
-  // 主要的 tab 状态：'episodes' 或 'sources'
-  // 当只有一集时默认展示 "换源"，并隐藏 "选集" 标签
+  // 主要的 tab 狀態：'episodes' 或 'sources'
+  // 當只有一集時默認展示 "換源"，並隱藏 "選集" 標簽
   const [activeTab, setActiveTab] = useState<'episodes' | 'sources'>(
     totalEpisodes > 1 ? 'episodes' : 'sources'
   );
 
-  // 当前分页索引（0 开始）
+  // 當前分頁索引（0 開始）
   const initialPage = Math.floor((value - 1) / episodesPerPage);
   const [currentPage, setCurrentPage] = useState<number>(initialPage);
 
-  // 是否倒序显示
+  // 是否倒序顯示
   const [descending, setDescending] = useState<boolean>(false);
-  // 优选播放源加载状态
+  // 優選播放源加載狀態
   const [isOptimizing, setIsOptimizing] = useState<boolean>(false);
-  // 取消优选标志
+  // 取消優選標志
   const cancelOptimizationRef = useRef<boolean>(false);
 
-  // 根据 descending 状态计算实际显示的分页索引
+  // 根據 descending 狀態計算實際顯示的分頁索引
   const displayPage = useMemo(() => {
     if (descending) {
       return pageCount - 1 - currentPage;
@@ -124,33 +124,33 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     return currentPage;
   }, [currentPage, descending, pageCount]);
 
-  // 获取视频信息的函数 - 移除 attemptedSources 依赖避免不必要的重新创建
+  // 獲取視頻信息的函數 - 移除 attemptedSources 依賴避免不必要的重新創建
   const getVideoInfo = useCallback(async (source: SearchResult) => {
     const sourceKey = `${source.source}-${source.id}`;
 
-    // 使用 ref 获取最新的状态，避免闭包问题
+    // 使用 ref 獲取最新的狀態，避免閉包問題
     if (attemptedSourcesRef.current.has(sourceKey)) {
       return;
     }
 
-    // 获取第一集的URL
+    // 獲取第一集的URL
     if (!source.episodes || source.episodes.length === 0) {
       return;
     }
     const episodeUrl =
       source.episodes.length > 1 ? source.episodes[1] : source.episodes[0];
 
-    // 标记为已尝试
+    // 標記為已嘗試
     setAttemptedSources((prev) => new Set(prev).add(sourceKey));
 
     try {
       const info = await getVideoResolutionFromM3u8(episodeUrl);
       setVideoInfoMap((prev) => new Map(prev).set(sourceKey, info));
     } catch (error) {
-      // 失败时保存错误状态
+      // 失敗時保存錯誤狀態
       setVideoInfoMap((prev) =>
         new Map(prev).set(sourceKey, {
-          quality: '错误',
+          quality: '錯誤',
           loadSpeed: '未知',
           pingTime: 0,
           hasError: true,
@@ -159,10 +159,10 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     }
   }, []);
 
-  // 当有预计算结果时，先合并到videoInfoMap中
+  // 當有預計算結果時，先合並到videoInfoMap中
   useEffect(() => {
     if (precomputedVideoInfo && precomputedVideoInfo.size > 0) {
-      // 原子性地更新两个状态，避免时序问题
+      // 原子性地更新兩個狀態，避免時序問題
       setVideoInfoMap((prev) => {
         const newMap = new Map(prev);
         precomputedVideoInfo.forEach((value, key) => {
@@ -181,7 +181,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
         return newSet;
       });
 
-      // 同步更新 ref，确保 getVideoInfo 能立即看到更新
+      // 同步更新 ref，確保 getVideoInfo 能立即看到更新
       precomputedVideoInfo.forEach((info, key) => {
         if (!info.hasError) {
           attemptedSourcesRef.current.add(key);
@@ -190,7 +190,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     }
   }, [precomputedVideoInfo]);
 
-  // 读取本地“优选和测速”开关，默认开启
+  // 讀取本地「優選和測速」開關，默認開啟
   const [optimizationEnabled] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('enableOptimization');
@@ -205,17 +205,17 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     return true;
   });
 
-  // 当切换到换源tab并且有源数据时，异步获取视频信息 - 移除 attemptedSources 依赖避免循环触发
+  // 當切換到換源tab並且有源數據時，異步獲取視頻信息 - 移除 attemptedSources 依賴避免循環觸發
   useEffect(() => {
     const fetchVideoInfosInBatches = async () => {
       if (
-        !optimizationEnabled || // 若关闭测速则直接退出
+        !optimizationEnabled || // 若關閉測速則直接退出
         activeTab !== 'sources' ||
         availableSources.length === 0
       )
         return;
 
-      // 筛选出尚未测速的播放源
+      // 篩選出尚未測速的播放源
       const pendingSources = availableSources.filter((source) => {
         const sourceKey = `${source.source}-${source.id}`;
         return !attemptedSourcesRef.current.has(sourceKey);
@@ -232,10 +232,10 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     };
 
     fetchVideoInfosInBatches();
-    // 依赖项保持与之前一致
+    // 依賴項保持與之前一致
   }, [activeTab, availableSources, getVideoInfo, optimizationEnabled]);
 
-  // 升序分页标签
+  // 升序分頁標簽
   const categoriesAsc = useMemo(() => {
     return Array.from({ length: pageCount }, (_, i) => {
       const start = i * episodesPerPage + 1;
@@ -244,10 +244,10 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     });
   }, [pageCount, episodesPerPage, totalEpisodes]);
 
-  // 根据 descending 状态决定分页标签的排序和内容
+  // 根據 descending 狀態決定分頁標簽的排序和內容
   const categories = useMemo(() => {
     if (descending) {
-      // 倒序时，label 也倒序显示
+      // 倒序時，label 也倒序顯示
       return [...categoriesAsc]
         .reverse()
         .map(({ start, end }) => `${end}-${start}`);
@@ -258,25 +258,25 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   const categoryContainerRef = useRef<HTMLDivElement>(null);
   const buttonRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  // 当分页切换时，将激活的分页标签滚动到视口中间
+  // 當分頁切換時，將激活的分頁標簽滾動到視口中間
   useEffect(() => {
     const btn = buttonRefs.current[displayPage];
     const container = categoryContainerRef.current;
     if (btn && container) {
-      // 手动计算滚动位置，只滚动分页标签容器
+      // 手動計算滾動位置，只滾動分頁標簽容器
       const containerRect = container.getBoundingClientRect();
       const btnRect = btn.getBoundingClientRect();
       const scrollLeft = container.scrollLeft;
 
-      // 计算按钮相对于容器的位置
+      // 計算按鈕相對於容器的位置
       const btnLeft = btnRect.left - containerRect.left + scrollLeft;
       const btnWidth = btnRect.width;
       const containerWidth = containerRect.width;
 
-      // 计算目标滚动位置，使按钮居中
+      // 計算目標滾動位置，使按鈕居中
       const targetScrollLeft = btnLeft - (containerWidth - btnWidth) / 2;
 
-      // 平滑滚动到目标位置
+      // 平滑滾動到目標位置
       container.scrollTo({
         left: targetScrollLeft,
         behavior: 'smooth',
@@ -284,7 +284,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     }
   }, [displayPage, pageCount]);
 
-  // 处理换源tab点击，只在点击时才搜索
+  // 處理換源tab點擊，只在點擊時才搜索
   const handleSourceTabClick = () => {
     setActiveTab('sources');
   };
@@ -292,7 +292,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   const handleCategoryClick = useCallback(
     (index: number) => {
       if (descending) {
-        // 在倒序时，需要将显示索引转换为实际索引
+        // 在倒序時，需要將顯示索引轉換為實際索引
         setCurrentPage(pageCount - 1 - index);
       } else {
         setCurrentPage(index);
@@ -311,7 +311,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   const handleSourceClick = useCallback(
     (source: SearchResult) => {
       if (!source || !source.source || !source.id) return;
-      // 确保传递完整的参数
+      // 確保傳遞完整的參數
       onSourceChange?.(
         source.source,
         source.id,
@@ -329,7 +329,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
 
   return (
     <div className='px-4 py-0 h-full bg-black/10 dark:bg-white/5 flex flex-col border-t border-b md:border-r border-white/0 dark:border-white/30 overflow-hidden'>
-      {/* 主要的 Tab 切换 - 无缝融入设计 */}
+      {/* 主要的 Tab 切換 - 無縫融入設計 */}
       <div className='flex mb-1 -mx-6 flex-shrink-0'>
         {totalEpisodes > 1 && (
           <div
@@ -342,7 +342,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
               }
             `.trim()}
           >
-            选集
+            選集
           </div>
         )}
         <div
@@ -355,14 +355,14 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
             }
           `.trim()}
         >
-          <span>换源</span>
+          <span>換源</span>
           {preferBestSource && availableSources && availableSources.length > 0 && (
             <div
               onClick={(e) => {
                 e.stopPropagation();
-                if (isOptimizing) return; // 防止重复点击
+                if (isOptimizing) return; // 防止重復點擊
                 if (!availableSources || availableSources.length === 0) return;
-                // 重置取消标志
+                // 重置取消標志
                 cancelOptimizationRef.current = false;
                 setIsOptimizing(true);
                 setVideoLoadingStage('optimizing');
@@ -372,22 +372,22 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                   () => cancelOptimizationRef.current
                 )
                   .then((bestSource) => {
-                    // 如果已取消，则忽略结果
+                    // 如果已取消，則忽略結果
                     if (cancelOptimizationRef.current) return;
-                    // 确保bestSource有效
+                    // 確保bestSource有效
                     if (
                       bestSource &&
                       (bestSource.source !== currentSource ||
                         bestSource.id !== currentId)
                     ) {
-                      // 切换到最佳播放源
+                      // 切換到最佳播放源
                       handleSourceClick(bestSource);
                     } else {
                       setIsVideoLoading(false);
                     }
                   })
                   .catch((_err: Error) => {
-                    // 静默处理错误，因为已经有UI提示
+                    // 靜默處理錯誤，因為已經有UI提示
                   })
                   .finally(() => {
                     if (!cancelOptimizationRef.current) {
@@ -395,7 +395,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                       setIsVideoLoading(false);
                       if (setLoading) setLoading(false);
                     }
-                    // 重置取消标志
+                    // 重置取消標志
                     cancelOptimizationRef.current = false;
                   });
               }}
@@ -404,7 +404,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                   ? 'opacity-50 cursor-not-allowed'
                   : 'hover:bg-blue-600 hover:scale-110 cursor-pointer'
               }`}
-              title={isOptimizing ? '优选进行中...' : '优选播放源'}
+              title={isOptimizing ? '優選進行中...' : '優選播放源'}
             >
               <svg
                 className='w-3.5 h-3.5'
@@ -422,10 +422,10 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
         </div>
       </div>
 
-      {/* 选集 Tab 内容 */}
+      {/* 選集 Tab 內容 */}
       {activeTab === 'episodes' && (
         <>
-          {/* 分类标签 */}
+          {/* 分類標簽 */}
           <div className='flex items-center gap-4 mb-4 border-b border-gray-300 dark:border-gray-700 -mx-6 px-6 flex-shrink-0'>
             <div
               className='flex-1 overflow-x-auto scrollbar-hide'
@@ -441,7 +441,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                         buttonRefs.current[idx] = el;
                       }}
                       onClick={() => handleCategoryClick(idx)}
-                      className={`w-20 relative py-2 text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 text-center 
+                      className={`w-20 relative py-2 text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 text-center
                         ${
                           isActive
                             ? 'text-green-500 dark:text-green-400'
@@ -458,11 +458,11 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                 })}
               </div>
             </div>
-            {/* 向上/向下按钮 */}
+            {/* 向上/向下按鈕 */}
             <button
               className='flex-shrink-0 w-8 h-8 rounded-md flex items-center justify-center text-gray-700 hover:text-green-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-green-400 dark:hover:bg-white/20 transition-colors transform translate-y-[-4px]'
               onClick={() => {
-                // 切换集数排序（正序/倒序）
+                // 切換集數排序（正序/倒序）
                 setDescending((prev) => !prev);
               }}
             >
@@ -482,7 +482,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
             </button>
           </div>
 
-          {/* 集数网格 */}
+          {/* 集數網格 */}
           <div className='overflow-y-auto flex-1 pb-4 scrollbar-hide'>
             <div className='grid grid-cols-3 sm:grid-cols-4 gap-3'>
               {(() => {
@@ -509,7 +509,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                       if (!title) {
                         return episodeNumber;
                       }
-                      // 如果匹配"第X集"格式，提取中间的数字
+                      // 如果匹配"第X集"格式，提取中間的數字
                       const match = title.match(/第(\d+)集/);
                       if (match) {
                         return match[1];
@@ -524,7 +524,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
         </>
       )}
 
-      {/* 换源 Tab 内容 */}
+      {/* 換源 Tab 內容 */}
       {activeTab === 'sources' && (
         <div className='flex flex-col h-full mt-4'>
           {sourceSearchLoading && (
@@ -541,7 +541,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
               <div className='flex items-center'>
                 <div className='animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500'></div>
                 <span className='ml-2 text-sm text-gray-600 dark:text-gray-300'>
-                  优选播放源中...
+                  優選播放源中...
                 </span>
               </div>
               <button
@@ -575,7 +575,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                 <div className='text-center'>
                   <div className='text-gray-400 text-2xl mb-2'>📺</div>
                   <p className='text-sm text-gray-600 dark:text-gray-300'>
-                    暂无可用的换源
+                    暫無可用的換源
                   </p>
                 </div>
               </div>
@@ -629,15 +629,15 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                           )}
                         </div>
 
-                        {/* 信息区域 */}
+                        {/* 信息區域 */}
                         <div className='flex-1 min-w-0 flex flex-col justify-between h-20'>
-                          {/* 标题和分辨率 - 顶部 */}
+                          {/* 標題和分辨率 - 頂部 */}
                           <div className='flex items-start justify-between gap-3 h-6'>
                             <div className='flex-1 min-w-0 relative group/title'>
                               <h3 className='font-medium text-base truncate text-gray-900 dark:text-gray-100 leading-none'>
                                 {source.title}
                               </h3>
-                              {/* 标题级别的 tooltip - 第一个元素不显示 */}
+                              {/* 標題級別的 tooltip - 第一個元素不顯示 */}
                               {index !== 0 && (
                                 <div className='absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1 bg-gray-800 text-white text-xs rounded-md shadow-lg opacity-0 invisible group-hover/title:opacity-100 group-hover/title:visible transition-all duration-200 ease-out delay-100 whitespace-nowrap z-[500] pointer-events-none'>
                                   {source.title}
@@ -653,11 +653,11 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                                 if (videoInfo.hasError) {
                                   return (
                                     <div className='bg-gray-500/10 dark:bg-gray-400/20 text-red-600 dark:text-red-400 px-1.5 py-0 rounded text-xs flex-shrink-0 min-w-[50px] text-center'>
-                                      检测失败
+                                      檢測失敗
                                     </div>
                                   );
                                 } else {
-                                  // 根据分辨率设置不同颜色：2K、4K为紫色，1080p、720p为绿色，其他为黄色
+                                  // 根據分辨率設置不同顏色：2K、4K為紫色，1080p、720p為綠色，其他為黃色
                                   const isUltraHigh = ['4K', '2K'].includes(
                                     videoInfo.quality
                                   );
@@ -684,7 +684,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                             })()}
                           </div>
 
-                          {/* 源名称和集数信息 - 垂直居中 */}
+                          {/* 源名稱和集數信息 - 垂直居中 */}
                           <div className='flex items-center justify-between'>
                             <span className='text-xs px-2 py-1 border border-gray-500/60 rounded text-gray-700 dark:text-gray-300'>
                               {source.source_name}
@@ -696,7 +696,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                             )}
                           </div>
 
-                          {/* 网络信息 - 底部 */}
+                          {/* 網絡信息 - 底部 */}
                           <div className='flex items-end h-6'>
                             {(() => {
                               const sourceKey = `${source.source}-${source.id}`;
@@ -716,9 +716,9 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                                 } else {
                                   return (
                                     <div className='text-red-500/90 dark:text-red-400 font-medium text-xs'>
-                                      无测速数据
+                                      無測速數據
                                     </div>
-                                  ); // 占位div
+                                  ); // 佔位div
                                 }
                               }
                             })()}
@@ -738,7 +738,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                     }}
                     className='w-full text-center text-xs text-gray-500 dark:text-gray-400 hover:text-green-500 dark:hover:text-green-400 transition-colors py-2'
                   >
-                    影片匹配有误？点击去搜索
+                    影片匹配有誤？點擊去搜索
                   </button>
                 </div>
               </div>

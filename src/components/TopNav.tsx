@@ -39,24 +39,24 @@ const TopNav = ({ activePath }: TopNavProps) => {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // 搜索源选择器状态
+  // 搜索源選擇器狀態
   const [searchSources, setSearchSources] = useState<string[]>([]);
   const [openFilter, setOpenFilter] = useState<string | null>(null);
 
-  // 历史记录状态
+  // 歷史記錄狀態
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const historyButtonRef = useRef<HTMLButtonElement>(null);
   const historyPopupRef = useRef<HTMLDivElement>(null);
 
-  // 简洁模式搜索栏展开状态
+  // 簡潔模式搜索欄展開狀態
   const [showSearchBar, setShowSearchBar] = useState(false);
   const searchBarRef = useRef<HTMLDivElement>(null);
 
-  // 下载任务数量统计
+  // 下載任務數量統計
   const [downloadTaskCount, setDownloadTaskCount] = useState(0);
 
-  // 监听下载任务变化，更新角标
+  // 監聽下載任務變化，更新角標
   useEffect(() => {
     const updateTaskCount = () => {
       if (typeof window !== 'undefined') {
@@ -64,12 +64,12 @@ const TopNav = ({ activePath }: TopNavProps) => {
         if (saved) {
           try {
             const tasks = JSON.parse(saved);
-            // 统计未完成的任务数量（下载中、暂停、等待、错误）
+            // 統計未完成的任務數量（下載中、暫停、等待、錯誤）
             const activeCount = tasks.filter(
-              (t: { status: string }) => 
-                t.status === 'downloading' || 
-                t.status === 'paused' || 
-                t.status === 'waiting' || 
+              (t: { status: string }) =>
+                t.status === 'downloading' ||
+                t.status === 'paused' ||
+                t.status === 'waiting' ||
                 t.status === 'error'
             ).length;
             setDownloadTaskCount(activeCount);
@@ -82,17 +82,17 @@ const TopNav = ({ activePath }: TopNavProps) => {
       }
     };
 
-    // 初始加载
+    // 初始加載
     updateTaskCount();
 
-    // 监听 localStorage 变化
+    // 監聽 localStorage 變化
     const handleStorageChange = () => {
       updateTaskCount();
     };
 
     if (typeof window !== 'undefined') {
       window.addEventListener('storage', handleStorageChange);
-      // 自定义事件：当任务列表更新时
+      // 自定義事件：當任務列表更新時
       window.addEventListener('downloadTasksUpdated', handleStorageChange as EventListener);
     }
 
@@ -104,7 +104,7 @@ const TopNav = ({ activePath }: TopNavProps) => {
     };
   }, []);
 
-  // 检查是否启用简洁模式
+  // 檢查是否啟用簡潔模式
   const [simpleMode, setSimpleMode] = useState(false);
   const [isClient, setIsClient] = useState(false);
 
@@ -117,10 +117,10 @@ const TopNav = ({ activePath }: TopNavProps) => {
       }
     }
 
-    // 加载搜索历史
+    // 加載搜索歷史
     getSearchHistory().then(setSearchHistory);
     const unsubscribe = subscribeToDataUpdates('searchHistoryUpdated', setSearchHistory);
-    
+
     return () => {
       unsubscribe();
     };
@@ -136,7 +136,7 @@ const TopNav = ({ activePath }: TopNavProps) => {
     }
   }, [activePath, pathname, searchParams]);
 
-  // 同步 URL 中的搜索查询和搜索源到搜索框
+  // 同步 URL 中的搜索查詢和搜索源到搜索框
   useEffect(() => {
     if (pathname === '/search') {
       const query = searchParams.get('q');
@@ -145,7 +145,7 @@ const TopNav = ({ activePath }: TopNavProps) => {
       } else {
         setSearchQuery('');
       }
-      
+
       const sources = searchParams.get('sources');
       if (sources) {
         setSearchSources(sources.split(','));
@@ -156,22 +156,22 @@ const TopNav = ({ activePath }: TopNavProps) => {
   const [menuItems, setMenuItems] = useState([
     {
       icon: Film,
-      label: '电影',
+      label: '電影',
       href: '/douban?type=movie',
     },
     {
       icon: Tv,
-      label: '剧集',
+      label: '劇集',
       href: '/douban?type=tv',
     },
     {
       icon: Cat,
-      label: '动漫',
+      label: '動漫',
       href: '/douban?type=anime',
     },
     {
       icon: Clover,
-      label: '综艺',
+      label: '綜藝',
       href: '/douban?type=show',
     },
   ]);
@@ -183,7 +183,7 @@ const TopNav = ({ activePath }: TopNavProps) => {
           ...prevItems,
           {
             icon: Star,
-            label: '自定义',
+            label: '自定義',
             href: '/douban?type=custom',
           },
         ]);
@@ -195,14 +195,14 @@ const TopNav = ({ activePath }: TopNavProps) => {
     e.preventDefault();
     const trimmedQuery = searchQuery.trim();
     if (trimmedQuery) {
-      // 添加到搜索历史
+      // 添加到搜索歷史
       addSearchHistory(trimmedQuery);
-      
-      // 如果不在搜索页面，触发加载动画
+
+      // 如果不在搜索頁面，觸發加載動畫
       if (pathname !== '/search') {
         startLoading();
       }
-      
+
       const params = new URLSearchParams();
       params.set('q', trimmedQuery);
       if (searchSources.length > 0) {
@@ -218,22 +218,22 @@ const TopNav = ({ activePath }: TopNavProps) => {
     const value = e.target.value;
     setSearchQuery(value);
     setShowSuggestions(value.trim().length > 0);
-    setShowHistory(false); // 输入时关闭历史记录
+    setShowHistory(false); // 輸入時關閉歷史記錄
   };
 
   const handleSuggestionSelect = (suggestion: string) => {
     setSearchQuery(suggestion);
     setShowSuggestions(false);
-    setShowHistory(false); // 选择建议时关闭历史记录
-    
-    // 添加到搜索历史
+    setShowHistory(false); // 選擇建議時關閉歷史記錄
+
+    // 添加到搜索歷史
     addSearchHistory(suggestion);
-    
-    // 如果不在搜索页面，触发加载动画
+
+    // 如果不在搜索頁面，觸發加載動畫
     if (pathname !== '/search') {
       startLoading();
     }
-    
+
     const params = new URLSearchParams();
     params.set('q', suggestion);
     if (searchSources.length > 0) {
@@ -246,7 +246,7 @@ const TopNav = ({ activePath }: TopNavProps) => {
     if (searchQuery.trim().length > 0) {
       setShowSuggestions(true);
     }
-    setShowHistory(false); // 聚焦输入框时关闭历史记录
+    setShowHistory(false); // 聚焦輸入框時關閉歷史記錄
   };
 
   const clearSearch = () => {
@@ -258,15 +258,15 @@ const TopNav = ({ activePath }: TopNavProps) => {
   const handleHistoryClick = (item: string) => {
     setSearchQuery(item);
     setShowHistory(false);
-    
-    // 添加到搜索历史（更新时间戳）
+
+    // 添加到搜索歷史（更新時間戳）
     addSearchHistory(item);
-    
-    // 如果不在搜索页面，触发加载动画
+
+    // 如果不在搜索頁面，觸發加載動畫
     if (pathname !== '/search') {
       startLoading();
     }
-    
+
     const params = new URLSearchParams();
     params.set('q', item);
     if (searchSources.length > 0) {
@@ -285,7 +285,7 @@ const TopNav = ({ activePath }: TopNavProps) => {
     setShowHistory(false);
   };
 
-  // 点击外部关闭搜索栏
+  // 點擊外部關閉搜索欄
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -305,7 +305,7 @@ const TopNav = ({ activePath }: TopNavProps) => {
     };
   }, [showSearchBar, openFilter, showHistory]);
 
-  // 点击外部关闭历史弹窗
+  // 點擊外部關閉歷史彈窗
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -325,10 +325,10 @@ const TopNav = ({ activePath }: TopNavProps) => {
     };
   }, [showHistory]);
 
-  // 搜索栏内容（简洁和非简洁模式复用）
+  // 搜索欄內容（簡潔和非簡潔模式復用）
   const searchBarContent = (
     <div className='flex-1 max-w-md flex items-center' ref={searchBarRef}>
-      {/* 搜索源选择器 */}
+      {/* 搜索源選擇器 */}
       <div className='flex-shrink-0'>
         <SourceSelector
           selectedSources={searchSources}
@@ -349,7 +349,7 @@ const TopNav = ({ activePath }: TopNavProps) => {
             value={searchQuery}
             onChange={handleInputChange}
             onFocus={handleInputFocus}
-            placeholder='搜索电影、电视剧...'
+            placeholder='搜索電影、電視劇...'
             className='w-full h-10 rounded-r-lg rounded-l-none bg-gray-100/80 py-2 pl-10 pr-20 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-400 focus:bg-white transition-all duration-200 border border-gray-200/50 border-l-0 dark:bg-gray-800 dark:text-gray-300 dark:placeholder-gray-500 dark:focus:bg-gray-700 dark:border-gray-700'
           />
           <div className='absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1'>
@@ -362,13 +362,13 @@ const TopNav = ({ activePath }: TopNavProps) => {
                 <X className='h-4 w-4' />
               </button>
             )}
-            {/* 历史记录按钮 */}
+            {/* 歷史記錄按鈕 */}
             <button
               ref={historyButtonRef}
               type='button'
               onClick={() => setShowHistory(!showHistory)}
               className='text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors relative'
-              title='搜索历史'
+              title='搜索歷史'
             >
               <History className='h-4 w-4' />
               {searchHistory.length > 0 && (
@@ -384,7 +384,7 @@ const TopNav = ({ activePath }: TopNavProps) => {
           />
         </form>
 
-        {/* 历史记录弹窗 */}
+        {/* 歷史記錄彈窗 */}
         {showHistory && searchHistory.length > 0 && (
           <div
             ref={historyPopupRef}
@@ -392,7 +392,7 @@ const TopNav = ({ activePath }: TopNavProps) => {
           >
             <div className='p-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between'>
               <h3 className='text-sm font-semibold text-gray-700 dark:text-gray-300'>
-                搜索历史
+                搜索歷史
               </h3>
               <button
                 onClick={handleClearAllHistory}
@@ -414,7 +414,7 @@ const TopNav = ({ activePath }: TopNavProps) => {
                   <button
                     onClick={(e) => handleDeleteHistory(item, e)}
                     className='ml-2 text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-500 transition-colors'
-                    title='删除'
+                    title='刪除'
                   >
                     <Trash2 className='h-3 w-3' />
                   </button>
@@ -477,7 +477,7 @@ const TopNav = ({ activePath }: TopNavProps) => {
           </Link>
         )}
 
-        {/* 导航菜单 */}
+        {/* 導航菜單 */}
         <nav className='flex items-center gap-1 flex-shrink-0'>
         {isClient && !simpleMode && (
           <Link
@@ -492,7 +492,7 @@ const TopNav = ({ activePath }: TopNavProps) => {
             className='group flex items-center gap-2 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100/50 hover:text-green-600 data-[active=true]:bg-green-500/10 data-[active=true]:text-green-600 font-medium transition-colors duration-200 dark:text-gray-300 dark:hover:text-green-400 dark:hover:bg-gray-700/50 dark:data-[active=true]:bg-green-500/10 dark:data-[active=true]:text-green-400'
           >
             <Home className='h-4 w-4' />
-            <span>首页</span>
+            <span>首頁</span>
           </Link>
         )}
 
@@ -526,16 +526,16 @@ const TopNav = ({ activePath }: TopNavProps) => {
           })}
         </nav>
 
-        {/* 中间占位区域 */}
+        {/* 中間佔位區域 */}
         <div className='flex-1'></div>
 
-        {/* 搜索栏 / 搜索按钮 */}
+        {/* 搜索欄 / 搜索按鈕 */}
         <div className='flex items-center justify-end'>
           {showSearchBar && searchBarContent}
           {!showSearchBar && searchButton}
         </div>
 
-        {/* 右侧按钮组 */}
+        {/* 右側按鈕組 */}
         <div className='flex items-center gap-2 flex-shrink-0 mr-9'>
           <button
             onClick={() => {
@@ -544,7 +544,7 @@ const TopNav = ({ activePath }: TopNavProps) => {
               }
             }}
             className='p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors relative'
-            title='下载管理器'
+            title='下載管理器'
           >
             <Download className='h-5 w-5' />
             {downloadTaskCount > 0 && (
@@ -562,7 +562,7 @@ const TopNav = ({ activePath }: TopNavProps) => {
   );
 };
 
-// 使用 React.memo 优化，避免父组件更新时导致不必要的重新渲染
-// 由于 TopNav 主要依赖内部 hooks 和全局状态，不需要 props 比较函数
+// 使用 React.memo 優化，避免父組件更新時導致不必要的重新渲染
+// 由於 TopNav 主要依賴內部 hooks 和全局狀態，不需要 props 比較函數
 export default memo(TopNav);
 

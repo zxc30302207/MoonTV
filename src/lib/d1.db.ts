@@ -4,10 +4,10 @@ import { AdminConfig } from './admin.types';
 import { normalizePasswordForStorage, verifyPassword } from './password';
 import { Favorite, IStorage, PlayRecord, SkipConfig } from './types';
 
-// 搜索历史最大条数
+// 搜索歷史最大條數
 const SEARCH_HISTORY_LIMIT = 20;
 
-// D1 数据库类型定义
+// D1 數據庫類型定義
 interface D1Database {
   prepare(query: string): D1PreparedStatement;
   exec(query: string): Promise<D1Result>;
@@ -26,14 +26,14 @@ interface D1Result<T = any> {
   meta?: any;
 }
 
-// 获取 D1 数据库绑定
+// 獲取 D1 數據庫綁定
 function getD1Database(): D1Database {
-  // 在 Cloudflare Pages 环境中，D1 数据库通过环境变量绑定
+  // 在 Cloudflare Pages 環境中，D1 數據庫通過環境變量綁定
   if (typeof process !== 'undefined' && process.env) {
     return (process.env as any).DB as D1Database;
   }
 
-  // 在浏览器环境中，D1 不可用
+  // 在瀏覽器環境中，D1 不可用
   throw new Error(
     'D1 database is only available in Cloudflare Pages environment'
   );
@@ -46,7 +46,7 @@ export class D1Storage implements IStorage {
     this.db = getD1Database();
   }
 
-  // ---------- 用户相关 ----------
+  // ---------- 用戶相關 ----------
   private async getUserId(username: string): Promise<number | null> {
     const result = await this.db
       .prepare('SELECT id FROM users WHERE username = ?')
@@ -56,7 +56,7 @@ export class D1Storage implements IStorage {
     return result ? (result.id as number) : null;
   }
 
-  // 如果用户不存在则自动创建（角色默认为 user）
+  // 如果用戶不存在則自動創建（角色默認為 user）
   private async ensureUser(username: string): Promise<number> {
     let userId = await this.getUserId(username);
     if (userId) return userId;
@@ -123,7 +123,7 @@ export class D1Storage implements IStorage {
     const userId = await this.getUserId(userName);
     if (!userId) return;
 
-    // 删除用户的所有数据
+    // 刪除用戶的所有數據
     await this.db
       .prepare('DELETE FROM play_records WHERE user_id = ?')
       .bind(userId)
@@ -147,7 +147,7 @@ export class D1Storage implements IStorage {
     await this.db.prepare('DELETE FROM users WHERE id = ?').bind(userId).run();
   }
 
-  // ---------- 播放记录 ----------
+  // ---------- 播放記錄 ----------
   async getPlayRecord(
     userName: string,
     key: string
@@ -162,7 +162,7 @@ export class D1Storage implements IStorage {
     const result = await this.db
       .prepare(
         `
-        SELECT * FROM play_records 
+        SELECT * FROM play_records
         WHERE user_id = ? AND source = ? AND video_id = ?
       `
       )
@@ -196,12 +196,12 @@ export class D1Storage implements IStorage {
     }
     const userId = await this.ensureUser(userName);
 
-    // 删除同名的旧记录
+    // 刪除同名的舊記錄
     if (record.title) {
       await this.db
         .prepare(
           `
-          DELETE FROM play_records 
+          DELETE FROM play_records
           WHERE user_id = ? AND title = ? AND NOT (source = ? AND video_id = ?)
         `
         )
@@ -212,11 +212,11 @@ export class D1Storage implements IStorage {
     await this.db
       .prepare(
         `
-        INSERT INTO play_records 
-        (user_id, source, video_id, title, source_name, year, cover, episode_index, 
+        INSERT INTO play_records
+        (user_id, source, video_id, title, source_name, year, cover, episode_index,
          total_episodes, play_time, total_time, save_time, search_title)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(user_id, source, video_id) 
+        ON CONFLICT(user_id, source, video_id)
         DO UPDATE SET
           title = excluded.title,
           source_name = excluded.source_name,
@@ -339,10 +339,10 @@ export class D1Storage implements IStorage {
     await this.db
       .prepare(
         `
-        INSERT INTO favorites 
+        INSERT INTO favorites
         (user_id, source, video_id, title, source_name, year, cover, total_episodes, save_time, search_title)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(user_id, source, video_id) 
+        ON CONFLICT(user_id, source, video_id)
         DO UPDATE SET
           title = excluded.title,
           source_name = excluded.source_name,
@@ -410,7 +410,7 @@ export class D1Storage implements IStorage {
       .run();
   }
 
-  // ---------- 搜索历史 ----------
+  // ---------- 搜索歷史 ----------
   async getSearchHistory(userName: string): Promise<string[]> {
     const userId = await this.getUserId(userName);
     if (!userId) return [];
@@ -418,9 +418,9 @@ export class D1Storage implements IStorage {
     const results = await this.db
       .prepare(
         `
-        SELECT keyword FROM search_history 
-        WHERE user_id = ? 
-        ORDER BY created_at DESC 
+        SELECT keyword FROM search_history
+        WHERE user_id = ?
+        ORDER BY created_at DESC
         LIMIT ?
       `
       )
@@ -435,27 +435,27 @@ export class D1Storage implements IStorage {
   async addSearchHistory(userName: string, keyword: string): Promise<void> {
     const userId = await this.ensureUser(userName);
 
-    // 先删除已存在的相同关键词
+    // 先刪除已存在的相同關鍵詞
     await this.db
       .prepare('DELETE FROM search_history WHERE user_id = ? AND keyword = ?')
       .bind(userId, keyword)
       .run();
 
-    // 插入新关键词
+    // 插入新關鍵詞
     await this.db
       .prepare('INSERT INTO search_history (user_id, keyword) VALUES (?, ?)')
       .bind(userId, keyword)
       .run();
 
-    // 保持搜索历史不超过限制
+    // 保持搜索歷史不超過限制
     await this.db
       .prepare(
         `
-        DELETE FROM search_history 
+        DELETE FROM search_history
         WHERE user_id = ? AND id NOT IN (
-          SELECT id FROM search_history 
-          WHERE user_id = ? 
-          ORDER BY created_at DESC 
+          SELECT id FROM search_history
+          WHERE user_id = ?
+          ORDER BY created_at DESC
           LIMIT ?
         )
       `
@@ -481,7 +481,7 @@ export class D1Storage implements IStorage {
     }
   }
 
-  // ---------- 获取全部用户 ----------
+  // ---------- 獲取全部用戶 ----------
   async getAllUsers(): Promise<string[]> {
     const results = await this.db.prepare('SELECT username FROM users').all();
 
@@ -490,7 +490,7 @@ export class D1Storage implements IStorage {
     );
   }
 
-  // ---------- 管理员配置 ----------
+  // ---------- 管理員配置 ----------
   async getAdminConfig(): Promise<AdminConfig | null> {
     try {
       const result = await this.db
@@ -520,7 +520,7 @@ export class D1Storage implements IStorage {
     }
   }
 
-  // ---------- 跳过片头片尾配置 ----------
+  // ---------- 跳過片頭片尾配置 ----------
   async getSkipConfig(
     userName: string,
     source: string,
@@ -617,9 +617,9 @@ export class D1Storage implements IStorage {
     return configs;
   }
 
-  // 清空所有数据
+  // 清空所有數據
   async clearAllData(): Promise<void> {
-    // 删除所有表的数据
+    // 刪除所有表的數據
     await this.db.prepare('DELETE FROM play_records').run();
     await this.db.prepare('DELETE FROM favorites').run();
     await this.db.prepare('DELETE FROM search_history').run();

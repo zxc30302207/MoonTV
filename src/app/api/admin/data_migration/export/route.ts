@@ -13,77 +13,77 @@ export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   try {
-    // 检查存储类型
+    // 檢查存儲類型
     const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
     if (storageType === 'localstorage') {
       return NextResponse.json(
-        { error: '不支持本地存储进行数据迁移' },
+        { error: '不支持本地存儲進行數據遷移' },
         { status: 400 }
       );
     }
 
-    // 验证身份和权限
+    // 驗證身份和權限
     const authInfo = getAuthInfoFromCookie(req);
     if (!authInfo || !authInfo.username) {
-      return NextResponse.json({ error: '未登录' }, { status: 401 });
+      return NextResponse.json({ error: '未登錄' }, { status: 401 });
     }
 
-    // 检查用户权限（只有站长可以导出数据）
+    // 檢查用戶權限（只有站長可以導出數據）
     if (authInfo.username !== process.env.USERNAME) {
       return NextResponse.json(
-        { error: '权限不足，只有站长可以导出数据' },
+        { error: '權限不足，只有站長可以導出數據' },
         { status: 401 }
       );
     }
 
     const config = await db.getAdminConfig();
     if (!config) {
-      return NextResponse.json({ error: '无法获取配置' }, { status: 500 });
+      return NextResponse.json({ error: '無法獲取配置' }, { status: 500 });
     }
 
-    // 解析请求体获取密码
+    // 解析請求體獲取密碼
     const { password } = await req.json();
     if (!password || typeof password !== 'string') {
-      return NextResponse.json({ error: '请提供加密密码' }, { status: 400 });
+      return NextResponse.json({ error: '請提供加密密碼' }, { status: 400 });
     }
 
-    // 收集所有数据
+    // 收集所有數據
     const exportData = {
       timestamp: new Date().toISOString(),
       serverVersion: CURRENT_VERSION,
       data: {
-        // 管理员配置
+        // 管理員配置
         adminConfig: config,
-        // 所有用户数据
+        // 所有用戶數據
         userData: {} as Record<string, unknown>,
       },
     };
 
-    // 获取所有用户
+    // 獲取所有用戶
     let allUsers = await db.getAllUsers();
-    // 添加站长用户
+    // 添加站長用戶
     allUsers.push(process.env.USERNAME);
     allUsers = Array.from(new Set(allUsers));
 
-    // 为每个用户收集数据
+    // 為每個用戶收集數據
     for (const username of allUsers) {
       const userData = {
-        // 播放记录
+        // 播放記錄
         playRecords: await db.getAllPlayRecords(username),
-        // 收藏夹
+        // 收藏夾
         favorites: await db.getAllFavorites(username),
-        // 搜索历史
+        // 搜索歷史
         searchHistory: await db.getSearchHistory(username),
-        // 跳过片头片尾配置
+        // 跳過片頭片尾配置
         skipConfigs: await db.getAllSkipConfigs(username),
-        // 用户密码（通过验证空密码来检查用户是否存在，然后获取密码）
+        // 用戶密碼（通過驗證空密碼來檢查用戶是否存在，然後獲取密碼）
         password: await getUserPassword(username),
       };
 
       exportData.data.userData[username] = userData;
     }
 
-    // 覆盖站长密码
+    // 覆蓋站長密碼
     const ownerKey = process.env.USERNAME as string;
     const ownerData = exportData.data.userData[ownerKey] as Record<
       string,
@@ -98,13 +98,13 @@ export async function POST(req: NextRequest) {
         : await hashPassword(ownerPassword);
     }
 
-    // 将数据转换为JSON字符串
+    // 將數據轉換為JSON字符串
     const jsonData = JSON.stringify(exportData);
 
-    // 先压缩数据
+    // 先壓縮數據
     const compressedData = deflate(jsonData);
 
-    // 使用提供的密码加密压缩后的数据
+    // 使用提供的密碼加密壓縮後的數據
     const compressedBase64 = Buffer.from(compressedData).toString('base64');
     const encryptedData = SimpleCrypto.encrypt(compressedBase64, password);
 
@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
     ).padStart(2, '0')}`;
     const filename = `moontv-backup-${timestamp}.dat`;
 
-    // 返回加密的数据作为文件下载
+    // 返回加密的數據作為文件下載
     return new NextResponse(encryptedData, {
       status: 200,
       headers: {
@@ -130,13 +130,13 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : '导出失败' },
+      { error: error instanceof Error ? error.message : '導出失敗' },
       { status: 500 }
     );
   }
 }
 
-// 辅助函数：获取用户密码（通过数据库直接访问）
+// 輔助函數：獲取用戶密碼（通過數據庫直接訪問）
 async function getUserPassword(username: string): Promise<string | null> {
   try {
     const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
@@ -168,7 +168,7 @@ async function getUserPassword(username: string): Promise<string | null> {
       return null;
     }
 
-    // 使用 Redis 存储的直接访问方法
+    // 使用 Redis 存儲的直接訪問方法
     const storage = (
       db as unknown as {
         storage?: {

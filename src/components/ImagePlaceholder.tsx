@@ -1,4 +1,4 @@
-// 图片占位符组件 - 实现骨架屏效果（支持暗色模式）
+// 圖片佔位符組件 - 實現骨架屏效果（支持暗色模式）
 const ImagePlaceholder = ({ aspectRatio }: { aspectRatio: string }) => (
   <div
     className={`w-full ${aspectRatio} rounded-lg`}
@@ -14,21 +14,21 @@ const ImagePlaceholder = ({ aspectRatio }: { aspectRatio: string }) => (
         0% { background-position: -200% 0; }
         100% { background-position: 200% 0; }
       }
-      
-      /* 亮色模式变量 */
+
+      /* 亮色模式變量 */
       :root {
         --skeleton-color: #f0f0f0;
         --skeleton-highlight: #e0e0e0;
       }
-      
-      /* 暗色模式变量 */
+
+      /* 暗色模式變量 */
       @media (prefers-color-scheme: dark) {
         :root {
           --skeleton-color: #2d2d2d;
           --skeleton-highlight: #3d3d3d;
         }
       }
-      
+
       .dark {
         --skeleton-color: #2d2d2d;
         --skeleton-highlight: #3d3d3d;

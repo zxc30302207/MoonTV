@@ -13,13 +13,13 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // 跳过不需要认证的路径
+  // 跳過不需要認證的路徑
   if (shouldSkipAuth(pathname)) {
     return NextResponse.next();
   }
 
   if (!process.env.PASSWORD) {
-    // 如果没有设置密码，重定向到警告页面
+    // 如果沒有設置密碼，重定向到警告頁面
     const warningUrl = new URL('/warning', request.url);
     return NextResponse.redirect(warningUrl);
   }
@@ -32,19 +32,19 @@ export async function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
-// 处理认证失败的情况
+// 處理認證失敗的情況
 function handleAuthFailure(
   request: NextRequest,
   pathname: string
 ): NextResponse {
-  // 如果是 API 路由，返回 401 状态码
+  // 如果是 API 路由，返回 401 狀態碼
   if (pathname.startsWith('/api')) {
     return new NextResponse('Unauthorized', { status: 401 });
   }
 
-  // 否则重定向到登录页面
+  // 否則重定向到登錄頁面
   const loginUrl = new URL('/login', request.url);
-  // 保留完整的URL，包括查询参数
+  // 保留完整的URL，包括查詢參數
   const fullUrl = `${pathname}${request.nextUrl.search}`;
   loginUrl.searchParams.set('redirect', fullUrl);
   return NextResponse.redirect(loginUrl);
@@ -83,7 +83,7 @@ function isSameOrigin(request: NextRequest): boolean {
   return false;
 }
 
-// 判断是否需要跳过认证的路径
+// 判斷是否需要跳過認證的路徑
 function shouldSkipAuth(pathname: string): boolean {
   const skipPaths = [
     '/_next',
@@ -110,7 +110,7 @@ function shouldSkipAuth(pathname: string): boolean {
   return skipPaths.some((path) => pathname.startsWith(path));
 }
 
-// 配置middleware匹配规则
+// 配置middleware匹配規則
 export const config = {
   matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };

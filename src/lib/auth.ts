@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 
-// 从cookie获取认证信息 (服务端使用)
+// 從cookie獲取認證信息 (服務端使用)
 export function getAuthInfoFromCookie(request: NextRequest): {
   username?: string;
   signature?: string;

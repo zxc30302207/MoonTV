@@ -37,23 +37,23 @@ function SearchPageClient() {
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<string | null>(null);
   const historyRef = useRef<HTMLDivElement>(null);
   const [hasResetOnEmptyParams, setHasResetOnEmptyParams] = useState(true);
-  
-  // 分页加载相关状态
-  const [displayedExactCount, setDisplayedExactCount] = useState(20); // 初始显示20个精确匹配结果
-  const [displayedOthersCount, setDisplayedOthersCount] = useState(20); // 初始显示20个其他结果
+
+  // 分頁加載相關狀態
+  const [displayedExactCount, setDisplayedExactCount] = useState(20); // 初始顯示20個精確匹配結果
+  const [displayedOthersCount, setDisplayedOthersCount] = useState(20); // 初始顯示20個其他結果
   const loadingMoreExactRef = useRef<HTMLDivElement>(null);
   const loadingMoreOthersRef = useRef<HTMLDivElement>(null);
   const observerExactRef = useRef<IntersectionObserver | null>(null);
   const observerOthersRef = useRef<IntersectionObserver | null>(null);
 
-  // 筛选状态 - 从 URL 参数初始化，如果没有URL参数则从保存的源读取
+  // 篩選狀態 - 從 URL 參數初始化，如果沒有URL參數則從保存的源讀取
   const [searchSources, setSearchSources] = useState<string[]>(() => {
     const sources = searchParams.get('sources');
     if (sources) {
       return sources.split(',');
     }
-    
-    // 如果没有URL参数，检查是否有保存的源
+
+    // 如果沒有URL參數，檢查是否有保存的源
     if (typeof window !== 'undefined') {
       const savedSources = localStorage.getItem('savedSources');
       if (savedSources) {
@@ -64,7 +64,7 @@ function SearchPageClient() {
         }
       }
     }
-    
+
     return [];
   });
   const [selectedTitles, setSelectedTitles] = useState<string[]>(() => {
@@ -76,14 +76,14 @@ function SearchPageClient() {
     return years ? years.split(',') : [];
   });
 
-  // 搜索结果来源筛选状态 - 从 URL 参数初始化
+  // 搜索結果來源篩選狀態 - 從 URL 參數初始化
   const [filterSources, setFilterSources] = useState<string[]>(() => {
     const sources = searchParams.get('filter_sources');
     return sources ? sources.split(',') : [];
   });
-  // 新增状态：记录当前展开的筛选框
+  // 新增狀態：記錄當前展開的篩選框
   const [openFilter, setOpenFilter] = useState<string | null>(null);
-  // 排序状态：字段与顺序（默认：按源数量，倒序）
+  // 排序狀態：字段與順序（默認：按源數量，倒序）
   const [sortField, setSortField] = useState<'sources' | 'year' | 'episodes'>(() => {
     const sf = searchParams.get('sort');
     return sf === 'sources' || sf === 'episodes' || sf === 'year' ? sf : 'sources';
@@ -110,11 +110,11 @@ function SearchPageClient() {
     return true;
   });
 
-  // 聚合后的结果
+  // 聚合後的結果
   const aggregatedResults = useMemo(() => {
     const map = new Map<string, SearchResult[]>();
     searchResults.forEach((item) => {
-      // 使用标准化的标题（移除多余空格但保留单词间的单个空格）作为聚合键的一部分
+      // 使用標準化的標題（移除多餘空格但保留單詞間的單個空格）作為聚合鍵的一部分
       const normalizedTitle = item.title.trim().replace(/\s+/g, ' ');
       const key = `${normalizedTitle}-${item.year || 'unknown'}-${item.episodes.length === 1 ? 'movie' : 'tv'}`;
       const arr = map.get(key) || [];
@@ -136,23 +136,23 @@ function SearchPageClient() {
     });
   }, [searchResults]);
 
-  // 用于筛选后的聚合结果，保证类型安全
+  // 用於篩選後的聚合結果，保證類型安全
   const filteredAggregatedResults: [string, SearchResult[]][] = useMemo(() => {
     return aggregatedResults
       .filter(([_key, group]) => {
-        // 来源筛选：如果没有选择任何来源（filterSources.length === 0），默认显示全部；如果选择了来源，只保留包含至少一个选中来源的影片组
+        // 來源篩選：如果沒有選擇任何來源（filterSources.length === 0），默認顯示全部；如果選擇了來源，只保留包含至少一個選中來源的影片組
         const sourceMatch = filterSources.length === 0 ||
           group.some(item => filterSources.includes(item.source_name));
-        // 标题筛选：如果选择了标题，只保留标题匹配的影片组
+        // 標題篩選：如果選擇了標題，只保留標題匹配的影片組
         const titleMatch = selectedTitles.length === 0 ||
           selectedTitles.includes(group[0].title);
-        // 年份筛选：如果选择了年份，只保留年份匹配的影片组
+        // 年份篩選：如果選擇了年份，只保留年份匹配的影片組
         const yearMatch = selectedYears.length === 0 ||
           selectedYears.includes(group[0].year);
         return sourceMatch && titleMatch && yearMatch;
       })
       .map(([_key, group]) => {
-        // 在组内也进行筛选，确保组内每个项目都符合筛选条件
+        // 在組內也進行篩選，確保組內每個項目都符合篩選條件
         const filteredGroup = group.filter((item) => {
           const titleMatch = selectedTitles.length === 0 || selectedTitles.includes(item.title);
           const yearMatch = selectedYears.length === 0 || selectedYears.includes(item.year);
@@ -163,7 +163,7 @@ function SearchPageClient() {
       .filter(([_, group]) => group.length > 0);
   }, [aggregatedResults, filterSources, selectedTitles, selectedYears]);
 
-// 返回两个数组：exact 和 others
+// 返回兩個數組：exact 和 others
 const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [string, SearchResult[]][] } = useMemo(() => {
   const aggregateMode = viewMode;
   const groups: [string, SearchResult[]][] = aggregateMode
@@ -228,7 +228,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
   return { exact, others };
 }, [filteredAggregatedResults, searchResults, sortField, sortOrder, searchQuery, viewMode]);
 
-  // 分页显示的结果
+  // 分頁顯示的結果
   const displayedExactResults = useMemo(() => {
     return sortedAggregatedResults.exact.slice(0, displayedExactCount);
   }, [sortedAggregatedResults.exact, displayedExactCount]);
@@ -257,13 +257,13 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
 
       const params = new URLSearchParams({ q: query.trim() });
       params.set('stream', streamEnabled ? '1' : '0');
-      
-      // 添加选中的搜索源到请求参数
+
+      // 添加選中的搜索源到請求參數
       if (searchSources.length > 0) {
         params.set('sources', searchSources.join(','));
       }
 
-      // 添加超时时间参数
+      // 添加超時時間參數
       const timeoutSeconds = getRequestTimeout();
       params.set('timeout', timeoutSeconds.toString());
 
@@ -330,7 +330,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
     }
   };
 
-  // 初始化：搜索历史、滚动监听
+  // 初始化：搜索歷史、滾動監聽
   useEffect(() => {
     getSearchHistory().then(setSearchHistory);
     const unsubscribe = subscribeToDataUpdates('searchHistoryUpdated', setSearchHistory);
@@ -344,13 +344,13 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
     };
   }, []);
 
-  // 设置滚动监听，实现分页加载 - 精确匹配结果
+  // 設置滾動監聽，實現分頁加載 - 精確匹配結果
   useEffect(() => {
     if (!loadingMoreExactRef.current || isLoading || !hasMoreExact) {
       return;
     }
 
-    // 清理旧的观察者
+    // 清理舊的觀察者
     if (observerExactRef.current) {
       observerExactRef.current.disconnect();
     }
@@ -361,9 +361,9 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
           setDisplayedExactCount((prev) => prev + 20);
         }
       },
-      { 
+      {
         threshold: 0.1,
-        rootMargin: '200px' // 提前200px开始加载，提供更流畅的体验
+        rootMargin: '200px' // 提前200px開始加載，提供更流暢的體驗
       }
     );
 
@@ -377,14 +377,14 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
     };
   }, [hasMoreExact, isLoading]);
 
-  // 设置滚动监听，实现分页加载 - 其他结果
+  // 設置滾動監聽，實現分頁加載 - 其他結果
   useEffect(() => {
     if (!loadingMoreOthersRef.current || isLoading || !hasMoreOthers || hasMoreExact) {
-      // 如果还有精确匹配结果未加载完，不监听其他结果
+      // 如果還有精確匹配結果未加載完，不監聽其他結果
       return;
     }
 
-    // 清理旧的观察者
+    // 清理舊的觀察者
     if (observerOthersRef.current) {
       observerOthersRef.current.disconnect();
     }
@@ -395,9 +395,9 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
           setDisplayedOthersCount((prev) => prev + 20);
         }
       },
-      { 
+      {
         threshold: 0.1,
-        rootMargin: '200px' // 提前200px开始加载，提供更流畅的体验
+        rootMargin: '200px' // 提前200px開始加載，提供更流暢的體驗
       }
     );
 
@@ -411,11 +411,11 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
     };
   }, [hasMoreExact, hasMoreOthers, isLoading]);
 
-  // 提取当前的查询参数 q 和 sources
+  // 提取當前的查詢參數 q 和 sources
   const currentQuery = useMemo(() => searchParams.get('q'), [searchParams]);
   const currentSources = useMemo(() => searchParams.get('sources'), [searchParams]);
 
-  // 监听查询变化时重置分页
+  // 監聽查詢變化時重置分頁
   useEffect(() => {
     if (currentQuery) {
       setDisplayedExactCount(20);
@@ -423,43 +423,43 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
     }
   }, [currentQuery]);
 
-  // 同步搜索源配置（当 sources 参数变化时）
+  // 同步搜索源配置（當 sources 參數變化時）
   useEffect(() => {
     if (currentSources) {
       setSearchSources(currentSources.split(','));
     }
   }, [currentSources]);
 
-  // 监听查询参数 q 的变化并触发搜索（只在 q 变化时触发）
+  // 監聽查詢參數 q 的變化並觸發搜索（只在 q 變化時觸發）
   useEffect(() => {
     if (currentQuery) {
-      // 触发搜索
+      // 觸發搜索
       setSearchQuery(currentQuery);
       setIsLoading(true);
       setShowResults(true);
       fetchSearchResults(currentQuery);
       addSearchHistory(currentQuery);
     } else {
-      // 没有搜索参数时，聚焦输入框
+      // 沒有搜索參數時，聚焦輸入框
       document.getElementById('searchInput')?.focus();
     }
-  }, [currentQuery]); // 只依赖查询参数 q，仅在 q 变化时触发
+  }, [currentQuery]); // 只依賴查詢參數 q，僅在 q 變化時觸發
 
-  // 监听URL参数变化，当URL变为无参数时重新挂载组件（只执行一次）
+  // 監聽URL參數變化，當URL變為無參數時重新掛載組件（只執行一次）
   useEffect(() => {
     const urlQuery = searchParams.get('q');
-    // 如果之前有搜索参数但现在没有了，说明URL变成了无参数状态，且尚未执行过重置
+    // 如果之前有搜索參數但現在沒有了，說明URL變成了無參數狀態，且尚未執行過重置
     if (!urlQuery && !hasResetOnEmptyParams) {
-      // 重置状态，模拟组件重新挂载
+      // 重置狀態，模擬組件重新掛載
       setShowResults(false);
       setHasResetOnEmptyParams(true);
     } else if (urlQuery) {
-      // 当有搜索参数时，重置标志位，以便下次可以再次触发
+      // 當有搜索參數時，重置標志位，以便下次可以再次觸發
       setHasResetOnEmptyParams(false);
     }
   }, [searchParams, hasResetOnEmptyParams]);
 
-  // 点击空白处取消高亮
+  // 點擊空白處取消高亮
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
@@ -470,35 +470,35 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  // 更新筛选状态到 URL
+  // 更新篩選狀態到 URL
   useEffect(() => {
     const params = new URLSearchParams(searchParams);
-    
+
     if (searchSources.length > 0) {
       params.set('sources', searchSources.join(','));
     } else {
       params.delete('sources');
     }
-    
+
     if (filterSources.length > 0) {
       params.set('filter_sources', filterSources.join(','));
     } else {
       params.delete('filter_sources');
     }
-    
+
     if (selectedTitles.length > 0) {
       params.set('titles', selectedTitles.join(','));
     } else {
       params.delete('titles');
     }
-    
+
     if (selectedYears.length > 0) {
       params.set('years', selectedYears.join(','));
     } else {
       params.delete('years');
     }
 
-    // 排序字段与顺序
+    // 排序字段與順序
     if (sortField) {
       params.set('sort', sortField);
     } else {
@@ -509,12 +509,12 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
     } else {
       params.delete('order');
     }
-    
-    // 只在有搜索查询时才更新 URL
+
+    // 只在有搜索查詢時才更新 URL
     if (searchParams.get('q')) {
       window.history.replaceState({}, '', `/search?${params.toString()}`);
     }
-  }, [filterSources, selectedTitles, selectedYears, sortField, sortOrder, searchParams]); // 移除 selectedSources 依赖，避免选择搜索源时触发重新搜索
+  }, [filterSources, selectedTitles, selectedYears, sortField, sortOrder, searchParams]); // 移除 selectedSources 依賴，避免選擇搜索源時觸發重新搜索
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -527,18 +527,18 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
   };
 
   const handleSearch = (e?: React.FormEvent, query?: string) => {
-    if (e) e.preventDefault(); // 如果是表单触发，阻止默认行为
+    if (e) e.preventDefault(); // 如果是表單觸發，阻止默認行為
     const trimmed = (query ?? searchQuery).trim().replace(/\s+/g, ' ');
     if (!trimmed) return;
-  
+
     setShowSuggestions(false);
-    // 更新URL，由useEffect监听触发搜索
+    // 更新URL，由useEffect監聽觸發搜索
     const urlParams = new URLSearchParams();
     urlParams.set('q', trimmed);
     if (searchSources.length > 0) {
       urlParams.set('sources', searchSources.join(','));
     }
-    // 添加超时时间参数
+    // 添加超時時間參數
     const timeoutSeconds = getRequestTimeout();
     urlParams.set('timeout', timeoutSeconds.toString());
     window.history.pushState({}, '', `/search?${urlParams.toString()}`);
@@ -546,13 +546,13 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
 
   const handleSuggestionSelect = (suggestion: string) => {
     setShowSuggestions(false);
-    // 更新URL，由useEffect监听触发搜索
+    // 更新URL，由useEffect監聽觸發搜索
     const urlParams = new URLSearchParams();
     urlParams.set('q', suggestion);
     if (searchSources.length > 0) {
       urlParams.set('sources', searchSources.join(','));
     }
-    // 添加超时时间参数
+    // 添加超時時間參數
     const timeoutSeconds = getRequestTimeout();
     urlParams.set('timeout', timeoutSeconds.toString());
     window.history.pushState({}, '', `/search?${urlParams.toString()}`);
@@ -566,12 +566,12 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
     }
   };
 
-  // 生成筛选选项
+  // 生成篩選選項
   const sourceOptions = Array.from(new Set(searchResults.map((r) => r.source_name))).sort();
   const titleOptions = Array.from(new Set(searchResults.map((r) => r.title))).sort();
   const yearOptions = Array.from(new Set(searchResults.map((r) => r.year))).sort();
 
-  // 处理排序字段变化的包装函数
+  // 處理排序字段變化的包裝函數
   const handleSortFieldChange = (field: string) => {
     setSortField(field as 'sources' | 'year' | 'episodes');
   };
@@ -579,10 +579,10 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
   return (
     <PageLayout activePath="/search">
       <div className="px-4 sm:px-10 py-4 sm:py-8 overflow-visible mb-10">
-        {/* 移动端搜索框和搜索源选择器 */}
+        {/* 移動端搜索框和搜索源選擇器 */}
         <div className="mb-7 max-w-2xl mx-auto md:hidden">
           <div className="flex items-center">
-            {/* 搜索源选择器 - 在搜索框左侧，作为一个整体 */}
+            {/* 搜索源選擇器 - 在搜索框左側，作為一個整體 */}
             <div className="flex-shrink-0">
               <SourceSelector
                 selectedSources={searchSources}
@@ -591,7 +591,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
                 setOpenFilter={setOpenFilter}
               />
             </div>
-            
+
             {/* 搜索框 */}
             <form onSubmit={handleSearch} className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
@@ -601,7 +601,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
                 value={searchQuery}
                 onChange={handleInputChange}
                 onFocus={handleInputFocus}
-                placeholder="搜索电影、电视剧..."
+                placeholder="搜索電影、電視劇..."
                 className="w-full h-12 rounded-r-lg rounded-l-none bg-gray-50/80 py-3 pl-10 pr-4 text-base text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-400 focus:bg-white border border-gray-200/50 border-l-0 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:placeholder-gray-500 dark:focus:bg-gray-700 dark:border-gray-700 dark:border-l-0"
               />
 
@@ -613,7 +613,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
 
 
 
-        {/* 搜索结果 */}
+        {/* 搜索結果 */}
         <div className="max-w-[95%] mx-auto overflow-visible">
           {isLoading ? (
             <div className="flex justify-center items-center h-40">
@@ -623,11 +623,11 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
             <section className="mb-12">
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200">搜索结果</h2>
+                <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200">搜索結果</h2>
                 <FailedSourcesDisplay failedSources={failedSources} />
               </div>
               <div className="flex items-center gap-4">
-                {/* 流式/聚合切换 */}
+                {/* 流式/聚合切換 */}
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <span className="text-sm text-gray-700 dark:text-gray-300">流式</span>
                   <div className="relative">
@@ -656,8 +656,8 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
                 </label>
               </div>
             </div>
-          
-            {/* 筛选组件弹窗 */}
+
+            {/* 篩選組件彈窗 */}
             {showResults && searchResults.length > 0 && (
               <div className="flex gap-3 flex-wrap mb-7 max-w-[100%] mx-auto">
                 <FilterOptions
@@ -677,15 +677,15 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
                   sortOrder={sortOrder}
                   onSortOrderChange={setSortOrder}
                   sortOptions={[
-                    { value: "sources", label: "按源数量" },
+                    { value: "sources", label: "按源數量" },
                     { value: "year", label: "按年份" },
-                    { value: "episodes", label: "按集数" },
+                    { value: "episodes", label: "按集數" },
                   ]}
                 />
               </div>
             )}
-          
-            {/* 精确匹配结果 */}
+
+            {/* 精確匹配結果 */}
             <div
               key={`search-results-${viewMode}`}
               className="justify-start grid grid-cols-3 gap-x-2 gap-y-14 sm:gap-y-20 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,_minmax(11rem,_1fr))] sm:gap-x-8"
@@ -709,7 +709,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
                         id={item.id}
                         title={item.title || ''}
                         poster={item.poster}
-                        episodes={item.episodes ? item.episodes.length : 0} // 转为 number
+                        episodes={item.episodes ? item.episodes.length : 0} // 轉為 number
                         source={item.source}
                         source_name={item.source_name}
                         douban_id={item.douban_id}
@@ -722,14 +722,14 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
                   );
                 }
               })}
-          
+
               {sortedAggregatedResults.exact.length === 0 && sortedAggregatedResults.others.length === 0 && (
                 <div className="col-span-full text-center text-gray-500 py-8 dark:text-gray-400">
-                  未找到相关结果
+                  未找到相關結果
                 </div>
               )}
-              
-              {/* 加载更多指示器 - 精确匹配结果 */}
+
+              {/* 加載更多指示器 - 精確匹配結果 */}
               {hasMoreExact && (
                 <div
                   ref={loadingMoreExactRef}
@@ -737,16 +737,16 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
                 >
                   <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
                     <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-green-500"></div>
-                    <span className="text-sm">加载中...</span>
+                    <span className="text-sm">加載中...</span>
                   </div>
                 </div>
               )}
             </div>
-          
-            {/* 更多结果 */}
+
+            {/* 更多結果 */}
             {sortedAggregatedResults.others.length > 0 && (
               <div className="mt-8">
-                <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-7">更多结果</h2>
+                <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-7">更多結果</h2>
                 <div className="justify-start grid grid-cols-3 gap-x-2 gap-y-14 sm:gap-y-20 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,_minmax(11rem,_1fr))] sm:gap-x-8">
                   {displayedOthersResults.map(([mapKey, group], index) => {
                     if (viewMode) {
@@ -767,7 +767,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
                             id={item.id}
                             title={item.title || ''}
                             poster={item.poster}
-                            episodes={item.episodes ? item.episodes.length : 0} // 转为 number
+                            episodes={item.episodes ? item.episodes.length : 0} // 轉為 number
                             source={item.source}
                             source_name={item.source_name}
                             douban_id={item.douban_id}
@@ -780,8 +780,8 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
                       );
                     }
                   })}
-                  
-                  {/* 加载更多指示器 - 其他结果 */}
+
+                  {/* 加載更多指示器 - 其他結果 */}
                   {hasMoreOthers && !hasMoreExact && (
                     <div
                       ref={loadingMoreOthersRef}
@@ -789,7 +789,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
                     >
                       <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
                         <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-green-500"></div>
-                        <span className="text-sm">加载中...</span>
+                        <span className="text-sm">加載中...</span>
                       </div>
                     </div>
                   )}
@@ -797,12 +797,12 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
               </div>
             )}
           </section>
-          
+
 
           ) : searchHistory.length > 0 ? (
             <section className="mb-12">
             <h2 className="mb-4 text-xl font-bold text-gray-800 text-left dark:text-gray-200">
-              搜索历史
+              搜索歷史
               {searchHistory.length > 0 && (
                 <button
                   onClick={() => clearSearchHistory()}
@@ -818,10 +818,10 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
                 <button
                   onClick={() => {
                     if (selectedHistoryItem === item) {
-                      // 第二次点击触发搜索
+                      // 第二次點擊觸發搜索
                       handleSearch(undefined, item);
                     } else {
-                      // 第一次点击，选中历史项
+                      // 第一次點擊，選中歷史項
                       setSearchQuery(item);
                       setSelectedHistoryItem(item);
                     }
@@ -835,10 +835,10 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
                   {item}
                 </button>
 
-                {/* 删除按钮 */}
+                {/* 刪除按鈕 */}
                 {(selectedHistoryItem === item) ? (
                   <button
-                    aria-label="删除搜索历史"
+                    aria-label="刪除搜索歷史"
                     onClick={(e) => {
                       e.stopPropagation();
                       e.preventDefault();
@@ -851,7 +851,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
                   </button>
                 ) : (
                   <button
-                    aria-label="删除搜索历史"
+                    aria-label="刪除搜索歷史"
                     onClick={(e) => {
                       e.stopPropagation();
                       e.preventDefault();
@@ -875,7 +875,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
         className={`fixed bottom-20 md:bottom-6 right-6 z-[500] w-12 h-12 bg-green-500/90 hover:bg-green-500 text-white rounded-full shadow-lg backdrop-blur-sm transition-all duration-300 ease-in-out flex items-center justify-center group ${
           showBackToTop ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-4 pointer-events-none'
         }`}
-        aria-label="返回顶部"
+        aria-label="返回頂部"
       >
         <ChevronUp className="w-6 h-6 transition-transform group-hover:scale-110" />
       </button>

@@ -1,12 +1,12 @@
 /**
- * PageLayout 组件 - 简化版
- * 导航栏已提升到根布局（layout.tsx），此组件仅用于内容容器
- * 保留此组件是为了向后兼容，避免大量页面修改
+ * PageLayout 組件 - 簡化版
+ * 導航欄已提升到根佈局（layout.tsx），此組件僅用於內容容器
+ * 保留此組件是為了向後兼容，避免大量頁面修改
  */
 
 interface PageLayoutProps {
   children: React.ReactNode;
-  activePath?: string; // 保留但已不使用，activePath 由导航栏组件自动检测
+  activePath?: string; // 保留但已不使用，activePath 由導航欄組件自動檢測
 }
 
 const PageLayout = ({ children }: PageLayoutProps) => {

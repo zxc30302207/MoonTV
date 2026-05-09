@@ -17,6 +17,6 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    return NextResponse.json({ error: '获取视频源失败' }, { status: 500 });
+    return NextResponse.json({ error: '獲取視頻源失敗' }, { status: 500 });
   }
 }

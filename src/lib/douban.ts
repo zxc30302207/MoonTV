@@ -1,14 +1,14 @@
 /**
- * 通用的豆瓣数据获取函数
- * @param url 请求的URL
- * @returns Promise<T> 返回指定类型的数据
+ * 通用的豆瓣數據獲取函數
+ * @param url 請求的URL
+ * @returns Promise<T> 返回指定類型的數據
  */
 export async function fetchDoubanData<T>(url: string): Promise<T> {
-  // 添加超时控制
+  // 添加超時控制
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超時
 
-  // 设置请求选项，包括信号和头部
+  // 設置請求選項，包括信號和頭部
   const fetchOptions = {
     signal: controller.signal,
     headers: {

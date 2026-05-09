@@ -10,14 +10,14 @@ import { assertSafeUrl, parseAllowedHosts } from '@/lib/url-safety';
 
 export const runtime = 'nodejs';
 
-// 支持的操作类型
+// 支持的操作類型
 type Action = 'update' | 'import' | 'check';
 
 interface BaseBody {
   action?: Action;
 }
 
-// Base58 解码函数（使用 BigInt，边缘运行时支持）
+// Base58 解碼函數（使用 BigInt，邊緣運行時支持）
 function decodeBase58(str: string): string {
   const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
   // @ts-expect-error BigInt is supported in edge runtime
@@ -28,7 +28,7 @@ function decodeBase58(str: string): string {
     // @ts-expect-error BigInt is supported in edge runtime
     num = num * 58n + BigInt(index);
   }
-  // 转换为字节数组
+  // 轉換為字節數組
   const bytes: number[] = [];
   // @ts-expect-error BigInt is supported in edge runtime
   while (num > 0n) {
@@ -37,11 +37,11 @@ function decodeBase58(str: string): string {
     // @ts-expect-error BigInt is supported in edge runtime
     num >>= 8n;
   }
-  // 转换为 UTF-8 字符串
+  // 轉換為 UTF-8 字符串
   return new TextDecoder().decode(new Uint8Array(bytes));
 }
 
-// 从 URL 获取并解析订阅数据
+// 從 URL 獲取並解析訂閱數據
 function validateSubscriptionUrl(url: string): string {
   const allowedHosts = parseAllowedHosts(
     process.env.ALLOWED_SUBSCRIPTION_HOSTS || process.env.ALLOWED_PROXY_HOSTS
@@ -60,29 +60,29 @@ async function fetchSubscriptionData(url: string): Promise<any> {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
   const text = await response.text();
-  // 尝试 Base58 解码
+  // 嘗試 Base58 解碼
   try {
     const decoded = decodeBase58(text);
     return JSON.parse(decoded);
   } catch (e) {
-    // 如果不是 Base58，直接解析为 JSON
+    // 如果不是 Base58，直接解析為 JSON
     return JSON.parse(text);
   }
 }
 
-// 导入数据到配置
+// 導入數據到配置
 function importSources(
   adminConfig: any,
   subscriptionData: any,
   importMode: 'overwrite' | 'merge'
 ) {
-  // 假设 subscriptionData 是一个对象，包含 api_site 和 custom_category
+  // 假設 subscriptionData 是一個對象，包含 api_site 和 custom_category
   const { api_site = {} } = subscriptionData;
 
   if (importMode === 'overwrite') {
-    // 完全覆盖：清空现有 SourceConfig
+    // 完全覆蓋：清空現有 SourceConfig
     adminConfig.SourceConfig = [];
-    // 更新 ConfigFile，将 api_site 置为空，保留其他字段
+    // 更新 ConfigFile，將 api_site 置為空，保留其他字段
     const defaultConfig = {
       cache_time: 7200,
       api_site: {},
@@ -102,18 +102,18 @@ function importSources(
           parsed.custom_category ?? defaultConfig.custom_category;
       }
     } catch (e) {
-      // 解析失败，使用默认值
+      // 解析失敗，使用默認值
     }
-    // 确保 api_site 为空对象
+    // 確保 api_site 為空對象
     configFileObj.api_site = {};
     adminConfig.ConfigFile = JSON.stringify(configFileObj);
   }
 
-  // 合并 api_site
+  // 合並 api_site
   const existingKeys = new Set(adminConfig.SourceConfig.map((s: any) => s.key));
   Object.entries(api_site).forEach(([key, site]: [string, any]) => {
     if (existingKeys.has(key)) {
-      // 更新现有源
+      // 更新現有源
       const existing = adminConfig.SourceConfig.find((s: any) => s.key === key);
       if (existing) {
         existing.name = site.name;
@@ -140,7 +140,7 @@ export async function GET(request: NextRequest) {
   if (storageType === 'localstorage') {
     return NextResponse.json(
       {
-        error: '不支持本地存储进行管理员配置',
+        error: '不支持本地存儲進行管理員配置',
       },
       { status: 400 }
     );
@@ -154,13 +154,13 @@ export async function GET(request: NextRequest) {
 
   try {
     const config = await getConfig();
-    // 权限校验
+    // 權限校驗
     if (username !== process.env.USERNAME) {
       const userEntry = config.UserConfig.Users.find(
         (u) => u.username === username
       );
       if (!userEntry || userEntry.role !== 'admin' || userEntry.banned) {
-        return NextResponse.json({ error: '权限不足' }, { status: 401 });
+        return NextResponse.json({ error: '權限不足' }, { status: 401 });
       }
     }
 
@@ -168,10 +168,10 @@ export async function GET(request: NextRequest) {
       subscriptionConfig: config.SubscriptionConfig || {},
     });
   } catch (error) {
-    console.error('获取订阅配置失败:', error);
+    console.error('獲取訂閱配置失敗:', error);
     return NextResponse.json(
       {
-        error: '获取订阅配置失败',
+        error: '獲取訂閱配置失敗',
         details: (error as Error).message,
       },
       { status: 500 }
@@ -184,7 +184,7 @@ export async function POST(request: NextRequest) {
   if (storageType === 'localstorage') {
     return NextResponse.json(
       {
-        error: '不支持本地存储进行管理员配置',
+        error: '不支持本地存儲進行管理員配置',
       },
       { status: 400 }
     );
@@ -194,13 +194,13 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as BaseBody & Record<string, any>;
     const { action } = body;
 
-    // 基础校验
+    // 基礎校驗
     const ACTIONS: Action[] = ['update', 'import', 'check'];
     if (!action || !ACTIONS.includes(action)) {
-      return NextResponse.json({ error: '参数格式错误' }, { status: 400 });
+      return NextResponse.json({ error: '參數格式錯誤' }, { status: 400 });
     }
 
-    // 对于 update 和 import 操作需要身份验证
+    // 對於 update 和 import 操作需要身份驗證
     let username: string | null = null;
     if (action === 'update' || action === 'import') {
       const authInfo = getAuthInfoFromCookie(request);
@@ -210,18 +210,18 @@ export async function POST(request: NextRequest) {
       username = authInfo.username;
     }
 
-    // 获取配置与存储
+    // 獲取配置與存儲
     const adminConfig = await getConfig();
     const storage: IStorage | null = getStorage();
 
-    // 权限与身份校验（仅对 update 和 import）
+    // 權限與身份校驗（僅對 update 和 import）
     if (username) {
       if (username !== process.env.USERNAME) {
         const userEntry = adminConfig.UserConfig.Users.find(
           (u) => u.username === username
         );
         if (!userEntry || userEntry.role !== 'admin' || userEntry.banned) {
-          return NextResponse.json({ error: '权限不足' }, { status: 401 });
+          return NextResponse.json({ error: '權限不足' }, { status: 401 });
         }
       }
     }
@@ -230,7 +230,7 @@ export async function POST(request: NextRequest) {
       case 'update': {
         const { subscriptionUrl, autoUpdate, updateInterval, importMode } =
           body;
-        // 更新订阅配置
+        // 更新訂閱配置
         adminConfig.SubscriptionConfig = adminConfig.SubscriptionConfig || {};
         if (subscriptionUrl !== undefined) {
           try {
@@ -240,7 +240,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json(
               {
                 error:
-                  error instanceof Error ? error.message : '订阅地址不合法',
+                  error instanceof Error ? error.message : '訂閱地址不合法',
               },
               { status: 400 }
             );
@@ -256,7 +256,7 @@ export async function POST(request: NextRequest) {
         if (importMode !== undefined) {
           if (importMode !== 'overwrite' && importMode !== 'merge') {
             return NextResponse.json(
-              { error: 'importMode 必须是 overwrite 或 merge' },
+              { error: 'importMode 必須是 overwrite 或 merge' },
               { status: 400 }
             );
           }
@@ -275,7 +275,7 @@ export async function POST(request: NextRequest) {
           subscriptionUrl || adminConfig.SubscriptionConfig?.subscriptionUrl;
         if (!url) {
           return NextResponse.json(
-            { error: '订阅地址未提供' },
+            { error: '訂閱地址未提供' },
             { status: 400 }
           );
         }
@@ -284,18 +284,18 @@ export async function POST(request: NextRequest) {
         } catch (error) {
           return NextResponse.json(
             {
-              error: error instanceof Error ? error.message : '订阅地址不合法',
+              error: error instanceof Error ? error.message : '訂閱地址不合法',
             },
             { status: 400 }
           );
         }
         const mode =
           importMode || adminConfig.SubscriptionConfig?.importMode || 'merge';
-        // 获取数据
+        // 獲取數據
         const subscriptionData = await fetchSubscriptionData(url);
-        // 导入数据
+        // 導入數據
         importSources(adminConfig, subscriptionData, mode);
-        // 更新最后更新时间
+        // 更新最後更新時間
         adminConfig.SubscriptionConfig = adminConfig.SubscriptionConfig || {};
         adminConfig.SubscriptionConfig.lastUpdated = Math.floor(
           Date.now() / 1000
@@ -325,7 +325,7 @@ export async function POST(request: NextRequest) {
           }
         }
         if (shouldImport) {
-          // 执行导入
+          // 執行導入
           try {
             validateSubscriptionUrl(urlToImport);
             const subscriptionData = await fetchSubscriptionData(urlToImport);
@@ -349,7 +349,7 @@ export async function POST(request: NextRequest) {
               imported: true,
             });
           } catch (error) {
-            console.error('自动更新导入失败:', error);
+            console.error('自動更新導入失敗:', error);
             return NextResponse.json(
               {
                 success: false,
@@ -363,7 +363,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({
             success: true,
             updated: false,
-            reason: '未满足自动更新条件',
+            reason: '未滿足自動更新條件',
           });
         }
       }
@@ -372,10 +372,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: '未知操作' }, { status: 400 });
     }
   } catch (error) {
-    console.error('订阅操作失败:', error);
+    console.error('訂閱操作失敗:', error);
     return NextResponse.json(
       {
-        error: '订阅操作失败',
+        error: '訂閱操作失敗',
         details: (error as Error).message,
       },
       { status: 500 }

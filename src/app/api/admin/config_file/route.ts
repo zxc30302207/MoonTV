@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
   if (storageType === 'localstorage') {
     return NextResponse.json(
       {
-        error: '不支持本地存储进行管理员配置',
+        error: '不支持本地存儲進行管理員配置',
       },
       { status: 400 }
     );
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
   const username = authInfo.username;
 
   try {
-    // 检查用户权限
+    // 檢查用戶權限
     const adminConfig = await getConfig();
     const storage = getStorage();
 
@@ -34,34 +34,34 @@ export async function POST(request: NextRequest) {
       );
       if (!user || user.role !== 'admin' || user.banned) {
         return NextResponse.json(
-          { error: '权限不足，只有管理员可以修改配置文件' },
+          { error: '權限不足，只有管理員可以修改配置文件' },
           { status: 403 }
         );
       }
     }
 
-    // 获取请求体
+    // 獲取請求體
     const body = await request.json();
     const { configFile } = body;
 
     if (!configFile || typeof configFile !== 'string') {
       return NextResponse.json(
-        { error: '配置文件内容不能为空' },
+        { error: '配置文件內容不能為空' },
         { status: 400 }
       );
     }
 
-    // 验证 JSON 格式
+    // 驗證 JSON 格式
     try {
       JSON.parse(configFile);
     } catch (e) {
       return NextResponse.json(
-        { error: '配置文件格式错误，请检查 JSON 语法' },
+        { error: '配置文件格式錯誤，請檢查 JSON 語法' },
         { status: 400 }
       );
     }
 
-    // 创建新的配置对象，避免直接修改原对象
+    // 創建新的配置對象，避免直接修改原對象
     const updatedConfig = {
       ...adminConfig,
       ConfigFile: configFile,
@@ -76,12 +76,12 @@ export async function POST(request: NextRequest) {
         message: '配置文件更新成功',
       });
     } else {
-      return NextResponse.json({ error: '存储服务不可用' }, { status: 500 });
+      return NextResponse.json({ error: '存儲服務不可用' }, { status: 500 });
     }
   } catch (error) {
     return NextResponse.json(
       {
-        error: '更新配置文件失败',
+        error: '更新配置文件失敗',
         details: (error as Error).message,
       },
       { status: 500 }

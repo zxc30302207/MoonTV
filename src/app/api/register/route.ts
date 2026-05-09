@@ -7,7 +7,7 @@ import { getClientIp, getRateLimitHeaders, rateLimit } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 
-// 读取存储类型环境变量，默认 localstorage
+// 讀取存儲類型環境變量，默認 localstorage
 const STORAGE_TYPE =
   (process.env.NEXT_PUBLIC_STORAGE_TYPE as
     | 'localstorage'
@@ -32,7 +32,7 @@ function getCookieOptions(request: NextRequest, expires: Date) {
   };
 }
 
-// 生成认证Cookie（带签名）
+// 生成認證Cookie（帶簽名）
 async function generateAuthCookie(
   request: NextRequest,
   username: string
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
     });
     if (!rateLimitResult.allowed) {
       return NextResponse.json(
-        { error: '请求过于频繁，请稍后再试' },
+        { error: '請求過於頻繁，請稍後再試' },
         {
           status: 429,
           headers: getRateLimitHeaders(rateLimitResult),
@@ -72,63 +72,63 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // localstorage 模式下不支持注册
+    // localstorage 模式下不支持註冊
     if (STORAGE_TYPE === 'localstorage') {
       return NextResponse.json(
-        { error: '当前模式不支持注册' },
+        { error: '當前模式不支持註冊' },
         { status: 400 }
       );
     }
 
     const config = await getConfig();
-    // 校验是否开放注册
+    // 校驗是否開放註冊
     if (!config.UserConfig.AllowRegister) {
-      return NextResponse.json({ error: '当前未开放注册' }, { status: 400 });
+      return NextResponse.json({ error: '當前未開放註冊' }, { status: 400 });
     }
 
     const { username, password } = await req.json();
 
     if (!username || typeof username !== 'string') {
-      return NextResponse.json({ error: '用户名不能为空' }, { status: 400 });
+      return NextResponse.json({ error: '用戶名不能為空' }, { status: 400 });
     }
     if (!password || typeof password !== 'string') {
-      return NextResponse.json({ error: '密码不能为空' }, { status: 400 });
+      return NextResponse.json({ error: '密碼不能為空' }, { status: 400 });
     }
 
-    // 检查是否和管理员重复
+    // 檢查是否和管理員重復
     if (username === process.env.USERNAME) {
-      return NextResponse.json({ error: '用户已存在' }, { status: 400 });
+      return NextResponse.json({ error: '用戶已存在' }, { status: 400 });
     }
 
     try {
-      // 检查用户是否已存在
+      // 檢查用戶是否已存在
       const exist = await db.checkUserExist(username);
       if (exist) {
-        return NextResponse.json({ error: '用户已存在' }, { status: 400 });
+        return NextResponse.json({ error: '用戶已存在' }, { status: 400 });
       }
 
       await db.registerUser(username, password);
 
-      // 添加到配置中并保存
+      // 添加到配置中並保存
       config.UserConfig.Users.push({
         username,
         role: 'user',
       });
       await db.saveAdminConfig(config);
 
-      // 注册成功，设置认证cookie
+      // 註冊成功，設置認證cookie
       const response = NextResponse.json({ ok: true });
       const cookieValue = await generateAuthCookie(req, username);
       const expires = new Date();
-      expires.setDate(expires.getDate() + 7); // 7天过期
+      expires.setDate(expires.getDate() + 7); // 7天過期
 
       response.cookies.set('auth', cookieValue, getCookieOptions(req, expires));
 
       return response;
     } catch (err) {
-      return NextResponse.json({ error: '数据库错误' }, { status: 500 });
+      return NextResponse.json({ error: '數據庫錯誤' }, { status: 500 });
     }
   } catch (error) {
-    return NextResponse.json({ error: '服务器错误' }, { status: 500 });
+    return NextResponse.json({ error: '服務器錯誤' }, { status: 500 });
   }
 }
