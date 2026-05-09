@@ -7,7 +7,7 @@ import { SearchResult } from '@/lib/types';
 import { yellowWords } from '@/lib/yellow';
 import { toSimplified } from '@/lib/zh';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
   // 检查是否为本地存储模式

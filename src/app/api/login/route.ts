@@ -5,7 +5,7 @@ import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 import { getClientIp, getRateLimitHeaders, rateLimit } from '@/lib/rate-limit';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 // 读取存储类型环境变量，默认 localstorage
 const STORAGE_TYPE =
@@ -55,8 +55,8 @@ async function generateAuthCookie(
       options.mode === 'localstorage'
         ? `localstorage:${authData.timestamp}`
         : authData.username
-          ? `${authData.username}:${authData.timestamp}`
-          : '';
+        ? `${authData.username}:${authData.timestamp}`
+        : '';
     if (dataToSign) {
       authData.signature = await generateSignature(dataToSign, secret);
     }
@@ -91,11 +91,7 @@ export async function POST(req: NextRequest) {
         const response = NextResponse.json({ ok: true });
 
         // 清除可能存在的认证cookie
-        response.cookies.set(
-          'auth',
-          '',
-          getCookieOptions(req, new Date(0))
-        );
+        response.cookies.set('auth', '', getCookieOptions(req, new Date(0)));
 
         return response;
       }

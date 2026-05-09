@@ -5,7 +5,7 @@ import { getConfig } from '@/lib/config';
 import { getStorage } from '@/lib/db';
 import { IStorage } from '@/lib/types';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 type Action =
   | 'create'

@@ -6,7 +6,7 @@ import { getAuthInfoFromCookie } from '@/lib/auth';
 import { configSelfCheck, getConfig } from '@/lib/config';
 import { getStorage } from '@/lib/db';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
@@ -26,7 +26,9 @@ export async function POST(request: NextRequest) {
     const username = auth.username;
     const adminConfig = await getConfig();
 
-    const userEntry = adminConfig.UserConfig.Users.find((u) => u.username === username);
+    const userEntry = adminConfig.UserConfig.Users.find(
+      (u) => u.username === username
+    );
     if (!userEntry) {
       return NextResponse.json({ error: '用户不存在' }, { status: 404 });
     }
@@ -41,7 +43,10 @@ export async function POST(request: NextRequest) {
       await (storage as any).setAdminConfig(configSelfCheck(adminConfig));
     }
 
-    return NextResponse.json({ ok: true, lastOnline: userEntry.lastOnline }, { status: 200 });
+    return NextResponse.json(
+      { ok: true, lastOnline: userEntry.lastOnline },
+      { status: 200 }
+    );
   } catch (error) {
     console.error('更新用户上线时间失败:', error);
     return NextResponse.json(
@@ -50,4 +55,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

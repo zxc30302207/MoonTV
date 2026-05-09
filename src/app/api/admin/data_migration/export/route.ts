@@ -7,7 +7,7 @@ import { db } from '@/lib/db';
 import { hashPassword, isPasswordHash } from '@/lib/password';
 import { CURRENT_VERSION } from '@/lib/version';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 // pako 的 gzip 是同步的，不需要 promisify
 

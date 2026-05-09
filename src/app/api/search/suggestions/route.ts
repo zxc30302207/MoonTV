@@ -4,7 +4,7 @@ import { getCacheTime, getConfig } from '@/lib/config';
 import { searchFromApiStream } from '@/lib/downstream';
 import { SearchResult } from '@/lib/types';
 import { toSimplified } from '@/lib/zh';
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
   try {

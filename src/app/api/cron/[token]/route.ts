@@ -2,11 +2,12 @@ import { NextRequest } from 'next/server';
 
 import { handleCronRequest } from '@/lib/cron';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 export async function GET(
   request: NextRequest,
-  context: { params: { token: string } }
+  context: { params: Promise<{ token: string }> }
 ) {
-  return handleCronRequest(request, context.params.token);
+  const { token } = await context.params;
+  return handleCronRequest(request, token);
 }

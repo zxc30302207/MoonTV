@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { getClientIp, getRateLimitHeaders, rateLimit } from '@/lib/rate-limit';
 import { assertSafeUrl, parseAllowedHosts } from '@/lib/url-safety';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 // OrionTV 兼容接口
 export async function GET(request: Request) {
@@ -32,8 +32,7 @@ export async function GET(request: Request) {
   let safeUrl: URL;
   try {
     const allowedHosts = parseAllowedHosts(
-      process.env.ALLOWED_IMAGE_PROXY_HOSTS ||
-        process.env.ALLOWED_PROXY_HOSTS
+      process.env.ALLOWED_IMAGE_PROXY_HOSTS || process.env.ALLOWED_PROXY_HOSTS
     );
     safeUrl = assertSafeUrl(imageUrl, {
       allowPrivateNetworks: process.env.ALLOW_PRIVATE_NETWORKS === 'true',
@@ -90,7 +89,9 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Error fetching image' },
+      {
+        error: error instanceof Error ? error.message : 'Error fetching image',
+      },
       { status: 500 }
     );
   }

@@ -11,6 +11,18 @@ import { checkForUpdates, CURRENT_VERSION, UpdateStatus } from '@/lib/version';
 import { useSite } from '@/components/SiteProvider';
 import { ThemeToggle } from '@/components/ThemeToggle';
 
+function getSafeRedirect(rawRedirect: string | null) {
+  if (!rawRedirect) return '/';
+
+  try {
+    const url = new URL(rawRedirect, window.location.origin);
+    if (url.origin !== window.location.origin) return '/';
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return '/';
+  }
+}
+
 // 版本显示组件
 function VersionDisplay() {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
@@ -105,7 +117,7 @@ function LoginPageClient() {
       });
 
       if (res.ok) {
-        const redirect = searchParams.get('redirect') || '/';
+        const redirect = getSafeRedirect(searchParams.get('redirect'));
         router.replace(redirect);
       } else if (res.status === 401) {
         setError('密码错误');
@@ -134,7 +146,7 @@ function LoginPageClient() {
       });
 
       if (res.ok) {
-        const redirect = searchParams.get('redirect') || '/';
+        const redirect = getSafeRedirect(searchParams.get('redirect'));
         router.replace(redirect);
       } else {
         const data = await res.json().catch(() => ({}));

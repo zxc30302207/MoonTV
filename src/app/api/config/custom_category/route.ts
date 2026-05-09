@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getCacheTime, getConfig } from '@/lib/config';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 export async function GET(_req: NextRequest) {
   const config = await getConfig();

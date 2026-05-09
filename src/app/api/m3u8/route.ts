@@ -4,7 +4,7 @@ import { downloadTsSegment, parseM3U8 } from '@/lib/m3u8-downloader';
 import { getClientIp, getRateLimitHeaders, rateLimit } from '@/lib/rate-limit';
 import { assertSafeUrl, parseAllowedHosts } from '@/lib/url-safety';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 /**
  * 解析M3U8文件接口
@@ -33,8 +33,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '缺少 m3u8 URL' }, { status: 400 });
     }
 
-    const allowPrivateNetworks =
-      process.env.ALLOW_PRIVATE_NETWORKS === 'true';
+    const allowPrivateNetworks = process.env.ALLOW_PRIVATE_NETWORKS === 'true';
     const allowedHosts = parseAllowedHosts(
       process.env.ALLOWED_M3U8_HOSTS || process.env.ALLOWED_PROXY_HOSTS
     );
@@ -110,8 +109,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '缺少 URL 参数' }, { status: 400 });
     }
 
-    const allowPrivateNetworks =
-      process.env.ALLOW_PRIVATE_NETWORKS === 'true';
+    const allowPrivateNetworks = process.env.ALLOW_PRIVATE_NETWORKS === 'true';
     const allowedHosts = parseAllowedHosts(
       process.env.ALLOWED_M3U8_HOSTS || process.env.ALLOWED_PROXY_HOSTS
     );
@@ -131,7 +129,7 @@ export async function GET(request: NextRequest) {
       validateUrl: (targetUrl: string) =>
         assertSafeUrl(targetUrl, { allowPrivateNetworks, allowedHosts }),
     });
-    
+
     return new NextResponse(data, {
       headers: {
         'Content-Type': 'application/octet-stream',

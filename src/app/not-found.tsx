@@ -1,6 +1,6 @@
 import Link from 'next/link';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 export default function NotFound() {
   return (

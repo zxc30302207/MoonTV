@@ -8,7 +8,7 @@ import { SimpleCrypto } from '@/lib/crypto';
 import { db } from '@/lib/db';
 import type { Favorite, PlayRecord, SkipConfig } from '@/lib/types';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 // pako 的 gunzip 是同步的，不需要 promisify
 

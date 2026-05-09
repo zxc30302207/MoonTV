@@ -3,12 +3,11 @@ import { NextResponse } from 'next/server';
 import { getCacheTime, getConfig } from '@/lib/config';
 import type { DoubanItem, DoubanResult } from '@/lib/types';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const allowQueryPassword =
-    process.env.TVBOX_ALLOW_QUERY_PASSWORD === 'true';
+  const allowQueryPassword = process.env.TVBOX_ALLOW_QUERY_PASSWORD === 'true';
   const inputPassword =
     request.headers.get('x-tvbox-password') ||
     (allowQueryPassword
