@@ -54,7 +54,8 @@ export const UserMenu: React.FC = () => {
   const [doubanImageProxyType, setDoubanImageProxyType] = useState('server');
   const [doubanImageProxyUrl, setDoubanImageProxyUrl] = useState('');
   const [isDoubanDropdownOpen, setIsDoubanDropdownOpen] = useState(false);
-  const [isDoubanImageProxyDropdownOpen, setIsDoubanImageProxyDropdownOpen] = useState(false);
+  const [isDoubanImageProxyDropdownOpen, setIsDoubanImageProxyDropdownOpen] =
+    useState(false);
 
   const [autoDanmakuEnabled, setAutoDanmakuEnabled] = useState(false);
   // 自动弹幕尝试次数设置，-1为无限尝试
@@ -69,22 +70,23 @@ export const UserMenu: React.FC = () => {
     return 3; // 默认重试3次
   });
   const [enablePreferBestSource, setEnablePreferBestSource] = useState(false);
-  const [preferredDanmakuPlatform, setPreferredDanmakuPlatform] = useState("bilibili1");
-  const [isDanmakuPlatformDropdownOpen, setIsDanmakuPlatformDropdownOpen] = useState(false);
+  const [preferredDanmakuPlatform, setPreferredDanmakuPlatform] =
+    useState('bilibili1');
+  const [isDanmakuPlatformDropdownOpen, setIsDanmakuPlatformDropdownOpen] =
+    useState(false);
 
   // 优选弹幕平台
   const danmakuPlatformOptions = [
-    { value: "qiyi", label: "qiyi（爱奇艺）" },
-    { value: "bilibili1", label: "bilibili1（哔哩哔哩）" },
-    { value: "imgo", label: "imgo（芒果）" },
-    { value: "youku", label: "youku（优酷）" },
-    { value: "qq", label: "qq（腾讯）" },
-    { value: "renren", label: "renren（人人）" },
-    { value: "hanjutv", label: "hanjutv（韩剧TV）" },
-    { value: "bahamut", label: "bahamut（巴哈姆特）" },
-    { value: "dandan", label: "dandan（弹弹）" },
+    { value: 'qiyi', label: 'qiyi（爱奇艺）' },
+    { value: 'bilibili1', label: 'bilibili1（哔哩哔哩）' },
+    { value: 'imgo', label: 'imgo（芒果）' },
+    { value: 'youku', label: 'youku（优酷）' },
+    { value: 'qq', label: 'qq（腾讯）' },
+    { value: 'renren', label: 'renren（人人）' },
+    { value: 'hanjutv', label: 'hanjutv（韩剧TV）' },
+    { value: 'bahamut', label: 'bahamut（巴哈姆特）' },
+    { value: 'dandan', label: 'dandan（弹弹）' },
   ];
-  
 
   // 豆瓣数据源选项
   const doubanDataSourceOptions = [
@@ -226,8 +228,8 @@ export const UserMenu: React.FC = () => {
         setDoubanImageProxyUrl(defaultDoubanImageProxyUrl);
       }
 
-
-      const savedAutoDanmakuEnabled = localStorage.getItem('autoDanmakuEnabled');
+      const savedAutoDanmakuEnabled =
+        localStorage.getItem('autoDanmakuEnabled');
       if (savedAutoDanmakuEnabled !== null) {
         setAutoDanmakuEnabled(JSON.parse(savedAutoDanmakuEnabled));
       }
@@ -238,16 +240,19 @@ export const UserMenu: React.FC = () => {
         if (!isNaN(parsed)) setDanmakuRetryCount(parsed);
       }
 
-      const savedEnablePreferBestSource = localStorage.getItem('enablePreferBestSource');
+      const savedEnablePreferBestSource = localStorage.getItem(
+        'enablePreferBestSource'
+      );
       if (savedEnablePreferBestSource !== null) {
         setEnablePreferBestSource(JSON.parse(savedEnablePreferBestSource));
       }
 
-      const savedPreferredPlatform = localStorage.getItem("preferredDanmakuPlatform");
+      const savedPreferredPlatform = localStorage.getItem(
+        'preferredDanmakuPlatform'
+      );
       if (savedPreferredPlatform) {
         setPreferredDanmakuPlatform(savedPreferredPlatform);
       }
-
     }
   }, []);
 
@@ -419,10 +424,10 @@ export const UserMenu: React.FC = () => {
     setEnablePreferBestSource(value);
     localStorage.setItem('enablePreferBestSource', JSON.stringify(value));
   };
-  
+
   const handlePreferredPlatformChange = (value: string) => {
     setPreferredDanmakuPlatform(value);
-    localStorage.setItem("preferredDanmakuPlatform", value);
+    localStorage.setItem('preferredDanmakuPlatform', value);
   };
 
   const handleAggregateToggle = (value: boolean) => {
@@ -531,7 +536,7 @@ export const UserMenu: React.FC = () => {
       localStorage.setItem('doubanDataSource', defaultDoubanProxyType);
       localStorage.setItem('doubanImageProxyType', defaultDoubanImageProxyType);
       localStorage.setItem('doubanImageProxyUrl', defaultDoubanImageProxyUrl);
-      
+
       localStorage.setItem('enablePreferBestSource', JSON.stringify(false));
       localStorage.setItem('autoDanmakuEnabled', JSON.stringify(false));
       localStorage.setItem('preferredDanmakuPlatform', 'bilibili1');
@@ -1006,14 +1011,15 @@ export const UserMenu: React.FC = () => {
                   type='checkbox'
                   className='sr-only peer'
                   checked={enablePreferBestSource}
-                  onChange={(e) => handlePreferBestSourceToggle(e.target.checked)}
+                  onChange={(e) =>
+                    handlePreferBestSourceToggle(e.target.checked)
+                  }
                 />
                 <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
                 <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
               </div>
             </label>
           </div>
-
 
           {/* 自动匹配弹幕 */}
           <div className='flex items-center justify-between'>
@@ -1053,7 +1059,9 @@ export const UserMenu: React.FC = () => {
               min='-1'
               className='w-11 px-2 py-1 rounded text-sm bg-[#f5f5f5] dark:bg-gray-800 text-gray-900 dark:text-gray-100 outline-none border-none focus:outline-none focus:border-none focus:ring-0'
               value={danmakuRetryCount}
-              onChange={e => handleDanmakuRetryCountChange(Number(e.target.value))}
+              onChange={(e) =>
+                handleDanmakuRetryCountChange(Number(e.target.value))
+              }
             />
           </div>
 
@@ -1066,7 +1074,9 @@ export const UserMenu: React.FC = () => {
             {/* 自定义下拉选择框 */}
             <button
               type='button'
-              onClick={() => setIsDanmakuPlatformDropdownOpen(!isDanmakuPlatformDropdownOpen)}
+              onClick={() =>
+                setIsDanmakuPlatformDropdownOpen(!isDanmakuPlatformDropdownOpen)
+              }
               className='w-full px-3 py-2.5 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm hover:border-gray-400 dark:hover:border-gray-500 text-left mt-2'
             >
               {
@@ -1116,7 +1126,6 @@ export const UserMenu: React.FC = () => {
             </p>
           </div>
 
-
           {/* 分割线 */}
           <div className='border-t border-gray-200 dark:border-gray-700'></div>
 
@@ -1156,7 +1165,7 @@ export const UserMenu: React.FC = () => {
                   <button
                     type='button'
                     className='shrink-0 px-3 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors'
-                    onClick={(e) => {
+                    onClick={() => {
                       navigator.clipboard.writeText(tvboxUrl);
                     }}
                   >

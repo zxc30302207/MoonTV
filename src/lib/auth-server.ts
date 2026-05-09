@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 
-import { generateSignature, safeEqual } from './auth-crypto';
 import { getAuthInfoFromCookie } from './auth';
+import { generateSignature, safeEqual } from './auth-crypto';
 
 export type AuthCookieData = {
   role?: 'owner' | 'admin' | 'user';
@@ -11,7 +11,10 @@ export type AuthCookieData = {
   mode?: 'localstorage';
 };
 
-function isSignatureMatch(actual: string | undefined, expected: string): boolean {
+function isSignatureMatch(
+  actual: string | undefined,
+  expected: string
+): boolean {
   if (!actual) return false;
   return safeEqual(actual, expected);
 }

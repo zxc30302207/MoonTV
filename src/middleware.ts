@@ -18,8 +18,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
-
   if (!process.env.PASSWORD) {
     // 如果没有设置密码，重定向到警告页面
     const warningUrl = new URL('/warning', request.url);
@@ -114,7 +112,5 @@ function shouldSkipAuth(pathname: string): boolean {
 
 // 配置middleware匹配规则
 export const config = {
-  matcher: [
-    '/((?!_next/static|_next/image|favicon.ico).*)',
-  ],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };

@@ -40,9 +40,9 @@ import Swal from 'sweetalert2';
 
 import { AdminConfig, AdminConfigResult } from '@/lib/admin.types';
 import {
+  type AuthInfo,
   getCachedAuthInfo,
   refreshAuthInfo,
-  type AuthInfo,
 } from '@/lib/auth-client';
 
 import DataMigration from '@/components/DataMigration';
@@ -1060,7 +1060,10 @@ const UserConfig = ({
                         </td>
                         <td className='px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100'>
                           {user.lastOnline
-                            ? new Date(user.lastOnline).toLocaleString('zh-CN', { hour12: false })
+                            ? new Date(user.lastOnline).toLocaleString(
+                                'zh-CN',
+                                { hour12: false }
+                              )
                             : '-'}
                         </td>
                         <td className='px-6 py-4 whitespace-nowrap'>
@@ -2117,7 +2120,13 @@ const ConfigFileComponent = ({
   );
 };
 // 订阅配置组件
-const SubscriptionConfig = ({ config, refreshConfig }: { config: AdminConfig | null; refreshConfig: () => Promise<void> }) => {
+const SubscriptionConfig = ({
+  config,
+  refreshConfig,
+}: {
+  config: AdminConfig | null;
+  refreshConfig: () => Promise<void>;
+}) => {
   const [subscriptionUrl, setSubscriptionUrl] = useState('');
   const [autoUpdate, setAutoUpdate] = useState(false);
   const [updateInterval, setUpdateInterval] = useState(86400); // 默认一天
@@ -2194,110 +2203,116 @@ const SubscriptionConfig = ({ config, refreshConfig }: { config: AdminConfig | n
   };
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-4">
+    <div className='space-y-6'>
+      <div className='space-y-4'>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1'>
             订阅地址 URL
           </label>
           <input
-            type="text"
+            type='text'
             value={subscriptionUrl}
             onChange={(e) => setSubscriptionUrl(e.target.value)}
-            placeholder="https://example.com/subscription.json"
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+            placeholder='https://example.com/subscription.json'
+            className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100'
           />
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
             订阅地址返回的数据应为 JSON 格式，支持 Base58 编码。
           </p>
         </div>
 
         <div>
-          <div className="flex items-center justify-between">
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <div className='flex items-center justify-between'>
+            <label className='text-sm font-medium text-gray-700 dark:text-gray-300'>
               自动更新
             </label>
             <button
               onClick={() => setAutoUpdate(!autoUpdate)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full ${autoUpdate ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'}`}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full ${
+                autoUpdate ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
+              }`}
             >
               <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${autoUpdate ? 'translate-x-6' : 'translate-x-1'}`}
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                  autoUpdate ? 'translate-x-6' : 'translate-x-1'
+                }`}
               />
             </button>
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
             用户/管理员登录时检查更新，若超过更新周期则自动导入。
           </p>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1'>
             更新周期（秒）
           </label>
           <input
-            type="number"
+            type='number'
             value={updateInterval}
             onChange={(e) => setUpdateInterval(Number(e.target.value))}
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-            min="60"
+            className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+            min='60'
           />
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
             例如：86400 秒 = 1 天
           </p>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1'>
             导入模式
           </label>
-          <div className="flex space-x-4">
-            <label className="inline-flex items-center">
+          <div className='flex space-x-4'>
+            <label className='inline-flex items-center'>
               <input
-                type="radio"
+                type='radio'
                 checked={importMode === 'merge'}
                 onChange={() => setImportMode('merge')}
-                className="form-radio"
+                className='form-radio'
               />
-              <span className="ml-2">合并（根据key值合并）</span>
+              <span className='ml-2'>合并（根据key值合并）</span>
             </label>
-            <label className="inline-flex items-center">
+            <label className='inline-flex items-center'>
               <input
-                type="radio"
+                type='radio'
                 checked={importMode === 'overwrite'}
                 onChange={() => setImportMode('overwrite')}
-                className="form-radio"
+                className='form-radio'
               />
-              <span className="ml-2">覆盖（清空现有源）</span>
+              <span className='ml-2'>覆盖（清空现有源）</span>
             </label>
           </div>
         </div>
 
         {lastUpdated && (
-          <div className="text-sm text-gray-600 dark:text-gray-400">
+          <div className='text-sm text-gray-600 dark:text-gray-400'>
             最后更新时间：{formatTime(lastUpdated)}
           </div>
         )}
       </div>
 
-      <div className="flex space-x-4">
+      <div className='flex space-x-4'>
         <button
           onClick={handleSave}
           disabled={saving}
-          className={`px-4 py-2 rounded-lg transition-colors ${saving
-            ? 'bg-gray-400 cursor-not-allowed'
-            : 'bg-blue-600 hover:bg-blue-700'
-            } text-white`}
+          className={`px-4 py-2 rounded-lg transition-colors ${
+            saving
+              ? 'bg-gray-400 cursor-not-allowed'
+              : 'bg-blue-600 hover:bg-blue-700'
+          } text-white`}
         >
           {saving ? '保存中...' : '保存配置'}
         </button>
         <button
           onClick={handleImport}
           disabled={importing || !subscriptionUrl}
-          className={`px-4 py-2 rounded-lg transition-colors ${importing || !subscriptionUrl
-            ? 'bg-gray-400 cursor-not-allowed'
-            : 'bg-green-600 hover:bg-green-700'
-            } text-white`}
+          className={`px-4 py-2 rounded-lg transition-colors ${
+            importing || !subscriptionUrl
+              ? 'bg-gray-400 cursor-not-allowed'
+              : 'bg-green-600 hover:bg-green-700'
+          } text-white`}
         >
           {importing ? '导入中...' : '立即导入'}
         </button>
@@ -2423,9 +2438,7 @@ const SiteConfigComponent = ({
         DisableYellowFilter: config.SiteConfig.DisableYellowFilter || false,
         TVBoxEnabled: config.SiteConfig.TVBoxEnabled || false,
         TVBoxPassword: config.SiteConfig.TVBoxPassword || '',
-        DanmakuApiBaseUrl:
-          config.SiteConfig.DanmakuApiBaseUrl ||
-          '',
+        DanmakuApiBaseUrl: config.SiteConfig.DanmakuApiBaseUrl || '',
       });
     }
   }, [config]);
@@ -3232,10 +3245,7 @@ function AdminPageClient() {
           <CollapsibleTab
             title='订阅配置'
             icon={
-              <Bell
-                size={20}
-                className='text-gray-600 dark:text-gray-400'
-              />
+              <Bell size={20} className='text-gray-600 dark:text-gray-400' />
             }
             isExpanded={expandedTabs.subscriptionConfig}
             onToggle={() => toggleTab('subscriptionConfig')}

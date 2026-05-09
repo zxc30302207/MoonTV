@@ -29,10 +29,6 @@ function isPrivateIpv4(hostname: string): boolean {
   return false;
 }
 
-function isIpv6Address(hostname: string): boolean {
-  return hostname.includes(':');
-}
-
 function isPrivateIpv6(hostname: string): boolean {
   const normalized = hostname.split('%')[0].toLowerCase();
   if (normalized === '::' || normalized === '::1') return true;
