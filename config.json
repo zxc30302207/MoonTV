@@ -79,6 +79,61 @@
     "bdzy": {
       "api": "https://api.apibdzy.com/api.php/provide/vod",
       "name": "百度資源"
+    },
+    "ffzynew": {
+      "api": "https://api.ffzyapi.com/api.php/provide/vod",
+      "name": "非凡影视新接口",
+      "detail": "http://ffzy5.tv"
+    },
+    "guangsu": {
+      "api": "https://api.guangsuapi.com/api.php/provide/vod",
+      "name": "光速资源",
+      "detail": "https://api.guangsuapi.com"
+    },
+    "xinlang": {
+      "api": "https://api.xinlangapi.com/xinlangapi.php/provide/vod",
+      "name": "新浪资源",
+      "detail": "https://api.xinlangapi.com"
+    },
+    "hongniu": {
+      "api": "https://www.hongniuzy2.com/api.php/provide/vod",
+      "name": "红牛资源",
+      "detail": "https://www.hongniuzy2.com"
+    },
+    "huya": {
+      "api": "https://www.huyaapi.com/api.php/provide/vod",
+      "name": "虎牙资源",
+      "detail": "https://www.huyaapi.com"
+    },
+    "hhzy": {
+      "api": "https://hhzyapi.com/api.php/provide/vod",
+      "name": "豪华资源",
+      "detail": "https://hhzyapi.com"
+    },
+    "subo": {
+      "api": "https://subocaiji.com/api.php/provide/vod",
+      "name": "速博资源",
+      "detail": "https://subocaiji.com"
+    },
+    "jinying": {
+      "api": "https://jinyingzy.com/api.php/provide/vod",
+      "name": "金鹰点播",
+      "detail": "https://jinyingzy.com"
+    },
+    "p2100": {
+      "api": "https://p2100.net/api.php/provide/vod",
+      "name": "飘零资源",
+      "detail": "https://p2100.net"
+    },
+    "wujincom": {
+      "api": "https://api.wujinapi.com/api.php/provide/vod",
+      "name": "无尽资源备用",
+      "detail": "https://api.wujinapi.com"
+    },
+    "wwzyapi": {
+      "api": "https://api.wwzy.tv/api.php/provide/vod",
+      "name": "旺旺资源",
+      "detail": "https://api.wwzy.tv"
     }
   }
 }
