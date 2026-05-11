@@ -1,92 +1,64 @@
 import { NextResponse } from 'next/server';
 
 import {
-  ADULT_SOURCE_KEYS,
-  API_CONFIG,
-  getAvailableApiSites,
-  getCacheTime,
-  getConfig,
-} from '@/lib/config';
-import { SearchResult } from '@/lib/types';
-import { cleanHtmlTags } from '@/lib/utils';
+  type AdultSourceOption,
+  fetchAdultRecommendations,
+  getAdultSources,
+  toAdultSourceOptions,
+} from '@/lib/adult-recommendations';
+import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
 
 export const runtime = 'nodejs';
 
-type AdultVodItem = {
-  vod_id?: string | number;
-  vod_name?: string;
-  vod_pic?: string;
-  vod_remarks?: string;
-  vod_class?: string;
-  vod_year?: string;
-  vod_content?: string;
-  vod_douban_id?: number;
-  type_name?: string;
-};
-
-type AdultVodResponse = {
-  list?: AdultVodItem[];
-};
-
-const DEFAULT_LIMIT = 24;
-const MAX_SOURCES = 9;
-const SOURCE_ITEM_LIMIT = 6;
+const DEFAULT_LIMIT = 48;
+const MAX_LIMIT = 96;
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const limit = Math.min(
-    Math.max(parseInt(searchParams.get('limit') || `${DEFAULT_LIMIT}`, 10), 1),
-    60
+  const page = parsePositiveInt(searchParams.get('page'), 1);
+  const limit = clamp(
+    parsePositiveInt(searchParams.get('limit'), DEFAULT_LIMIT),
+    1,
+    MAX_LIMIT
   );
+  const selectedSource = searchParams.get('source') || 'all';
 
   const config = await getConfig();
+  const adultSources = getAdultSources(await getAvailableApiSites());
+  const sources = toAdultSourceOptions(adultSources);
+
   if (!config.SiteConfig.DisableYellowFilter) {
-    return NextResponse.json(emptyResult());
+    return NextResponse.json(
+      emptyResult(page, limit, sources, 'Adult recommendations are disabled')
+    );
   }
 
-  const apiSites = (await getAvailableApiSites())
-    .filter((site) => ADULT_SOURCE_KEYS.has(site.key))
-    .slice(0, MAX_SOURCES);
+  const scopedSources =
+    selectedSource === 'all'
+      ? adultSources
+      : adultSources.filter((site) => site.key === selectedSource);
 
-  if (apiSites.length === 0) {
-    return NextResponse.json(emptyResult());
+  if (scopedSources.length === 0) {
+    return NextResponse.json(
+      emptyResult(page, limit, sources, 'No adult sources available')
+    );
   }
 
-  const settled = await Promise.allSettled(
-    apiSites.map(async (site) => {
-      const response = await fetch(`${site.api}?ac=videolist&pg=1`, {
-        headers: API_CONFIG.search.headers,
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!response.ok) return [];
-
-      const data = (await response.json()) as AdultVodResponse;
-      if (!Array.isArray(data.list)) return [];
-
-      return data.list
-        .slice(0, SOURCE_ITEM_LIMIT)
-        .map((item) => mapAdultItem(item, site.key, site.name))
-        .filter((item): item is SearchResult => Boolean(item));
-    })
-  );
-
-  const seen = new Set<string>();
-  const list = settled
-    .flatMap((result) => (result.status === 'fulfilled' ? result.value : []))
-    .filter((item) => {
-      const key = `${item.source}:${item.id}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .slice(0, limit);
-
+  const { list, hasMore } = await fetchAdultRecommendations(scopedSources, {
+    page,
+    limit,
+  });
   const cacheTime = await getCacheTime();
+
   return NextResponse.json(
     {
       code: 200,
-      message: '獲取成功',
+      message: 'success',
       list,
+      page,
+      limit,
+      hasMore,
+      sources,
     },
     {
       headers: {
@@ -99,33 +71,28 @@ export async function GET(request: Request) {
   );
 }
 
-function emptyResult() {
+function emptyResult(
+  page: number,
+  limit: number,
+  sources: AdultSourceOption[],
+  message: string
+) {
   return {
     code: 200,
-    message: '未啟用成人推薦',
+    message,
     list: [],
+    page,
+    limit,
+    hasMore: false,
+    sources,
   };
 }
 
-function mapAdultItem(
-  item: AdultVodItem,
-  source: string,
-  sourceName: string
-): SearchResult | null {
-  if (!item.vod_id || !item.vod_name) return null;
+function parsePositiveInt(value: string | null, fallback: number): number {
+  const parsed = Number.parseInt(value || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
-  return {
-    id: String(item.vod_id),
-    title: item.vod_name.trim().replace(/\s+/g, ' '),
-    poster: item.vod_pic || '',
-    episodes: [],
-    episodes_titles: [],
-    source,
-    source_name: sourceName,
-    class: item.vod_class,
-    year: item.vod_year?.match(/\d{4}/)?.[0] || 'unknown',
-    desc: cleanHtmlTags(item.vod_content || ''),
-    type_name: item.type_name,
-    douban_id: item.vod_douban_id,
-  };
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
