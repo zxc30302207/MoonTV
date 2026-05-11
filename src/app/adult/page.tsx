@@ -32,6 +32,7 @@ type AdultRecommendationsResponse = {
   sources: AdultSourceOption[];
   adultAuthorized?: boolean;
   expiresAt?: number | null;
+  refreshKey?: string;
 };
 
 type AdultAuthorizationResponse = {
@@ -55,6 +56,7 @@ function AdultPageClient() {
   const [authorizationChecked, setAuthorizationChecked] = useState(false);
   const [adultAuthorized, setAdultAuthorized] = useState(false);
   const [authExpiresAt, setAuthExpiresAt] = useState<number | null>(null);
+  const [refreshKey, setRefreshKey] = useState('');
   const [cardCode, setCardCode] = useState('');
   const [authError, setAuthError] = useState('');
   const [redeeming, setRedeeming] = useState(false);
@@ -130,6 +132,7 @@ function AdultPageClient() {
 
         setSources(data.sources || []);
         setAuthExpiresAt(data.expiresAt ?? null);
+        setRefreshKey(data.refreshKey || '');
         setItems((prev) =>
           replace ? data.list || [] : appendUniqueItems(prev, data.list || [])
         );
@@ -308,8 +311,9 @@ function AdultPageClient() {
             </div>
           ) : (
             <>
-              <div className='mb-4 text-sm text-gray-500 dark:text-gray-400'>
-                授權到期：{formatAdultAuthExpiry(authExpiresAt)}
+              <div className='mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500 dark:text-gray-400'>
+                <span>授權到期：{formatAdultAuthExpiry(authExpiresAt)}</span>
+                {refreshKey && <span>每日更新：{refreshKey}</span>}
               </div>
 
               <div className='mb-7 flex gap-2 overflow-x-auto pb-1 scrollbar-hide'>

@@ -39,6 +39,7 @@ function HomeClient() {
   const [adultRecommendations, setAdultRecommendations] = useState<
     SearchResult[]
   >([]);
+  const [adultRefreshKey, setAdultRefreshKey] = useState('');
   const [bangumiCalendarData, setBangumiCalendarData] = useState<
     BangumiCalendarData[]
   >([]);
@@ -134,10 +135,14 @@ function HomeClient() {
 
         fetch('/api/adult/recommends?limit=24')
           .then((response) => (response.ok ? response.json() : { list: [] }))
-          .then((data) => setAdultRecommendations(data.list || []))
+          .then((data) => {
+            setAdultRecommendations(data.list || []);
+            setAdultRefreshKey(data.refreshKey || '');
+          })
           .catch((error) => {
             console.error('獲取成人推薦失敗:', error);
             setAdultRecommendations([]);
+            setAdultRefreshKey('');
           });
       } catch (error) {
         console.error('獲取推薦數據失敗:', error);
@@ -304,9 +309,16 @@ function HomeClient() {
                   {adultRecommendations.length > 0 && (
                     <section className='mb-8'>
                       <div className='mb-4 flex items-center justify-between'>
-                        <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
-                          成人推薦
-                        </h2>
+                        <div className='flex items-center gap-3'>
+                          <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
+                            成人推薦
+                          </h2>
+                          {adultRefreshKey && (
+                            <span className='rounded-full bg-green-500/10 px-2 py-1 text-xs font-medium text-green-600 dark:text-green-300'>
+                              每日更新 {adultRefreshKey}
+                            </span>
+                          )}
+                        </div>
                         <Link
                           href='/adult'
                           onClick={startLoading}

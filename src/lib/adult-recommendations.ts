@@ -28,11 +28,19 @@ export type AdultSourceOption = {
 };
 
 type AdultSourceResult = {
+  siteKey: string;
   items: SearchResult[];
   hasMore: boolean;
 };
 
 type Fetcher = typeof fetch;
+
+type AdultRecommendationOptions = {
+  page: number;
+  limit: number;
+  rotationSeed?: string;
+  dailyPageWindow?: number;
+};
 
 export function getAdultSources(apiSites: ApiSite[]): ApiSite[] {
   return apiSites.filter((site) => ADULT_SOURCE_KEYS.has(site.key));
@@ -47,35 +55,34 @@ export function toAdultSourceOptions(apiSites: ApiSite[]): AdultSourceOption[] {
 
 export async function fetchAdultRecommendations(
   apiSites: ApiSite[],
-  options: { page: number; limit: number },
+  options: AdultRecommendationOptions,
   fetcher: Fetcher = fetch
 ): Promise<{ list: SearchResult[]; hasMore: boolean }> {
+  const orderedSites = options.rotationSeed
+    ? orderByDailySeed(apiSites, options.rotationSeed)
+    : apiSites;
+
   const settled = await Promise.allSettled(
-    apiSites.map(async (site) => {
-      const response = await fetcher(
-        buildAdultListUrl(site.api, options.page),
-        {
-          headers: API_CONFIG.search.headers,
-          signal: createTimeoutSignal(10000),
-        }
-      );
-      if (!response.ok) {
-        return { items: [], hasMore: false };
+    orderedSites.map(async (site) => {
+      const preferredPage = options.rotationSeed
+        ? getDailyAdultPage(
+            site.key,
+            options.page,
+            options.rotationSeed,
+            options.dailyPageWindow
+          )
+        : options.page;
+      let result = await fetchAdultSourcePage(site, preferredPage, fetcher);
+
+      if (
+        options.rotationSeed &&
+        preferredPage !== options.page &&
+        result.items.length === 0
+      ) {
+        result = await fetchAdultSourcePage(site, options.page, fetcher);
       }
 
-      const data = (await response.json()) as AdultVodResponse;
-      if (!Array.isArray(data.list)) {
-        return { items: [], hasMore: false };
-      }
-
-      const items = data.list
-        .map((item) => mapAdultItem(item, site.key, site.name))
-        .filter((item): item is SearchResult => Boolean(item));
-
-      return {
-        items,
-        hasMore: hasMoreAdultPages(data, options.page, items.length),
-      };
+      return result;
     })
   );
 
@@ -88,10 +95,71 @@ export async function fetchAdultRecommendations(
 
   return {
     list: takeRoundRobin(
-      sourceResults.map((result) => result.items),
+      sourceResults.map((result) =>
+        options.rotationSeed
+          ? rotateItems(
+              result.items,
+              `${options.rotationSeed}:${result.siteKey}`
+            )
+          : result.items
+      ),
       options.limit
     ),
     hasMore: sourceResults.some((result) => result.hasMore),
+  };
+}
+
+export function getDailyAdultRefreshKey(date = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const values = Object.fromEntries(
+    parts.map((part) => [part.type, part.value])
+  );
+
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+export function getDailyAdultPage(
+  sourceKey: string,
+  page: number,
+  rotationSeed: string,
+  dailyPageWindow = 5
+): number {
+  const windowSize = Math.max(1, Math.floor(dailyPageWindow));
+  const offset = stableHash(`${rotationSeed}:${sourceKey}:page`) % windowSize;
+  return page + offset;
+}
+
+async function fetchAdultSourcePage(
+  site: ApiSite,
+  page: number,
+  fetcher: Fetcher
+): Promise<AdultSourceResult & { siteKey: string }> {
+  const response = await fetcher(buildAdultListUrl(site.api, page), {
+    headers: API_CONFIG.search.headers,
+    signal: createTimeoutSignal(10000),
+  });
+  if (!response.ok) {
+    return { siteKey: site.key, items: [], hasMore: false };
+  }
+
+  const data = (await response.json()) as AdultVodResponse;
+  if (!Array.isArray(data.list)) {
+    return { siteKey: site.key, items: [], hasMore: false };
+  }
+
+  const items = data.list
+    .map((item) => mapAdultItem(item, site.key, site.name))
+    .filter((item): item is SearchResult => Boolean(item));
+
+  return {
+    siteKey: site.key,
+    items,
+    hasMore: hasMoreAdultPages(data, page, items.length),
   };
 }
 
@@ -159,6 +227,34 @@ function takeRoundRobin(
   }
 
   return list;
+}
+
+function orderByDailySeed(
+  apiSites: ApiSite[],
+  rotationSeed: string
+): ApiSite[] {
+  return [...apiSites].sort((a, b) => {
+    const aHash = stableHash(`${rotationSeed}:${a.key}:source`);
+    const bHash = stableHash(`${rotationSeed}:${b.key}:source`);
+    return aHash - bHash;
+  });
+}
+
+function rotateItems(items: SearchResult[], seed: string): SearchResult[] {
+  if (items.length <= 1) return items;
+
+  const offset = stableHash(seed) % items.length;
+  return [...items.slice(offset), ...items.slice(0, offset)];
+}
+
+function stableHash(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return hash >>> 0;
 }
 
 function toPositiveInt(value: number | string | undefined): number | null {

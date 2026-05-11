@@ -215,6 +215,72 @@ describe('/api/adult/recommends', () => {
     expect(result.hasMore).toBe(false);
   });
 
+  it('rotates all-source recommendations by Taipei date seed', async () => {
+    const { fetchAdultRecommendations, getDailyAdultRefreshKey } = await import(
+      '@/lib/adult-recommendations'
+    );
+    const sources = [
+      {
+        key: 'dnzzy',
+        name: 'DNZ璩囨簮',
+        api: 'https://dnz.example/api',
+      },
+      {
+        key: 'ckzy',
+        name: 'CK璩囨簮',
+        api: 'https://ck.example/api',
+      },
+    ];
+    const createFetcher = () =>
+      jest.fn(async (url: string) => {
+        return new Response(
+          JSON.stringify({
+            pagecount: 10,
+            list: [
+              {
+                vod_id: url,
+                vod_name: url,
+              },
+            ],
+          })
+        );
+      }) as unknown as jest.MockedFunction<typeof fetch>;
+
+    const todayFetcher = createFetcher();
+    const tomorrowFetcher = createFetcher();
+
+    await fetchAdultRecommendations(
+      sources,
+      {
+        page: 1,
+        limit: 4,
+        rotationSeed: '2026-05-11',
+        dailyPageWindow: 5,
+      },
+      todayFetcher
+    );
+    await fetchAdultRecommendations(
+      sources,
+      {
+        page: 1,
+        limit: 4,
+        rotationSeed: '2026-05-12',
+        dailyPageWindow: 5,
+      },
+      tomorrowFetcher
+    );
+
+    const todayUrls = todayFetcher.mock.calls.map(([url]) => String(url));
+    const tomorrowUrls = tomorrowFetcher.mock.calls.map(([url]) => String(url));
+
+    expect(getDailyAdultRefreshKey(new Date('2026-05-10T16:30:00Z'))).toBe(
+      '2026-05-11'
+    );
+    expect(todayUrls).not.toEqual(tomorrowUrls);
+    expect(todayUrls.every((url) => /pg=[1-5]$/.test(url))).toBe(true);
+    expect(tomorrowUrls.every((url) => /pg=[1-5]$/.test(url))).toBe(true);
+  });
+
   it('keeps loading when a source omits pagecount but returns items', async () => {
     const { fetchAdultRecommendations } = await import(
       '@/lib/adult-recommendations'

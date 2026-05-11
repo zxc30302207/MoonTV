@@ -5,6 +5,7 @@ import {
   type AdultSourceOption,
   fetchAdultRecommendations,
   getAdultSources,
+  getDailyAdultRefreshKey,
   toAdultSourceOptions,
 } from '@/lib/adult-recommendations';
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
@@ -63,6 +64,7 @@ export async function GET(request: NextRequest) {
     selectedSource === 'all'
       ? adultSources
       : adultSources.filter((site) => site.key === selectedSource);
+  const refreshKey = getDailyAdultRefreshKey();
 
   if (scopedSources.length === 0) {
     return NextResponse.json(
@@ -74,6 +76,7 @@ export async function GET(request: NextRequest) {
   const { list, hasMore } = await fetchAdultRecommendations(scopedSources, {
     page,
     limit,
+    rotationSeed: selectedSource === 'all' ? refreshKey : undefined,
   });
 
   return NextResponse.json(
@@ -87,6 +90,7 @@ export async function GET(request: NextRequest) {
       sources,
       adultAuthorized: true,
       expiresAt: adultAuth.expiresAt ?? null,
+      refreshKey,
     },
     {
       headers: noStoreHeaders(),
