@@ -19,7 +19,7 @@ import {
 } from '@/lib/db.client';
 import { getDoubanCategories } from '@/lib/douban.client';
 import { getSwal } from '@/lib/sweetalert';
-import { DoubanItem } from '@/lib/types';
+import { DoubanItem, SearchResult } from '@/lib/types';
 
 import CapsuleSwitch from '@/components/CapsuleSwitch';
 import ContinueWatching from '@/components/ContinueWatching';
@@ -30,10 +30,15 @@ import { useSite } from '@/components/SiteProvider';
 import VideoCard from '@/components/VideoCard';
 
 function HomeClient() {
-  const [activeTab, setActiveTab] = useState<'home' | 'history' | 'favorites'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'history' | 'favorites'>(
+    'home'
+  );
   const [hotMovies, setHotMovies] = useState<DoubanItem[]>([]);
   const [hotTvShows, setHotTvShows] = useState<DoubanItem[]>([]);
   const [hotVarietyShows, setHotVarietyShows] = useState<DoubanItem[]>([]);
+  const [adultRecommendations, setAdultRecommendations] = useState<
+    SearchResult[]
+  >([]);
   const [bangumiCalendarData, setBangumiCalendarData] = useState<
     BangumiCalendarData[]
   >([]);
@@ -100,7 +105,7 @@ function HomeClient() {
           return;
         }
 
-        // 並行獲取熱門電影、熱門劇集和熱門綜藝
+        // 並行獲取熱門電影、熱門劇集、熱門綜藝
         const [moviesData, tvShowsData, varietyShowsData, bangumiCalendarData] =
           await Promise.all([
             getDoubanCategories({
@@ -126,6 +131,14 @@ function HomeClient() {
         }
 
         setBangumiCalendarData(bangumiCalendarData);
+
+        fetch('/api/adult/recommends?limit=24')
+          .then((response) => (response.ok ? response.json() : { list: [] }))
+          .then((data) => setAdultRecommendations(data.list || []))
+          .catch((error) => {
+            console.error('獲取成人推薦失敗:', error);
+            setAdultRecommendations([]);
+          });
       } catch (error) {
         console.error('獲取推薦數據失敗:', error);
       } finally {
@@ -200,16 +213,22 @@ function HomeClient() {
         {/* 頂部 Tab 切換 */}
         <div className='mb-8 flex justify-center'>
           <CapsuleSwitch
-            options={simpleMode ? [
-              { label: '歷史', value: 'history' },
-              { label: '收藏夾', value: 'favorites' },
-            ] : [
-              { label: '首頁', value: 'home' },
-              { label: '歷史', value: 'history' },
-              { label: '收藏夾', value: 'favorites' },
-            ]}
+            options={
+              simpleMode
+                ? [
+                    { label: '歷史', value: 'history' },
+                    { label: '收藏夾', value: 'favorites' },
+                  ]
+                : [
+                    { label: '首頁', value: 'home' },
+                    { label: '歷史', value: 'history' },
+                    { label: '收藏夾', value: 'favorites' },
+                  ]
+            }
             active={simpleMode && activeTab === 'home' ? 'history' : activeTab}
-            onChange={(value) => setActiveTab(value as 'home' | 'history' | 'favorites')}
+            onChange={(value) =>
+              setActiveTab(value as 'home' | 'history' | 'favorites')
+            }
           />
         </div>
 
@@ -281,6 +300,36 @@ function HomeClient() {
               {/* 簡潔模式下只顯示收藏夾，但在服務器端渲染時先不渲染 */}
               {isClient && !simpleMode && (
                 <>
+                  {/* 成人推薦 */}
+                  {adultRecommendations.length > 0 && (
+                    <section className='mb-8'>
+                      <div className='mb-4 flex items-center justify-between'>
+                        <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
+                          成人推薦
+                        </h2>
+                      </div>
+                      <ScrollableRow>
+                        {adultRecommendations.map((item) => (
+                          <div
+                            key={`${item.source}-${item.id}`}
+                            className='min-w-[96px] w-24 sm:min-w-[180px] sm:w-44'
+                          >
+                            <VideoCard
+                              from='search'
+                              id={item.id}
+                              title={item.title}
+                              poster={item.poster}
+                              source={item.source}
+                              source_name={item.source_name}
+                              year={item.year}
+                              type='movie'
+                            />
+                          </div>
+                        ))}
+                      </ScrollableRow>
+                    </section>
+                  )}
+
                   {/* 熱門電影 */}
                   <section className='mb-8'>
                     <div className='mb-4 flex items-center justify-between'>

@@ -48,7 +48,7 @@ export const API_CONFIG = {
 let fileConfig: ConfigFileStruct;
 let cachedConfig: AdminConfig;
 
-const ADULT_SOURCE_KEYS = new Set([
+export const ADULT_SOURCE_KEYS = new Set([
   'ckzy',
   'aivin',
   'dnzzy',
