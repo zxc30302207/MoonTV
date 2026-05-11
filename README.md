@@ -102,6 +102,7 @@
 |  原生 redis   |   ✅   |        |         |            |
 | Cloudflare D1 |        |        |         |     ✅     |
 | Upstash Redis |   ☑️   |   ✅   |   ✅    |     ✅     |
+|   Supabase    |   ☑️   |   ✅   |         |            |
 
 ✅：經測試支持
 
@@ -128,6 +129,15 @@
 3. 返回你的 Vercel 項目，新增環境變量 **UPSTASH_URL 和 UPSTASH_TOKEN**，值為第二步復制的 endpoint 和 token
 4. 設置環境變量 NEXT_PUBLIC_STORAGE_TYPE，值為 **upstash**；設置 USERNAME 和 PASSWORD 作為站長賬號
 5. 重試部署
+
+#### Supabase 支持
+
+0. 完成普通部署並成功訪問。
+1. 在 Supabase SQL Editor 執行 `migrations/supabase/001_moontv_kv.sql`。
+2. 返回 Vercel 項目，新增環境變量 **SUPABASE_URL** 和 **SUPABASE_SERVICE_ROLE_KEY**（或新版 **SUPABASE_SECRET_KEY**）。
+3. 設置環境變量 NEXT_PUBLIC_STORAGE_TYPE，值為 **supabase**；設置 USERNAME 和 PASSWORD 作為站長賬號。
+4. 如需從 Upstash 搬資料，先在本機 `.env.local` 放入 Upstash 與 Supabase 變量，執行 `node scripts/migrate-upstash-to-supabase.mjs --dry-run` 確認，再執行 `node scripts/migrate-upstash-to-supabase.mjs`。
+5. 重試部署。
 
 ### Netlify 部署(推薦)
 
@@ -291,24 +301,28 @@ services:
 
 ## 環境變量
 
-| 變量                                | 說明                                         | 可選值                           | 默認值                                                                                                                     |
-| ----------------------------------- | -------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| USERNAME                            | 非 localstorage 部署時的管理員賬號           | 任意字符串                       | （空）                                                                                                                     |
-| PASSWORD                            | 非 localstorage 部署時為管理員密碼           | 任意字符串                       | （空）                                                                                                                     |
-| NEXT_PUBLIC_SITE_NAME               | 站點名稱                                     | 任意字符串                       | MoonTV                                                                                                                     |
-| ANNOUNCEMENT                        | 站點公告                                     | 任意字符串                       | 本網站僅提供影視信息搜索服務，所有內容均來自第三方網站。本站不存儲任何視頻資源，不對任何內容的準確性、合法性、完整性負責。 |
-| NEXT_PUBLIC_STORAGE_TYPE            | 播放記錄/收藏的存儲方式                      | localstorage、redis、d1、upstash | localstorage                                                                                                               |
-| REDIS_URL                           | redis 連接 url                               | 連接 url                         | 空                                                                                                                         |
-| UPSTASH_URL                         | upstash redis 連接 url                       | 連接 url                         | 空                                                                                                                         |
-| UPSTASH_TOKEN                       | upstash redis 連接 token                     | 連接 token                       | 空                                                                                                                         |
-| NEXT_PUBLIC_ENABLE_REGISTER         | 是否開放註冊，僅在非 localstorage 部署時生效 | true / false                     | false                                                                                                                      |
-| NEXT_PUBLIC_SEARCH_MAX_PAGE         | 搜索接口可拉取的最大頁數                     | 1-50                             | 5                                                                                                                          |
-| NEXT_PUBLIC_DOUBAN_PROXY_TYPE       | 豆瓣數據源請求方式                           | 見下方                           | direct                                                                                                                     |
-| NEXT_PUBLIC_DOUBAN_PROXY            | 自定義豆瓣數據代理 URL                       | url prefix                       | (空)                                                                                                                       |
-| NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE | 豆瓣圖片代理類型                             | 見下方                           | server                                                                                                                     |
-| NEXT_PUBLIC_DOUBAN_IMAGE_PROXY      | 自定義豆瓣圖片代理 URL                       | url prefix                       | (空)                                                                                                                       |
-| NEXT_PUBLIC_DISABLE_YELLOW_FILTER   | 關閉色情內容過濾                             | true/false                       | false                                                                                                                      |
-| NEXT_PUBLIC_DANMU_API_BASE_URL      | 彈幕接口地址                                 | 接口地址                         | (空)                                                                                                                       |
+| 變量                                | 說明                                         | 可選值                                     | 默認值                                                                                                                     |
+| ----------------------------------- | -------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| USERNAME                            | 非 localstorage 部署時的管理員賬號           | 任意字符串                                 | （空）                                                                                                                     |
+| PASSWORD                            | 非 localstorage 部署時為管理員密碼           | 任意字符串                                 | （空）                                                                                                                     |
+| NEXT_PUBLIC_SITE_NAME               | 站點名稱                                     | 任意字符串                                 | MoonTV                                                                                                                     |
+| ANNOUNCEMENT                        | 站點公告                                     | 任意字符串                                 | 本網站僅提供影視信息搜索服務，所有內容均來自第三方網站。本站不存儲任何視頻資源，不對任何內容的準確性、合法性、完整性負責。 |
+| NEXT_PUBLIC_STORAGE_TYPE            | 播放記錄/收藏的存儲方式                      | localstorage、redis、d1、upstash、supabase | localstorage                                                                                                               |
+| REDIS_URL                           | redis 連接 url                               | 連接 url                                   | 空                                                                                                                         |
+| UPSTASH_URL                         | upstash redis 連接 url                       | 連接 url                                   | 空                                                                                                                         |
+| UPSTASH_TOKEN                       | upstash redis 連接 token                     | 連接 token                                 | 空                                                                                                                         |
+| SUPABASE_URL                        | Supabase project URL                         | 連接 url                                   | 空                                                                                                                         |
+| SUPABASE_SERVICE_ROLE_KEY           | Supabase server-side 高權限 key              | service_role 或 secret key                 | 空                                                                                                                         |
+| SUPABASE_SECRET_KEY                 | Supabase 新版 server-side secret key         | secret key                                 | 空                                                                                                                         |
+| SUPABASE_KV_TABLE                   | Supabase KV 表名                             | 表名                                       | moontv_kv                                                                                                                  |
+| NEXT_PUBLIC_ENABLE_REGISTER         | 是否開放註冊，僅在非 localstorage 部署時生效 | true / false                               | false                                                                                                                      |
+| NEXT_PUBLIC_SEARCH_MAX_PAGE         | 搜索接口可拉取的最大頁數                     | 1-50                                       | 5                                                                                                                          |
+| NEXT_PUBLIC_DOUBAN_PROXY_TYPE       | 豆瓣數據源請求方式                           | 見下方                                     | direct                                                                                                                     |
+| NEXT_PUBLIC_DOUBAN_PROXY            | 自定義豆瓣數據代理 URL                       | url prefix                                 | (空)                                                                                                                       |
+| NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE | 豆瓣圖片代理類型                             | 見下方                                     | server                                                                                                                     |
+| NEXT_PUBLIC_DOUBAN_IMAGE_PROXY      | 自定義豆瓣圖片代理 URL                       | url prefix                                 | (空)                                                                                                                       |
+| NEXT_PUBLIC_DISABLE_YELLOW_FILTER   | 關閉色情內容過濾                             | true/false                                 | false                                                                                                                      |
+| NEXT_PUBLIC_DANMU_API_BASE_URL      | 彈幕接口地址                                 | 接口地址                                   | (空)                                                                                                                       |
 
 NEXT_PUBLIC_DOUBAN_PROXY_TYPE 選項解釋：
 

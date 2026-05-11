@@ -4,6 +4,7 @@ import { AdminConfig } from './admin.types';
 import { D1Storage } from './d1.db';
 import { KvrocksStorage } from './kvrocks.db';
 import { RedisStorage } from './redis.db';
+import { SupabaseStorage } from './supabase.db';
 import { Favorite, IStorage, PlayRecord, SkipConfig } from './types';
 import { UpstashRedisStorage } from './upstash.db';
 
@@ -14,6 +15,7 @@ const STORAGE_TYPE =
     | 'redis'
     | 'kvrocks'
     | 'upstash'
+    | 'supabase'
     | 'd1'
     | undefined) || 'localstorage';
 
@@ -26,6 +28,8 @@ function createStorage(): IStorage {
       return new KvrocksStorage();
     case 'upstash':
       return new UpstashRedisStorage();
+    case 'supabase':
+      return new SupabaseStorage();
     case 'd1':
       return new D1Storage();
     case 'localstorage':

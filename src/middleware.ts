@@ -104,6 +104,7 @@ function shouldSkipAuth(pathname: string): boolean {
     '/api/server-config',
     '/api/tvbox/config',
     '/api/tvbox/categories',
+    '/api/douban/comments',
     '/api/douban/recommends',
   ];
 

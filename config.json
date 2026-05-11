@@ -134,6 +134,51 @@
       "api": "https://api.wwzy.tv/api.php/provide/vod",
       "name": "旺旺资源",
       "detail": "https://api.wwzy.tv"
+    },
+    "ckzy": {
+      "api": "https://ckzy.me/api.php/provide/vod",
+      "name": "CK资源",
+      "detail": "https://ckzy.me"
+    },
+    "aivin": {
+      "api": "http://lbapiby.com/api.php/provide/vod",
+      "name": "AIvin资源",
+      "detail": "http://lbapiby.com"
+    },
+    "dnzzy": {
+      "api": "https://apidanaizi.com/api.php/provide/vod",
+      "name": "DNZ资源",
+      "detail": "https://apidanaizi.com"
+    },
+    "xiaojizy": {
+      "api": "https://api.xiaojizy.live/provide/vod",
+      "name": "小鸡资源",
+      "detail": "https://api.xiaojizy.live"
+    },
+    "yutu": {
+      "api": "https://apiyutu.com/api.php/provide/vod",
+      "name": "玉兔资源",
+      "detail": "https://apiyutu.com"
+    },
+    "doudou": {
+      "api": "https://api.douapi.cc/api.php/provide/vod",
+      "name": "豆豆资源",
+      "detail": "https://api.douapi.cc"
+    },
+    "didi": {
+      "api": "https://api.ddapi.cc/api.php/provide/vod",
+      "name": "滴滴资源",
+      "detail": "https://api.ddapi.cc"
+    },
+    "jkun": {
+      "api": "https://jkunzyapi.com/api.php/provide/vod",
+      "name": "jkun资源",
+      "detail": "https://jkunzyapi.com"
+    },
+    "souav": {
+      "api": "https://api.souavzyw.net/api.php/provide/vod",
+      "name": "souav资源",
+      "detail": "https://api.souavzyw.net"
     }
   }
 }

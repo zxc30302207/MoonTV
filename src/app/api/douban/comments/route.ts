@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { getCacheTime } from '@/lib/config';
-import { fetchDoubanHtml } from '@/lib/douban';
+import { fetchDoubanHtml, isDoubanVerificationHtml } from '@/lib/douban';
 import { parseDoubanCommentsHtml } from '@/lib/douban-comments';
 
 export const runtime = 'nodejs';
@@ -28,6 +28,10 @@ export async function GET(request: Request) {
 
   try {
     const html = await fetchDoubanHtml(target);
+    if (isDoubanVerificationHtml(html)) {
+      throw new Error('Douban verification page returned');
+    }
+
     const result = parseDoubanCommentsHtml(html, start, limit);
     const cacheTime = await getCacheTime();
 
@@ -40,10 +44,15 @@ export async function GET(request: Request) {
       },
     });
   } catch (error) {
+    const details = error instanceof Error ? error.message : 'Unknown error';
+    const isVerificationError = details.includes('Douban verification');
+
     return NextResponse.json(
       {
-        error: 'Failed to fetch douban comments',
-        details: error instanceof Error ? error.message : 'Unknown error',
+        error: isVerificationError
+          ? '豆瓣短評暫時被風控，請稍後重試'
+          : 'Failed to fetch douban comments',
+        details,
       },
       { status: 502 }
     );

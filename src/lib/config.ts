@@ -12,7 +12,7 @@ export interface ApiSite {
   detail?: string;
 }
 
-interface ConfigFileStruct {
+export interface ConfigFileStruct {
   cache_time?: number;
   api_site: {
     [key: string]: ApiSite;
@@ -48,12 +48,82 @@ export const API_CONFIG = {
 let fileConfig: ConfigFileStruct;
 let cachedConfig: AdminConfig;
 
+const ADULT_SOURCE_KEYS = new Set([
+  'ckzy',
+  'aivin',
+  'dnzzy',
+  'xiaojizy',
+  'yutu',
+  'doudou',
+  'didi',
+  'jkun',
+  'souav',
+]);
+
+export function mergeRuntimeDefaultApiSites(config: ConfigFileStruct): {
+  changed: boolean;
+  config: ConfigFileStruct;
+} {
+  const defaults = runtimeConfig as unknown as ConfigFileStruct;
+  const nextConfig: ConfigFileStruct = {
+    ...config,
+    api_site: {
+      ...(config.api_site || {}),
+    },
+  };
+  let changed = false;
+
+  if (
+    nextConfig.cache_time === undefined &&
+    defaults.cache_time !== undefined
+  ) {
+    nextConfig.cache_time = defaults.cache_time;
+    changed = true;
+  }
+
+  Object.entries(defaults.api_site || {}).forEach(([key, site]) => {
+    if (!nextConfig.api_site[key]) {
+      nextConfig.api_site[key] = site;
+      changed = true;
+    }
+  });
+
+  return { changed, config: nextConfig };
+}
+
+function hasAdultDefaultSources(config: ConfigFileStruct): boolean {
+  return Object.keys(config.api_site || {}).some((key) =>
+    ADULT_SOURCE_KEYS.has(key)
+  );
+}
+
+function enableAdultSourceAccess(
+  adminConfig: AdminConfig,
+  config: ConfigFileStruct
+): boolean {
+  if (
+    hasAdultDefaultSources(config) &&
+    adminConfig.SiteConfig.DisableYellowFilter !== true
+  ) {
+    adminConfig.SiteConfig.DisableYellowFilter = true;
+    return true;
+  }
+
+  return false;
+}
+
 export function refineConfig(adminConfig: AdminConfig): AdminConfig {
   try {
     fileConfig = JSON.parse(adminConfig.ConfigFile) as ConfigFileStruct;
   } catch (e) {
     fileConfig = {} as ConfigFileStruct;
   }
+  const mergedConfig = mergeRuntimeDefaultApiSites(fileConfig);
+  fileConfig = mergedConfig.config;
+  if (mergedConfig.changed) {
+    adminConfig.ConfigFile = JSON.stringify(fileConfig);
+  }
+  enableAdultSourceAccess(adminConfig, fileConfig);
   // 合並文件中的源信息
   const apiSiteEntries = Object.entries(fileConfig.api_site || []);
   const sourceConfigMap = new Map(
@@ -192,6 +262,12 @@ async function initConfig() {
           console.error('解析配置文件失敗:', e);
           fileConfig = {} as ConfigFileStruct;
         }
+        const mergedConfig = mergeRuntimeDefaultApiSites(fileConfig);
+        fileConfig = mergedConfig.config;
+        if (mergedConfig.changed) {
+          adminConfig.ConfigFile = JSON.stringify(fileConfig);
+        }
+        enableAdultSourceAccess(adminConfig, fileConfig);
         const apiSiteEntries = Object.entries(fileConfig.api_site || []);
         const customCategories = fileConfig.custom_category || [];
 
@@ -336,9 +412,9 @@ async function initConfig() {
               process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE || 'server',
             DoubanImageProxy: process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY || '',
             DisableYellowFilter:
+              hasAdultDefaultSources(fileConfig) ||
               process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true',
-            DanmakuApiBaseUrl:
-              process.env.NEXT_PUBLIC_DANMU_API_BASE_URL || '',
+            DanmakuApiBaseUrl: process.env.NEXT_PUBLIC_DANMU_API_BASE_URL || '',
             TVBoxEnabled: false,
             TVBoxPassword: '',
           },
@@ -371,8 +447,8 @@ async function initConfig() {
       }
 
       // 寫回數據庫（更新/創建）
-      if (storage && typeof (storage as any).setAdminConfig === 'function') {
-        await (storage as any).setAdminConfig(adminConfig);
+      if (storage) {
+        await storage.setAdminConfig(adminConfig);
       }
 
       // 更新緩存
@@ -392,17 +468,15 @@ async function initConfig() {
         SearchDownstreamMaxPage:
           Number(process.env.NEXT_PUBLIC_SEARCH_MAX_PAGE) || 5,
         SiteInterfaceCacheTime: fileConfig.cache_time || 7200,
-        DoubanProxyType:
-          process.env.NEXT_PUBLIC_DOUBAN_PROXY_TYPE || 'direct',
+        DoubanProxyType: process.env.NEXT_PUBLIC_DOUBAN_PROXY_TYPE || 'direct',
         DoubanProxy: process.env.NEXT_PUBLIC_DOUBAN_PROXY || '',
         DoubanImageProxyType:
           process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE || 'server',
         DoubanImageProxy: process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY || '',
         DisableYellowFilter:
+          hasAdultDefaultSources(fileConfig) ||
           process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true',
-        DanmakuApiBaseUrl:
-          process.env.NEXT_PUBLIC_DANMU_API_BASE_URL ||
-          '',
+        DanmakuApiBaseUrl: process.env.NEXT_PUBLIC_DANMU_API_BASE_URL || '',
         TVBoxEnabled: false,
         TVBoxPassword: '',
       },
@@ -447,6 +521,8 @@ export async function getConfig(): Promise<AdminConfig> {
   }
 
   if (adminConfig) {
+    let shouldPersistAdminConfig = false;
+
     // 確保 CustomCategories 被初始化
     if (!adminConfig.CustomCategories) {
       adminConfig.CustomCategories = [];
@@ -515,6 +591,15 @@ export async function getConfig(): Promise<AdminConfig> {
       console.error('解析配置文件失敗:', e);
       fileConfig = {} as ConfigFileStruct;
     }
+    const mergedConfig = mergeRuntimeDefaultApiSites(fileConfig);
+    fileConfig = mergedConfig.config;
+    if (mergedConfig.changed) {
+      adminConfig.ConfigFile = JSON.stringify(fileConfig);
+      shouldPersistAdminConfig = true;
+    }
+    if (enableAdultSourceAccess(adminConfig, fileConfig)) {
+      shouldPersistAdminConfig = true;
+    }
 
     // 合並文件中的源信息
     const apiSiteEntries = Object.entries(fileConfig.api_site || []);
@@ -532,6 +617,7 @@ export async function getConfig(): Promise<AdminConfig> {
         existingSource.from = 'config';
       } else {
         // 如果不存在，創建新條目
+        shouldPersistAdminConfig = true;
         sourceConfigMap.set(key, {
           key,
           name: site.name,
@@ -637,6 +723,9 @@ export async function getConfig(): Promise<AdminConfig> {
         role: 'owner',
       });
     }
+    if (shouldPersistAdminConfig && storage) {
+      await storage.setAdminConfig(adminConfig);
+    }
     cachedConfig = adminConfig;
   } else {
     await initConfig();
@@ -671,7 +760,9 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
 
   // 站長變更自檢
   const ownerUser = process.env.USERNAME;
-  const originalOwner = adminConfig.UserConfig.Users.find((u) => u.username === ownerUser);
+  const originalOwner = adminConfig.UserConfig.Users.find(
+    (u) => u.username === ownerUser
+  );
 
   // 去重
   const seenUsernames = new Set<string>();
@@ -784,6 +875,7 @@ export async function resetConfig() {
         process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE || 'server',
       DoubanImageProxy: process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY || '',
       DisableYellowFilter:
+        hasAdultDefaultSources(fileConfig) ||
         process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true',
       DanmakuApiBaseUrl: process.env.NEXT_PUBLIC_DANMU_API_BASE_URL || '',
       TVBoxEnabled: false,
