@@ -1,8 +1,10 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 
+import type { NextRequest } from 'next/server';
+
 const mockGetConfig = jest.fn();
 const mockGetAvailableApiSites = jest.fn();
-const mockGetCacheTime = jest.fn();
+const mockGetVerifiedAuthInfo = jest.fn();
 
 jest.mock('@/lib/config', () => ({
   ADULT_SOURCE_KEYS: new Set(['dnzzy', 'ckzy']),
@@ -14,8 +16,11 @@ jest.mock('@/lib/config', () => ({
     },
   },
   getAvailableApiSites: mockGetAvailableApiSites,
-  getCacheTime: mockGetCacheTime,
   getConfig: mockGetConfig,
+}));
+
+jest.mock('@/lib/auth-server', () => ({
+  getVerifiedAuthInfo: mockGetVerifiedAuthInfo,
 }));
 
 describe('/api/adult/recommends', () => {
@@ -30,7 +35,10 @@ describe('/api/adult/recommends', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockGetCacheTime.mockResolvedValue(60);
+    mockGetVerifiedAuthInfo.mockResolvedValue({
+      username: 'adult-user',
+      role: 'user',
+    });
     mockGetAvailableApiSites.mockResolvedValue([
       {
         key: 'dnzzy',
@@ -55,15 +63,13 @@ describe('/api/adult/recommends', () => {
   });
 
   it('returns an empty list when adult access is disabled', async () => {
-    mockGetConfig.mockResolvedValue({
-      SiteConfig: {
-        DisableYellowFilter: false,
-      },
-    });
+    mockGetConfig.mockResolvedValue(createConfig(false));
 
     const { GET } = await import('./route');
     const response = await GET(
-      new Request('http://localhost/api/adult/recommends?page=2&limit=12')
+      new Request(
+        'http://localhost/api/adult/recommends?page=2&limit=12'
+      ) as unknown as NextRequest
     );
     const json = await response.json();
 
@@ -74,19 +80,12 @@ describe('/api/adult/recommends', () => {
       page: 2,
       limit: 12,
       hasMore: false,
-      sources: [
-        { key: 'dnzzy', name: 'DNZ資源' },
-        { key: 'ckzy', name: 'CK資源' },
-      ],
+      sources: [],
     });
   });
 
   it('loads a selected adult source with the requested page', async () => {
-    mockGetConfig.mockResolvedValue({
-      SiteConfig: {
-        DisableYellowFilter: true,
-      },
-    });
+    mockGetConfig.mockResolvedValue(createConfig(true));
     global.fetch = jest.fn(async () => {
       return new Response(
         JSON.stringify({
@@ -108,7 +107,7 @@ describe('/api/adult/recommends', () => {
     const response = await GET(
       new Request(
         'http://localhost/api/adult/recommends?source=dnzzy&page=2&limit=3'
-      )
+      ) as unknown as NextRequest
     );
     const json = await response.json();
 
@@ -126,6 +125,7 @@ describe('/api/adult/recommends', () => {
       page: 2,
       limit: 3,
       hasMore: true,
+      adultAuthorized: true,
     });
     expect(json.list).toEqual([
       expect.objectContaining({
@@ -137,6 +137,35 @@ describe('/api/adult/recommends', () => {
         desc: 'desc',
       }),
     ]);
+  });
+
+  it('does not fetch adult sources without an adult authorization grant', async () => {
+    mockGetConfig.mockResolvedValue({
+      ...createConfig(true),
+      AdultAuthConfig: {
+        cards: [],
+        grants: [],
+      },
+    });
+    global.fetch = jest.fn() as unknown as typeof fetch;
+
+    const { GET } = await import('./route');
+    const response = await GET(
+      new Request(
+        'http://localhost/api/adult/recommends'
+      ) as unknown as NextRequest
+    );
+    const json = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(json).toMatchObject({
+      code: 200,
+      message: 'Adult authorization required',
+      list: [],
+      adultAuthorized: false,
+    });
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(mockGetAvailableApiSites).not.toHaveBeenCalled();
   });
 
   it('round-robins all adult sources and deduplicates source ids', async () => {
@@ -217,5 +246,28 @@ describe('/api/adult/recommends', () => {
     );
   });
 });
+
+function createConfig(adultEnabled: boolean) {
+  return {
+    SiteConfig: {
+      DisableYellowFilter: adultEnabled,
+    },
+    UserConfig: {
+      Users: [{ username: 'adult-user', role: 'user' }],
+    },
+    AdultAuthConfig: {
+      cards: [],
+      grants: [
+        {
+          username: 'adult-user',
+          cardCode: 'ADULT-TEST',
+          grantedAt: 1,
+          grantedBy: 'admin',
+          expiresAt: Date.now() + 60_000,
+        },
+      ],
+    },
+  };
+}
 
 export {};

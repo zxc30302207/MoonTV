@@ -52,9 +52,33 @@ export interface AdminConfig {
     lastUpdated?: number; // timestamp in seconds
     importMode?: 'overwrite' | 'merge';
   };
+  AdultAuthConfig?: {
+    cards: AdultAuthCard[];
+    grants: AdultAuthGrant[];
+  };
 }
 
 export interface AdminConfigResult {
   Role: 'owner' | 'admin';
   Config: AdminConfig;
+}
+
+export type AdultAuthDuration = 'day' | 'week' | 'month' | 'year' | 'forever';
+
+export interface AdultAuthCard {
+  code: string;
+  duration: AdultAuthDuration;
+  createdAt: number;
+  createdBy: string;
+  disabled?: boolean;
+  usedBy?: string;
+  usedAt?: number;
+}
+
+export interface AdultAuthGrant {
+  username: string;
+  cardCode: string;
+  grantedAt: number;
+  grantedBy: string;
+  expiresAt: number | null;
 }

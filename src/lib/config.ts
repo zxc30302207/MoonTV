@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, no-console, @typescript-eslint/no-non-null-assertion */
 
+import { ensureAdultAuthConfig } from '@/lib/adult-authorization';
 import { getStorage } from '@/lib/db';
 
 import { AdminConfig } from './admin.types';
@@ -381,6 +382,7 @@ async function initConfig() {
         ) {
           (adminConfig.UserConfig as any).Groups = [];
         }
+        ensureAdultAuthConfig(adminConfig);
       } else {
         // 數據庫中沒有配置，使用默認的運行時配置
         if (process.env.DOCKER_ENV === 'true') {
@@ -457,6 +459,10 @@ async function initConfig() {
             })
           ),
           SubscriptionConfig: {},
+          AdultAuthConfig: {
+            cards: [],
+            grants: [],
+          },
         };
       }
 
@@ -516,6 +522,10 @@ async function initConfig() {
           disabled: false,
         })) || [],
       SubscriptionConfig: {},
+      AdultAuthConfig: {
+        cards: [],
+        grants: [],
+      },
     } as AdminConfig;
   }
 }
@@ -766,6 +776,7 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
   if (!adminConfig.SubscriptionConfig) {
     adminConfig.SubscriptionConfig = {};
   }
+  ensureAdultAuthConfig(adminConfig);
 
   // 站長變更自檢
   const ownerUser = process.env.USERNAME;
@@ -913,6 +924,10 @@ export async function resetConfig() {
           })) || []
         : [],
     SubscriptionConfig: {},
+    AdultAuthConfig: {
+      cards: [],
+      grants: [],
+    },
   } as AdminConfig;
 
   if (storage && typeof (storage as any).setAdminConfig === 'function') {
@@ -928,6 +943,7 @@ export async function resetConfig() {
   cachedConfig.SourceConfig = adminConfig.SourceConfig;
   cachedConfig.CustomCategories = adminConfig.CustomCategories || [];
   cachedConfig.SubscriptionConfig = adminConfig.SubscriptionConfig;
+  cachedConfig.AdultAuthConfig = adminConfig.AdultAuthConfig;
 }
 
 export async function getCacheTime(): Promise<number> {

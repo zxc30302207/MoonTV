@@ -30,6 +30,7 @@ import {
   ExternalLink,
   FileText,
   FolderOpen,
+  KeyRound,
   Settings,
   Users,
   Video,
@@ -38,7 +39,11 @@ import { GripVertical } from 'lucide-react';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
 
-import { AdminConfig, AdminConfigResult } from '@/lib/admin.types';
+import {
+  type AdminConfig,
+  type AdminConfigResult,
+  type AdultAuthDuration,
+} from '@/lib/admin.types';
 import {
   type AuthInfo,
   getCachedAuthInfo,
@@ -94,6 +99,29 @@ interface CustomCategory {
   query: string;
   disabled?: boolean;
   from: 'config' | 'custom';
+}
+
+const ADULT_AUTH_DURATION_OPTIONS: {
+  value: AdultAuthDuration;
+  label: string;
+}[] = [
+  { value: 'day', label: '1 日' },
+  { value: 'week', label: '1 周' },
+  { value: 'month', label: '1 個月' },
+  { value: 'year', label: '1 年' },
+  { value: 'forever', label: '永久' },
+];
+
+const ADULT_AUTH_DURATION_LABELS: Record<AdultAuthDuration, string> =
+  ADULT_AUTH_DURATION_OPTIONS.reduce(
+    (labels, option) => ({ ...labels, [option.value]: option.label }),
+    {} as Record<AdultAuthDuration, string>
+  );
+
+function formatAdultAuthDate(timestamp?: number | null) {
+  if (timestamp === null) return '永久';
+  if (!timestamp) return '-';
+  return new Date(timestamp).toLocaleString('zh-TW', { hour12: false });
 }
 
 // 可折疊標簽組件
@@ -166,6 +194,11 @@ const UserConfig = ({
     username: '',
     password: '',
   });
+  const [adultCardDuration, setAdultCardDuration] =
+    useState<AdultAuthDuration>('month');
+  const [adultCardBusy, setAdultCardBusy] = useState(false);
+  const adultCards = config?.AdultAuthConfig?.cards ?? [];
+  const adultGrants = config?.AdultAuthConfig?.grants ?? [];
 
   // 注：分類配置不依賴存儲類型禁用邏輯
 
@@ -750,6 +783,72 @@ const UserConfig = ({
     }
   };
 
+  const callAdultCardApi = async (body: Record<string, unknown>) => {
+    setAdultCardBusy(true);
+    try {
+      const res = await fetch('/api/admin/adult-card', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `操作失敗: ${res.status}`);
+      }
+
+      const data = await res.json();
+      await refreshConfig();
+      return data;
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '操作失敗');
+      return null;
+    } finally {
+      setAdultCardBusy(false);
+    }
+  };
+
+  const handleCreateAdultCard = async () => {
+    const data = await callAdultCardApi({
+      action: 'create',
+      duration: adultCardDuration,
+    });
+    if (data?.card?.code) {
+      showSuccess(`授權卡已生成：${data.card.code}`);
+    }
+  };
+
+  const handleToggleAdultCard = async (code: string, disabled?: boolean) => {
+    await callAdultCardApi({
+      action: disabled ? 'enable' : 'disable',
+      code,
+    });
+  };
+
+  const handleDeleteAdultCard = async (code: string) => {
+    const { isConfirmed } = await Swal.fire({
+      title: '確認刪除授權卡',
+      text: `刪除授權卡 ${code} 後，透過此卡取得的成人內容授權也會一併移除。`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: '確認刪除',
+      cancelButtonText: '取消',
+      confirmButtonColor: '#dc2626',
+    });
+    if (!isConfirmed) return;
+
+    await callAdultCardApi({ action: 'delete', code });
+  };
+
+  const handleCopyAdultCard = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      showSuccess('授權卡號已複製');
+    } catch {
+      showError('無法複製，請手動選取卡號');
+    }
+  };
+
   if (!config) {
     return (
       <div className='text-center text-gray-500 dark:text-gray-400'>
@@ -804,6 +903,224 @@ const UserConfig = ({
           </button>
         </div>
       </div>
+
+      {/* 成人授權卡 */}
+      {(role === 'owner' || role === 'admin') && (
+        <div>
+          <div className='mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+            <div>
+              <h4 className='flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300'>
+                <KeyRound size={16} />
+                成人授權卡
+              </h4>
+              <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
+                未持有效授權卡的普通用戶無法載入成人推薦或成人列表。
+              </p>
+            </div>
+            <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
+              <select
+                value={adultCardDuration}
+                onChange={(e) =>
+                  setAdultCardDuration(e.target.value as AdultAuthDuration)
+                }
+                className='px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100'
+              >
+                {ADULT_AUTH_DURATION_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type='button'
+                onClick={handleCreateAdultCard}
+                disabled={adultCardBusy}
+                className='px-3 py-2 rounded-lg bg-green-600 text-sm text-white transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-gray-400'
+              >
+                生成授權卡
+              </button>
+            </div>
+          </div>
+
+          <div className='grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(20rem,1fr)]'>
+            <div className='rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden'>
+              <div className='max-h-80 overflow-auto'>
+                <table className='min-w-full divide-y divide-gray-200 dark:divide-gray-700'>
+                  <thead className='bg-gray-50 dark:bg-gray-900'>
+                    <tr>
+                      <th className='px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400'>
+                        卡號
+                      </th>
+                      <th className='px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400'>
+                        期限
+                      </th>
+                      <th className='px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400'>
+                        狀態
+                      </th>
+                      <th className='px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400'>
+                        使用者
+                      </th>
+                      <th className='px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400'>
+                        操作
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className='divide-y divide-gray-200 dark:divide-gray-700'>
+                    {adultCards.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={5}
+                          className='px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400'
+                        >
+                          尚未生成授權卡
+                        </td>
+                      </tr>
+                    ) : (
+                      adultCards.map((card) => {
+                        const statusText = card.disabled
+                          ? '已停用'
+                          : card.usedBy
+                          ? '已使用'
+                          : '未使用';
+                        return (
+                          <tr
+                            key={card.code}
+                            className='hover:bg-gray-50 dark:hover:bg-gray-800'
+                          >
+                            <td className='px-4 py-3 text-sm font-mono text-gray-900 dark:text-gray-100'>
+                              {card.code}
+                            </td>
+                            <td className='px-4 py-3 text-sm text-gray-700 dark:text-gray-300'>
+                              {ADULT_AUTH_DURATION_LABELS[card.duration]}
+                            </td>
+                            <td className='px-4 py-3'>
+                              <span
+                                className={`rounded-full px-2 py-1 text-xs ${
+                                  card.disabled
+                                    ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
+                                    : card.usedBy
+                                    ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+                                    : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                                }`}
+                              >
+                                {statusText}
+                              </span>
+                            </td>
+                            <td className='px-4 py-3 text-sm text-gray-700 dark:text-gray-300'>
+                              {card.usedBy || '-'}
+                            </td>
+                            <td className='px-4 py-3 text-right text-sm'>
+                              <div className='flex flex-wrap justify-end gap-2'>
+                                <button
+                                  type='button'
+                                  onClick={() => handleCopyAdultCard(card.code)}
+                                  className='rounded-full bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-800 transition-colors hover:bg-gray-200 dark:bg-gray-700/60 dark:text-gray-200 dark:hover:bg-gray-700'
+                                >
+                                  複製
+                                </button>
+                                {!card.usedBy && (
+                                  <button
+                                    type='button'
+                                    onClick={() =>
+                                      handleToggleAdultCard(
+                                        card.code,
+                                        card.disabled
+                                      )
+                                    }
+                                    disabled={adultCardBusy}
+                                    className='rounded-full bg-yellow-100 px-3 py-1.5 text-xs font-medium text-yellow-800 transition-colors hover:bg-yellow-200 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-yellow-900/40 dark:text-yellow-200 dark:hover:bg-yellow-900/60'
+                                  >
+                                    {card.disabled ? '啟用' : '停用'}
+                                  </button>
+                                )}
+                                <button
+                                  type='button'
+                                  onClick={() =>
+                                    handleDeleteAdultCard(card.code)
+                                  }
+                                  disabled={adultCardBusy}
+                                  className='rounded-full bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60'
+                                >
+                                  刪除
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className='rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden'>
+              <div className='border-b border-gray-200 bg-gray-50 px-4 py-3 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300'>
+                已授權用戶
+              </div>
+              <div className='max-h-80 overflow-auto'>
+                <table className='min-w-full divide-y divide-gray-200 dark:divide-gray-700'>
+                  <thead className='bg-gray-50 dark:bg-gray-900'>
+                    <tr>
+                      <th className='px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400'>
+                        用戶
+                      </th>
+                      <th className='px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400'>
+                        到期
+                      </th>
+                      <th className='px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400'>
+                        狀態
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className='divide-y divide-gray-200 dark:divide-gray-700'>
+                    {adultGrants.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={3}
+                          className='px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400'
+                        >
+                          尚無普通用戶授權
+                        </td>
+                      </tr>
+                    ) : (
+                      adultGrants.map((grant) => {
+                        const expired =
+                          grant.expiresAt !== null &&
+                          grant.expiresAt <= Date.now();
+                        return (
+                          <tr
+                            key={grant.username}
+                            className='hover:bg-gray-50 dark:hover:bg-gray-800'
+                          >
+                            <td className='px-4 py-3 text-sm text-gray-900 dark:text-gray-100'>
+                              {grant.username}
+                            </td>
+                            <td className='px-4 py-3 text-sm text-gray-700 dark:text-gray-300'>
+                              {formatAdultAuthDate(grant.expiresAt)}
+                            </td>
+                            <td className='px-4 py-3'>
+                              <span
+                                className={`rounded-full px-2 py-1 text-xs ${
+                                  expired
+                                    ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
+                                    : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                                }`}
+                              >
+                                {expired ? '已過期' : '有效'}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 用戶列表 */}
       <div>

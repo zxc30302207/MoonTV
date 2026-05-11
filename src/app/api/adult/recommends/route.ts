@@ -1,19 +1,21 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
+import { getAdultAuthorizationStatus } from '@/lib/adult-authorization';
 import {
   type AdultSourceOption,
   fetchAdultRecommendations,
   getAdultSources,
   toAdultSourceOptions,
 } from '@/lib/adult-recommendations';
-import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
+import { getVerifiedAuthInfo } from '@/lib/auth-server';
+import { getAvailableApiSites, getConfig } from '@/lib/config';
 
 export const runtime = 'nodejs';
 
 const DEFAULT_LIMIT = 48;
 const MAX_LIMIT = 96;
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const page = parsePositiveInt(searchParams.get('page'), 1);
   const limit = clamp(
@@ -24,14 +26,38 @@ export async function GET(request: Request) {
   const selectedSource = searchParams.get('source') || 'all';
 
   const config = await getConfig();
-  const adultSources = getAdultSources(await getAvailableApiSites());
-  const sources = toAdultSourceOptions(adultSources);
 
   if (!config.SiteConfig.DisableYellowFilter) {
     return NextResponse.json(
-      emptyResult(page, limit, sources, 'Adult recommendations are disabled')
+      emptyResult(page, limit, [], 'Adult recommendations are disabled'),
+      { headers: noStoreHeaders() }
     );
   }
+
+  const authInfo = await getVerifiedAuthInfo(request);
+  if (!authInfo?.username) {
+    return NextResponse.json(emptyResult(page, limit, [], 'Unauthorized'), {
+      status: 401,
+      headers: noStoreHeaders(),
+    });
+  }
+
+  const adultAuth = getAdultAuthorizationStatus(config, authInfo.username);
+  if (!adultAuth.authorized) {
+    return NextResponse.json(
+      {
+        ...emptyResult(page, limit, [], 'Adult authorization required'),
+        adultAuthorized: false,
+        expiresAt: adultAuth.expiresAt ?? null,
+      },
+      { status: 403, headers: noStoreHeaders() }
+    );
+  }
+
+  const adultSources = getAdultSources(
+    await getAvailableApiSites(authInfo.username)
+  );
+  const sources = toAdultSourceOptions(adultSources);
 
   const scopedSources =
     selectedSource === 'all'
@@ -40,7 +66,8 @@ export async function GET(request: Request) {
 
   if (scopedSources.length === 0) {
     return NextResponse.json(
-      emptyResult(page, limit, sources, 'No adult sources available')
+      emptyResult(page, limit, sources, 'No adult sources available'),
+      { headers: noStoreHeaders() }
     );
   }
 
@@ -48,7 +75,6 @@ export async function GET(request: Request) {
     page,
     limit,
   });
-  const cacheTime = await getCacheTime();
 
   return NextResponse.json(
     {
@@ -59,14 +85,11 @@ export async function GET(request: Request) {
       limit,
       hasMore,
       sources,
+      adultAuthorized: true,
+      expiresAt: adultAuth.expiresAt ?? null,
     },
     {
-      headers: {
-        'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,
-        'CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-        'Vercel-CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-        'Netlify-Vary': 'query',
-      },
+      headers: noStoreHeaders(),
     }
   );
 }
@@ -85,6 +108,12 @@ function emptyResult(
     limit,
     hasMore: false,
     sources,
+  };
+}
+
+function noStoreHeaders() {
+  return {
+    'Cache-Control': 'private, no-store',
   };
 }
 
