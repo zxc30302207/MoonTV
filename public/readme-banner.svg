@@ -1,0 +1,287 @@
+<svg
+  width="1280"
+  height="520"
+  viewBox="0 0 1280 520"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">波波的秘密基地 MoonTV banner</title>
+  <desc id="desc">
+    A neon cinema control room themed banner for the MoonTV project README.
+  </desc>
+  <defs>
+    <linearGradient
+      id="bg"
+      x1="60"
+      y1="30"
+      x2="1180"
+      y2="500"
+      gradientUnits="userSpaceOnUse"
+    >
+      <stop stop-color="#07111f" />
+      <stop offset="0.5" stop-color="#101827" />
+      <stop offset="1" stop-color="#03140d" />
+    </linearGradient>
+    <linearGradient
+      id="screen"
+      x1="238"
+      y1="82"
+      x2="993"
+      y2="423"
+      gradientUnits="userSpaceOnUse"
+    >
+      <stop stop-color="#12233a" />
+      <stop offset="0.58" stop-color="#0a0f1a" />
+      <stop offset="1" stop-color="#061d12" />
+    </linearGradient>
+    <linearGradient
+      id="accent"
+      x1="214"
+      y1="76"
+      x2="1030"
+      y2="420"
+      gradientUnits="userSpaceOnUse"
+    >
+      <stop stop-color="#38bdf8" />
+      <stop offset="0.5" stop-color="#22c55e" />
+      <stop offset="1" stop-color="#f472b6" />
+    </linearGradient>
+    <filter
+      id="softGlow"
+      x="-30%"
+      y="-30%"
+      width="160%"
+      height="160%"
+      color-interpolation-filters="sRGB"
+    >
+      <feGaussianBlur stdDeviation="10" result="blur" />
+      <feColorMatrix
+        in="blur"
+        type="matrix"
+        values="0 0 0 0 0.14 0 0 0 0 0.95 0 0 0 0 0.57 0 0 0 0.7 0"
+      />
+      <feBlend in="SourceGraphic" />
+    </filter>
+    <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse">
+      <path
+        d="M 44 0 L 0 0 0 44"
+        stroke="#2dd4bf"
+        stroke-opacity="0.12"
+        stroke-width="1"
+      />
+    </pattern>
+  </defs>
+
+  <rect width="1280" height="520" rx="38" fill="url(#bg)" />
+  <rect
+    x="0"
+    y="0"
+    width="1280"
+    height="520"
+    rx="38"
+    fill="url(#grid)"
+    opacity="0.55"
+  />
+
+  <path
+    d="M94 402C226 310 337 358 453 292C558 232 579 128 718 130C848 132 873 222 982 206C1056 195 1110 148 1190 165"
+    stroke="#22c55e"
+    stroke-opacity="0.22"
+    stroke-width="20"
+    stroke-linecap="round"
+  />
+  <path
+    d="M74 404C210 302 326 348 446 280C552 220 582 102 724 107C852 111 891 203 990 190C1068 180 1115 124 1206 146"
+    stroke="url(#accent)"
+    stroke-width="3"
+    stroke-linecap="round"
+    filter="url(#softGlow)"
+  />
+
+  <rect
+    x="184"
+    y="70"
+    width="912"
+    height="368"
+    rx="32"
+    fill="#030712"
+    fill-opacity="0.76"
+    stroke="url(#accent)"
+    stroke-width="2"
+  />
+  <rect
+    x="216"
+    y="100"
+    width="848"
+    height="260"
+    rx="24"
+    fill="url(#screen)"
+    stroke="#334155"
+  />
+
+  <g opacity="0.95">
+    <rect
+      x="258"
+      y="136"
+      width="118"
+      height="172"
+      rx="16"
+      fill="#111827"
+      stroke="#334155"
+    />
+    <rect
+      x="402"
+      y="136"
+      width="118"
+      height="172"
+      rx="16"
+      fill="#0f172a"
+      stroke="#334155"
+    />
+    <rect
+      x="546"
+      y="136"
+      width="118"
+      height="172"
+      rx="16"
+      fill="#111827"
+      stroke="#334155"
+    />
+    <rect
+      x="690"
+      y="136"
+      width="118"
+      height="172"
+      rx="16"
+      fill="#0f172a"
+      stroke="#334155"
+    />
+    <rect
+      x="834"
+      y="136"
+      width="118"
+      height="172"
+      rx="16"
+      fill="#111827"
+      stroke="#334155"
+    />
+    <path d="M283 256L344 216L344 296L283 256Z" fill="#22c55e" />
+    <path
+      d="M427 196H495M427 226H482M427 256H504M427 286H468"
+      stroke="#38bdf8"
+      stroke-width="8"
+      stroke-linecap="round"
+    />
+    <path
+      d="M570 195L640 195M570 226L617 226M570 257L640 257M570 288L604 288"
+      stroke="#f472b6"
+      stroke-width="8"
+      stroke-linecap="round"
+    />
+    <circle
+      cx="749"
+      cy="222"
+      r="38"
+      fill="#22c55e"
+      fill-opacity="0.18"
+      stroke="#22c55e"
+      stroke-width="5"
+    />
+    <path
+      d="M736 222L746 232L766 208"
+      stroke="#bbf7d0"
+      stroke-width="8"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M866 206C866 186 882 170 902 170C922 170 938 186 938 206V218H866V206Z"
+      stroke="#facc15"
+      stroke-width="7"
+    />
+    <rect
+      x="856"
+      y="218"
+      width="92"
+      height="76"
+      rx="12"
+      fill="#422006"
+      stroke="#facc15"
+      stroke-width="5"
+    />
+  </g>
+
+  <rect x="272" y="378" width="736" height="16" rx="8" fill="#1f2937" />
+  <rect x="272" y="378" width="482" height="16" rx="8" fill="#22c55e" />
+  <circle
+    cx="754"
+    cy="386"
+    r="18"
+    fill="#dcfce7"
+    stroke="#22c55e"
+    stroke-width="5"
+  />
+
+  <text
+    x="640"
+    y="462"
+    text-anchor="middle"
+    fill="#f8fafc"
+    font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+    font-size="52"
+    font-weight="800"
+    letter-spacing="0"
+  >
+    波波的秘密基地
+  </text>
+  <text
+    x="640"
+    y="496"
+    text-anchor="middle"
+    fill="#94a3b8"
+    font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+    font-size="22"
+    font-weight="600"
+    letter-spacing="0"
+  >
+    MoonTV 私人影音中控台 · 多源搜尋 · 豆瓣短評 · 成人授權卡 · Supabase Ready
+  </text>
+
+  <g transform="translate(74 74)">
+    <rect width="166" height="48" rx="24" fill="#0f172a" stroke="#334155" />
+    <circle cx="28" cy="24" r="9" fill="#22c55e" />
+    <text
+      x="48"
+      y="31"
+      fill="#d1fae5"
+      font-family="Inter, ui-sans-serif, system-ui"
+      font-size="18"
+      font-weight="700"
+    >
+      Vercel Live
+    </text>
+  </g>
+
+  <g transform="translate(1038 74)">
+    <rect width="166" height="48" rx="24" fill="#0f172a" stroke="#334155" />
+    <path
+      d="M26 29V20C26 14.5 30.5 10 36 10C41.5 10 46 14.5 46 20V29"
+      stroke="#facc15"
+      stroke-width="4"
+      stroke-linecap="round"
+    />
+    <rect x="20" y="28" width="32" height="22" rx="6" fill="#facc15" />
+    <text
+      x="66"
+      y="31"
+      fill="#fef3c7"
+      font-family="Inter, ui-sans-serif, system-ui"
+      font-size="18"
+      font-weight="700"
+    >
+      Age Gate
+    </text>
+  </g>
+</svg>
