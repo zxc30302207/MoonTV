@@ -25,6 +25,7 @@ import {
   saveSkipConfig,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
+import { filterAdsFromM3U8 } from '@/lib/m3u8-ad-filter';
 import { SearchResult } from '@/lib/types';
 import { getRequestTimeout, getVideoResolutionFromM3u8 } from '@/lib/utils';
 
@@ -190,8 +191,7 @@ function PlayPageClient() {
         selectedDanmakuAnime.episodes[selectedDanmakuEpisode - 1];
       setSelectedState(false);
     } else if (autoDanmakuEnabled) {
-
-    /** ② 自動匹配模式：直接使用第 0 集 */
+      /** ② 自動匹配模式：直接使用第 0 集 */
       matchedEpisode = selectedDanmakuAnime.episodes[0];
     }
 
@@ -672,26 +672,6 @@ function PlayPageClient() {
       }
     }
   };
-
-  // 去廣告相關函數
-  function filterAdsFromM3U8(m3u8Content: string): string {
-    if (!m3u8Content) return '';
-
-    // 按行分割M3U8內容
-    const lines = m3u8Content.split('\n');
-    const filteredLines = [];
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-
-      // 只過濾#EXT-X-DISCONTINUITY標識
-      if (!line.includes('#EXT-X-DISCONTINUITY')) {
-        filteredLines.push(line);
-      }
-    }
-
-    return filteredLines.join('\n');
-  }
 
   // 跳過片頭片尾配置相關函數
   const handleSkipConfigChange = async (newConfig: {
