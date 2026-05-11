@@ -1,6 +1,9 @@
 describe('/api/douban/comments', () => {
   it('returns 400 when id is missing', async () => {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { MessageChannel, MessagePort } = require('worker_threads');
+    Object.assign(globalThis, { MessageChannel, MessagePort });
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { Headers, Request, Response } = require('undici');
     Object.assign(globalThis, { Headers, Request, Response });
     const { GET } = await import('./route');

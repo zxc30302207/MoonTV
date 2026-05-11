@@ -112,12 +112,31 @@ function enableAdultSourceAccess(
   return false;
 }
 
-export function refineConfig(adminConfig: AdminConfig): AdminConfig {
-  try {
-    fileConfig = JSON.parse(adminConfig.ConfigFile) as ConfigFileStruct;
-  } catch (e) {
-    fileConfig = {} as ConfigFileStruct;
+function parseConfigFileStruct(
+  rawConfigFile: unknown,
+  logErrors = false
+): ConfigFileStruct {
+  if (typeof rawConfigFile !== 'string' || rawConfigFile.trim().length === 0) {
+    return { api_site: {} };
   }
+
+  try {
+    const parsed = JSON.parse(rawConfigFile) as ConfigFileStruct;
+    return {
+      ...parsed,
+      api_site: parsed.api_site || {},
+    };
+  } catch (e) {
+    if (logErrors) {
+      console.error('解析配置文件失敗:', e);
+    }
+
+    return { api_site: {} };
+  }
+}
+
+export function refineConfig(adminConfig: AdminConfig): AdminConfig {
+  fileConfig = parseConfigFileStruct(adminConfig.ConfigFile);
   const mergedConfig = mergeRuntimeDefaultApiSites(fileConfig);
   fileConfig = mergedConfig.config;
   if (mergedConfig.changed) {
@@ -256,12 +275,7 @@ async function initConfig() {
       }
 
       if (adminConfig) {
-        try {
-          fileConfig = JSON.parse(adminConfig.ConfigFile) as ConfigFileStruct;
-        } catch (e) {
-          console.error('解析配置文件失敗:', e);
-          fileConfig = {} as ConfigFileStruct;
-        }
+        fileConfig = parseConfigFileStruct(adminConfig.ConfigFile, true);
         const mergedConfig = mergeRuntimeDefaultApiSites(fileConfig);
         fileConfig = mergedConfig.config;
         if (mergedConfig.changed) {
@@ -585,12 +599,7 @@ export async function getConfig(): Promise<AdminConfig> {
           : '';
     }
 
-    try {
-      fileConfig = JSON.parse(adminConfig.ConfigFile) as ConfigFileStruct;
-    } catch (e) {
-      console.error('解析配置文件失敗:', e);
-      fileConfig = {} as ConfigFileStruct;
-    }
+    fileConfig = parseConfigFileStruct(adminConfig.ConfigFile, true);
     const mergedConfig = mergeRuntimeDefaultApiSites(fileConfig);
     fileConfig = mergedConfig.config;
     if (mergedConfig.changed) {
