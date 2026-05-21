@@ -1,6 +1,7 @@
 import {
   buildDanmakuMatchFileNames,
   DanmakuRequestError,
+  findDanmakuEpisodeFromSearch,
   getDanmakuUrlByEpisodeId,
   matchAnime,
   matchAnimeCandidates,
@@ -187,6 +188,35 @@ describe('danmaku client', () => {
     expect(resolveDanmakuEpisodeNumber('第12集', 0)).toBe(12);
     expect(resolveDanmakuEpisodeNumber('', 4)).toBe(5);
     expect(resolveDanmakuEpisodeNumber(undefined, 2)).toBe(3);
+  });
+
+  it('selects a fallback episode from search results when match returns empty', () => {
+    expect(
+      findDanmakuEpisodeFromSearch(
+        [
+          {
+            animeId: 9,
+            animeTitle: '波波',
+            type: 'tv',
+            typeDescription: 'TV',
+            episodeCount: 3,
+            episodes: [
+              { episodeId: 901, episodeTitle: '第1集' },
+              { episodeId: 902, episodeTitle: '第2集' },
+              { episodeId: 903, episodeTitle: '第三話' },
+            ],
+          },
+        ],
+        3
+      )
+    ).toMatchObject({
+      animeId: 9,
+      animeTitle: '波波',
+      episodeId: 903,
+      episodeTitle: '第三話',
+    });
+
+    expect(findDanmakuEpisodeFromSearch([], 1)).toBeNull();
   });
 
   it('uses the internal danmaku proxy when no base URL is configured', () => {

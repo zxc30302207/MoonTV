@@ -6,14 +6,17 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
 import {
+  AnimeMatch,
   AnimeOption,
   buildDanmakuMatchFileNames,
   DanmakuRequestError,
   extractSeasonFromTitle,
+  findDanmakuEpisodeFromSearch,
   getDanmakuBySelectedAnime,
   getDanmakuUrlByEpisodeId,
   matchAnimeCandidates,
   resolveDanmakuEpisodeNumber,
+  searchEpisodes,
 } from '@/lib/danmaku.client';
 import {
   deleteFavorite,
@@ -1064,8 +1067,19 @@ function PlayPageClient() {
             matches
           );
           if (abortController.signal.aborted) return;
-          if (matches.length > 0) {
-            const m = matches[0];
+          let matchedDanmaku: AnimeMatch | null = matches[0] || null;
+
+          if (!matchedDanmaku) {
+            const fallbackAnimes = await searchEpisodes(title);
+            matchedDanmaku = findDanmakuEpisodeFromSearch(
+              fallbackAnimes || [],
+              epNum
+            );
+            console.log('自動彈幕 searchEpisodes fallback:', matchedDanmaku);
+          }
+
+          if (matchedDanmaku) {
+            const m = matchedDanmaku;
             const url = getDanmakuUrlByEpisodeId(m.episodeId, 'xml');
             if (
               danmukuPluginInstanceRef.current &&

@@ -632,6 +632,39 @@ export function resolveDanmakuEpisodeNumber(
   return extractEpisodeNumber(episodeTitle || '') || episodeIndex + 1;
 }
 
+export function findDanmakuEpisodeFromSearch(
+  animes: AnimeOption[],
+  episodeNumber: number
+): AnimeMatch | null {
+  const normalizedEpisodeNumber = Math.max(1, Math.floor(episodeNumber || 1));
+
+  for (const anime of animes) {
+    const episodes = anime.episodes || [];
+    const exactEpisode =
+      episodes.find(
+        (episode) =>
+          extractEpisodeNumber(episode.episodeTitle) === normalizedEpisodeNumber
+      ) || episodes[normalizedEpisodeNumber - 1];
+    const episodeId = Number(exactEpisode?.episodeId);
+
+    if (!Number.isFinite(episodeId) || episodeId <= 0) {
+      continue;
+    }
+
+    return {
+      animeId: anime.animeId,
+      animeTitle: anime.animeTitle,
+      type: anime.type,
+      typeDescription: anime.typeDescription,
+      episodeId,
+      episodeTitle:
+        exactEpisode?.episodeTitle || `${anime.animeTitle} EP${episodeNumber}`,
+    };
+  }
+
+  return null;
+}
+
 /**
  * 根據選中的動漫和集數獲取彈幕 URL 地址
  * @param selectedAnime 選中的動漫選項
