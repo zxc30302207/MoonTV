@@ -1073,7 +1073,8 @@ function PlayPageClient() {
             const fallbackAnimes = await searchEpisodes(title);
             matchedDanmaku = findDanmakuEpisodeFromSearch(
               fallbackAnimes || [],
-              epNum
+              epNum,
+              platform
             );
             console.log('自動彈幕 searchEpisodes fallback:', matchedDanmaku);
           }
@@ -1096,7 +1097,7 @@ function PlayPageClient() {
                 tooltip,
               });
             }
-            setSelectedDanmakuSource(platform);
+            setSelectedDanmakuSource(m.animeTitle || platform);
             setCurrentTooltip(tooltip);
             success = true;
             break;
@@ -1145,9 +1146,12 @@ function PlayPageClient() {
     };
   }, [
     currentEpisodeIndex,
+    detail,
     autoDanmakuEnabled,
     isDanmakuPluginReady,
     preferredDanmakuPlatform,
+    videoTitle,
+    videoYear,
   ]);
 
   // 播放記錄處理

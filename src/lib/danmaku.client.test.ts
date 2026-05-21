@@ -127,6 +127,17 @@ describe('danmaku client', () => {
     await expect(matchAnime('missing S1E1 @dandan')).resolves.toEqual([]);
   });
 
+  it('treats explicit unmatched responses as empty even when candidates are present', async () => {
+    global.fetch = jest.fn(async () => {
+      return jsonResponse({
+        isMatched: false,
+        matches: [{ animeId: 1, animeTitle: '錯誤結果', episodeId: 101 }],
+      });
+    }) as unknown as typeof fetch;
+
+    await expect(matchAnime('波波 S1E1 @qiyi')).resolves.toEqual([]);
+  });
+
   it('preserves structured HTTP errors from the danmaku proxy', async () => {
     const consoleErrorSpy = jest
       .spyOn(console, 'error')
@@ -181,6 +192,39 @@ describe('danmaku client', () => {
     });
   });
 
+  it('keeps trying candidates when one match request fails', async () => {
+    const consoleErrorSpy = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+    const consoleWarnSpy = jest
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(errorResponse(500, { error: 'temporary fail' }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          matches: [{ animeId: 8, animeTitle: '波波', episodeId: 801 }],
+        })
+      ) as unknown as typeof fetch;
+
+    const result = await matchAnimeCandidates(['bad candidate', '波波 第1集']);
+
+    expect(result).toMatchObject({
+      fileName: '波波 第1集',
+      matches: [
+        {
+          animeId: 8,
+          animeTitle: '波波',
+          episodeId: 801,
+          episodeTitle: 'EP801',
+        },
+      ],
+    });
+    consoleErrorSpy.mockRestore();
+    consoleWarnSpy.mockRestore();
+  });
+
   it('builds comment URL from episode id and resolves fallback episode number', () => {
     expect(getDanmakuUrlByEpisodeId(123, 'xml')).toBe(
       'https://danmu.example/api/v2/comment/123?format=xml'
@@ -217,6 +261,37 @@ describe('danmaku client', () => {
     });
 
     expect(findDanmakuEpisodeFromSearch([], 1)).toBeNull();
+  });
+
+  it('prefers matching danmaku platform when search returns multiple sources', () => {
+    expect(
+      findDanmakuEpisodeFromSearch(
+        [
+          {
+            animeId: 10,
+            animeTitle: '波波 from iqiyi',
+            type: 'tv',
+            typeDescription: 'TV',
+            episodeCount: 1,
+            episodes: [{ episodeId: 1001, episodeTitle: '[qiyi] 第1集' }],
+          },
+          {
+            animeId: 11,
+            animeTitle: '波波 from renren',
+            type: 'tv',
+            typeDescription: 'TV',
+            episodeCount: 1,
+            episodes: [{ episodeId: 1101, episodeTitle: '[renren] 第1集' }],
+          },
+        ],
+        1,
+        'renren'
+      )
+    ).toMatchObject({
+      animeId: 11,
+      episodeId: 1101,
+      episodeTitle: '[renren] 第1集',
+    });
   });
 
   it('uses the internal danmaku proxy when no base URL is configured', () => {

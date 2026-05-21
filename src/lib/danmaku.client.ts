@@ -368,9 +368,21 @@ export async function matchAnimeCandidates(
       throw new DOMException('Aborted', 'AbortError');
     }
 
-    const matches = await matchAnime(fileName, signal);
-    if (matches.length > 0) {
-      return { matches, fileName };
+    try {
+      const matches = await matchAnime(fileName, signal);
+      if (matches.length > 0) {
+        return { matches, fileName };
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw error;
+      }
+
+      // Some upstream danmaku servers occasionally fail a single match shape.
+      // Keep trying the remaining candidates so auto-load can still fall back
+      // to the same episode search flow used by manual selection.
+      // eslint-disable-next-line no-console
+      console.warn('彈幕候選匹配失敗，改試下一個:', fileName, error);
     }
   }
 
@@ -418,9 +430,15 @@ export function buildDanmakuMatchFileNames(
 
 function normalizeAnimeMatches(json: unknown): AnimeMatch[] {
   const payload = json as {
+    isMatched?: unknown;
     matches?: unknown;
     data?: unknown;
   };
+
+  if (payload?.isMatched === false) {
+    return [];
+  }
+
   const data = payload?.data as { matches?: unknown } | unknown[] | undefined;
   const rawMatches = Array.isArray(payload?.matches)
     ? payload.matches
@@ -634,11 +652,21 @@ export function resolveDanmakuEpisodeNumber(
 
 export function findDanmakuEpisodeFromSearch(
   animes: AnimeOption[],
-  episodeNumber: number
+  episodeNumber: number,
+  preferredPlatform?: string
 ): AnimeMatch | null {
   const normalizedEpisodeNumber = Math.max(1, Math.floor(episodeNumber || 1));
 
-  for (const anime of animes) {
+  const rankedAnimes = animes
+    .map((anime, index) => ({
+      anime,
+      index,
+      score: getDanmakuPlatformScore(anime, preferredPlatform),
+    }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((item) => item.anime);
+
+  for (const anime of rankedAnimes) {
     const episodes = anime.episodes || [];
     const exactEpisode =
       episodes.find(
@@ -663,6 +691,39 @@ export function findDanmakuEpisodeFromSearch(
   }
 
   return null;
+}
+
+function getDanmakuPlatformScore(
+  anime: AnimeOption,
+  preferredPlatform?: string
+): number {
+  if (!preferredPlatform) return 0;
+
+  const platform = preferredPlatform.toLowerCase();
+  const aliases: Record<string, string[]> = {
+    qiyi: ['qiyi', 'iqiyi', '愛奇藝', '爱奇艺'],
+    bilibili1: ['bilibili', 'bilibili1', '嗶哩', '哔哩'],
+    imgo: ['imgo', 'mgtv', '芒果'],
+    youku: ['youku', '優酷', '优酷'],
+    qq: ['qq', 'tencent', '騰訊', '腾讯'],
+    renren: ['renren', '人人'],
+    hanjutv: ['hanjutv', '韓劇', '韩剧'],
+    bahamut: ['bahamut', '巴哈'],
+    dandan: ['dandan', '彈彈', '弹弹'],
+  };
+  const needles = aliases[platform] || [platform];
+  const haystack = [
+    anime.animeTitle,
+    anime.type,
+    anime.typeDescription,
+    ...(anime.episodes || []).map((episode) => episode.episodeTitle),
+  ]
+    .join(' ')
+    .toLowerCase();
+
+  return needles.some((needle) => haystack.includes(needle.toLowerCase()))
+    ? 100
+    : 0;
 }
 
 /**
