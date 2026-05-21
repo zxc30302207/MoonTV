@@ -8,15 +8,12 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import {
   AnimeMatch,
   AnimeOption,
-  buildDanmakuMatchFileNames,
   DanmakuRequestError,
   extractSeasonFromTitle,
-  findDanmakuEpisodeFromSearch,
+  findAutoDanmakuMatch,
   getDanmakuBySelectedAnime,
   getDanmakuUrlByEpisodeId,
-  matchAnimeCandidates,
   resolveDanmakuEpisodeNumber,
-  searchEpisodes,
 } from '@/lib/danmaku.client';
 import {
   deleteFavorite,
@@ -1033,10 +1030,12 @@ function PlayPageClient() {
     let success = false;
     let hadRequestError = false;
     let lastRequestError: unknown = null;
+    const maxAttempts =
+      retryCount === -1 ? 2 : Math.max(1, Math.min(retryCount + 1, 2));
 
     const fetchDanmaku = async () => {
       setIsDanmakuLoading(true);
-      while (!success && (retryCount === -1 || attempt <= retryCount)) {
+      while (!success && attempt < maxAttempts) {
         attempt++;
         try {
           const title = videoTitleRef.current;
@@ -1050,34 +1049,22 @@ function PlayPageClient() {
           );
           const platform = preferredDanmakuPlatform;
           const season = extractSeasonFromTitle(title);
-          const fileNames = buildDanmakuMatchFileNames({
+          const result = await findAutoDanmakuMatch({
             title,
             year: videoYearRef.current,
             episodeNumber: epNum,
             season,
             platform,
+            signal: abortController.signal,
           });
-          const { matches, fileName } = await matchAnimeCandidates(
-            fileNames,
-            abortController.signal
-          );
           console.log(
-            `自動彈幕匹配嘗試第${attempt}次:`,
-            fileName || 'no-match',
-            matches
+            `自動彈幕快速匹配第${attempt}次:`,
+            result.source || 'no-match',
+            result.fileName || '',
+            result.match
           );
           if (abortController.signal.aborted) return;
-          let matchedDanmaku: AnimeMatch | null = matches[0] || null;
-
-          if (!matchedDanmaku) {
-            const fallbackAnimes = await searchEpisodes(title);
-            matchedDanmaku = findDanmakuEpisodeFromSearch(
-              fallbackAnimes || [],
-              epNum,
-              platform
-            );
-            console.log('自動彈幕 searchEpisodes fallback:', matchedDanmaku);
-          }
+          const matchedDanmaku: AnimeMatch | null = result.match;
 
           if (matchedDanmaku) {
             const m = matchedDanmaku;
@@ -1101,11 +1088,18 @@ function PlayPageClient() {
             setCurrentTooltip(tooltip);
             success = true;
             break;
-          } else {
-            if (retryCount === -1 || attempt <= retryCount) {
-              await new Promise((res) => setTimeout(res, 1500)); // 間隔1.5秒重試
+          }
+
+          if (result.error) {
+            hadRequestError = true;
+            lastRequestError = result.error;
+            if (attempt < maxAttempts) {
+              await new Promise((res) => setTimeout(res, 500));
+              continue;
             }
           }
+
+          break;
         } catch (err) {
           if (err instanceof DOMException && err.name === 'AbortError') {
             console.log('自動加載彈幕已取消');
@@ -1114,8 +1108,8 @@ function PlayPageClient() {
           hadRequestError = true;
           lastRequestError = err;
           console.error(`自動彈幕匹配第${attempt}次失敗:`, err);
-          if (retryCount === -1 || attempt <= retryCount) {
-            await new Promise((res) => setTimeout(res, 1500));
+          if (attempt < maxAttempts) {
+            await new Promise((res) => setTimeout(res, 500));
           }
         }
       }

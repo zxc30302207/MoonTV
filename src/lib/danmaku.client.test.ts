@@ -1,6 +1,7 @@
 import {
   buildDanmakuMatchFileNames,
   DanmakuRequestError,
+  findAutoDanmakuMatch,
   findDanmakuEpisodeFromSearch,
   getDanmakuUrlByEpisodeId,
   matchAnime,
@@ -223,6 +224,78 @@ describe('danmaku client', () => {
     });
     consoleErrorSpy.mockRestore();
     consoleWarnSpy.mockRestore();
+  });
+
+  it('uses search fallback immediately when match requests are slower', async () => {
+    global.fetch = jest.fn((input, init) => {
+      const url = String(input);
+
+      if (url.includes('/search/episodes')) {
+        return Promise.resolve(
+          jsonResponse({
+            success: true,
+            errorCode: 0,
+            animes: [
+              {
+                animeId: 21,
+                animeTitle: 'Demo from iqiyi',
+                type: 'tv',
+                typeDescription: 'TV',
+                episodes: [{ episodeId: 2101, episodeTitle: '[qiyi] EP1' }],
+              },
+            ],
+          })
+        );
+      }
+
+      if (url.includes('/api/v2/match')) {
+        return new Promise<Response>((resolve, reject) => {
+          const signal = (init as RequestInit | undefined)
+            ?.signal as AbortSignal | null;
+          const timer = setTimeout(() => {
+            resolve(
+              jsonResponse({
+                matches: [
+                  {
+                    animeId: 22,
+                    animeTitle: 'Slow match',
+                    episodeId: 2201,
+                  },
+                ],
+              })
+            );
+          }, 100);
+
+          signal?.addEventListener(
+            'abort',
+            () => {
+              clearTimeout(timer);
+              reject(new DOMException('Aborted', 'AbortError'));
+            },
+            { once: true }
+          );
+        });
+      }
+
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    }) as unknown as typeof fetch;
+
+    const result = await findAutoDanmakuMatch({
+      title: 'Demo',
+      episodeNumber: 1,
+      platform: 'qiyi',
+    });
+
+    expect(result).toMatchObject({
+      source: 'search',
+      fileName: null,
+      match: {
+        animeId: 21,
+        animeTitle: 'Demo from iqiyi',
+        episodeId: 2101,
+        episodeTitle: '[qiyi] EP1',
+      },
+    });
   });
 
   it('builds comment URL from episode id and resolves fallback episode number', () => {

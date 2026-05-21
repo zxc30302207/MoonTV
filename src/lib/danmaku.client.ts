@@ -230,6 +230,20 @@ export interface DanmakuMatchFileNameOptions {
   platform?: string;
 }
 
+export type AutoDanmakuMatchSource = 'match' | 'search';
+
+export interface AutoDanmakuMatchOptions extends DanmakuMatchFileNameOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
+export interface AutoDanmakuMatchResult {
+  match: AnimeMatch | null;
+  source: AutoDanmakuMatchSource | null;
+  fileName: string | null;
+  error: unknown | null;
+}
+
 export class DanmakuRequestError extends Error {
   constructor(
     message: string,
@@ -325,6 +339,10 @@ export async function matchAnime(
 
     return normalizeAnimeMatches(json);
   } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err;
+    }
+
     // eslint-disable-next-line no-console
     console.error('matchAnime 失敗:', err);
     throw err;
@@ -387,6 +405,110 @@ export async function matchAnimeCandidates(
   }
 
   return { matches: [], fileName: null };
+}
+
+export async function findAutoDanmakuMatch(
+  options: AutoDanmakuMatchOptions
+): Promise<AutoDanmakuMatchResult> {
+  if (options.signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
+
+  const timeoutMs = Math.max(1000, options.timeoutMs || 7000);
+  const controller = new AbortController();
+  const abortFromParent = () => controller.abort();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  options.signal?.addEventListener('abort', abortFromParent, { once: true });
+
+  const fileNames = buildDanmakuMatchFileNames(options);
+  const tasks = [
+    createAutoDanmakuTask('search', async () => {
+      const animes = await searchEpisodes(options.title, controller.signal);
+      return {
+        fileName: null,
+        match: findDanmakuEpisodeFromSearch(
+          animes || [],
+          options.episodeNumber,
+          options.platform
+        ),
+      };
+    }),
+    createAutoDanmakuTask('match', async () => {
+      const { matches, fileName } = await matchAnimeCandidates(
+        fileNames,
+        controller.signal
+      );
+      return {
+        fileName,
+        match: matches[0] || null,
+      };
+    }),
+  ];
+
+  const pending = new Set(tasks);
+  let lastError: unknown = null;
+
+  try {
+    while (pending.size > 0) {
+      const result = await Promise.race(pending);
+      pending.delete(result.task);
+
+      if (options.signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+
+      if (result.match) {
+        controller.abort();
+        return {
+          match: result.match,
+          source: result.source,
+          fileName: result.fileName,
+          error: null,
+        };
+      }
+
+      if (result.error) {
+        lastError = result.error;
+      }
+    }
+
+    return {
+      match: null,
+      source: null,
+      fileName: null,
+      error: lastError,
+    };
+  } finally {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener('abort', abortFromParent);
+  }
+}
+
+type AutoDanmakuTaskResult = AutoDanmakuMatchResult & {
+  source: AutoDanmakuMatchSource;
+  task: Promise<AutoDanmakuTaskResult>;
+};
+
+function createAutoDanmakuTask(
+  source: AutoDanmakuMatchSource,
+  run: () => Promise<Pick<AutoDanmakuMatchResult, 'match' | 'fileName'>>
+): Promise<AutoDanmakuTaskResult> {
+  const task: Promise<AutoDanmakuTaskResult> = run()
+    .then((result) => ({
+      source,
+      match: result.match,
+      fileName: result.fileName,
+      error: null,
+      task,
+    }))
+    .catch((error) => ({
+      source,
+      match: null,
+      fileName: null,
+      error,
+      task,
+    }));
+  return task;
 }
 
 export function buildDanmakuMatchFileNames(
@@ -490,7 +612,8 @@ function toText(value: unknown): string {
  * @param animeTitle 動漫標題（搜索關鍵字）
  */
 export async function searchEpisodes(
-  animeTitle: string
+  animeTitle: string,
+  signal?: AbortSignal
 ): Promise<AnimeOption[]> {
   if (!animeTitle) {
     throw new Error('搜索關鍵字不能為空');
@@ -502,7 +625,7 @@ export async function searchEpisodes(
   )}`;
 
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, { signal });
 
     if (!response.ok) {
       throw new Error(`HTTP error! Status: ${response.status}`);
@@ -524,6 +647,10 @@ export async function searchEpisodes(
       episodes: anime.episodes || [],
     }));
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw error;
+    }
+
     // eslint-disable-next-line no-console
     console.error('搜索劇集失敗:', error);
     throw new Error(`搜索劇集失敗: ${(error as Error).message}`);
