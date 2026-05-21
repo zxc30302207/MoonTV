@@ -7,10 +7,11 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 
 import {
   AnimeOption,
-  extractEpisodeNumber,
   extractSeasonFromTitle,
   getDanmakuBySelectedAnime,
+  getDanmakuUrlByEpisodeId,
   matchAnime,
+  resolveDanmakuEpisodeNumber,
 } from '@/lib/danmaku.client';
 import {
   deleteFavorite,
@@ -1036,14 +1037,13 @@ function PlayPageClient() {
         try {
           const title = videoTitleRef.current;
           const currentEpisodeTitle =
-            detail?.episodes_titles?.[currentEpisodeIndex];
-          if (!currentEpisodeTitle) {
-            throw new Error('無法獲取當前集數標題（episodes_titles 無效）');
-          }
-          let epNum = extractEpisodeNumber(currentEpisodeTitle);
-          if (!epNum) {
-            epNum = currentEpisodeIndex + 1;
-          }
+            detailRef.current?.episodes_titles?.[
+              currentEpisodeIndexRef.current
+            ] || '';
+          const epNum = resolveDanmakuEpisodeNumber(
+            currentEpisodeTitle,
+            currentEpisodeIndexRef.current
+          );
           const platform = preferredDanmakuPlatform;
           const season = extractSeasonFromTitle(title);
           const fileName = `${title} S${season}E${epNum} @${platform}`;
@@ -1052,21 +1052,24 @@ function PlayPageClient() {
           if (abortController.signal.aborted) return;
           if (matches.length > 0) {
             const m = matches[0];
-            const animeOption = {
-              animeId: m.animeId,
-              animeTitle: m.animeTitle,
-              type: m.type,
-              typeDescription: m.typeDescription,
-              episodeCount: 1,
-              episodes: [
-                {
-                  episodeId: m.episodeId,
-                  episodeTitle: m.episodeTitle,
-                },
-              ],
-            };
-            setSelectedDanmakuAnime(animeOption);
+            const url = getDanmakuUrlByEpisodeId(m.episodeId, 'xml');
+            if (
+              danmukuPluginInstanceRef.current &&
+              url !== lastDanmakuUrlRef.current
+            ) {
+              danmukuPluginInstanceRef.current.config({ danmuku: url });
+              danmukuPluginInstanceRef.current.load();
+              lastDanmakuUrlRef.current = url;
+            }
+            const tooltip = m.episodeTitle || `${m.animeTitle} EP${epNum}`;
+            if (artPlayerRef.current) {
+              artPlayerRef.current.setting.update({
+                name: '彈幕源',
+                tooltip,
+              });
+            }
             setSelectedDanmakuSource(platform);
+            setCurrentTooltip(tooltip);
             success = true;
             break;
           } else {
@@ -1085,7 +1088,7 @@ function PlayPageClient() {
           }
         }
       }
-      if (!success) {
+      if (!success && !abortController.signal.aborted) {
         triggerGlobalError('自動加載彈幕失敗，請手動選擇彈幕源');
       }
       if (!abortController.signal.aborted) {

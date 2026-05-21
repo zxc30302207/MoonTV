@@ -92,27 +92,6 @@ export function mergeRuntimeDefaultApiSites(config: ConfigFileStruct): {
   return { changed, config: nextConfig };
 }
 
-function hasAdultDefaultSources(config: ConfigFileStruct): boolean {
-  return Object.keys(config.api_site || {}).some((key) =>
-    ADULT_SOURCE_KEYS.has(key)
-  );
-}
-
-function enableAdultSourceAccess(
-  adminConfig: AdminConfig,
-  config: ConfigFileStruct
-): boolean {
-  if (
-    hasAdultDefaultSources(config) &&
-    adminConfig.SiteConfig.DisableYellowFilter !== true
-  ) {
-    adminConfig.SiteConfig.DisableYellowFilter = true;
-    return true;
-  }
-
-  return false;
-}
-
 function parseConfigFileStruct(
   rawConfigFile: unknown,
   logErrors = false
@@ -143,7 +122,6 @@ export function refineConfig(adminConfig: AdminConfig): AdminConfig {
   if (mergedConfig.changed) {
     adminConfig.ConfigFile = JSON.stringify(fileConfig);
   }
-  enableAdultSourceAccess(adminConfig, fileConfig);
   // 合並文件中的源信息
   const apiSiteEntries = Object.entries(fileConfig.api_site || []);
   const sourceConfigMap = new Map(
@@ -282,7 +260,6 @@ async function initConfig() {
         if (mergedConfig.changed) {
           adminConfig.ConfigFile = JSON.stringify(fileConfig);
         }
-        enableAdultSourceAccess(adminConfig, fileConfig);
         const apiSiteEntries = Object.entries(fileConfig.api_site || []);
         const customCategories = fileConfig.custom_category || [];
 
@@ -428,7 +405,6 @@ async function initConfig() {
               process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE || 'server',
             DoubanImageProxy: process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY || '',
             DisableYellowFilter:
-              hasAdultDefaultSources(fileConfig) ||
               process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true',
             DanmakuApiBaseUrl: process.env.NEXT_PUBLIC_DANMU_API_BASE_URL || '',
             TVBoxEnabled: false,
@@ -494,7 +470,6 @@ async function initConfig() {
           process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE || 'server',
         DoubanImageProxy: process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY || '',
         DisableYellowFilter:
-          hasAdultDefaultSources(fileConfig) ||
           process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true',
         DanmakuApiBaseUrl: process.env.NEXT_PUBLIC_DANMU_API_BASE_URL || '',
         TVBoxEnabled: false,
@@ -614,9 +589,6 @@ export async function getConfig(): Promise<AdminConfig> {
     fileConfig = mergedConfig.config;
     if (mergedConfig.changed) {
       adminConfig.ConfigFile = JSON.stringify(fileConfig);
-      shouldPersistAdminConfig = true;
-    }
-    if (enableAdultSourceAccess(adminConfig, fileConfig)) {
       shouldPersistAdminConfig = true;
     }
 
@@ -895,7 +867,6 @@ export async function resetConfig() {
         process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE || 'server',
       DoubanImageProxy: process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY || '',
       DisableYellowFilter:
-        hasAdultDefaultSources(fileConfig) ||
         process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true',
       DanmakuApiBaseUrl: process.env.NEXT_PUBLIC_DANMU_API_BASE_URL || '',
       TVBoxEnabled: false,

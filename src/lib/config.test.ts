@@ -62,7 +62,7 @@ describe('config runtime defaults', () => {
     expect(result.config.api_site.ckzy).toBeDefined();
   });
 
-  it('refines old DB config with missing sources and preserves disabled state', () => {
+  it('refines old DB config with missing sources and preserves saved switches', () => {
     const adminConfig = createAdminConfig({
       api_site: {
         dyttzy: {
@@ -90,6 +90,15 @@ describe('config runtime defaults', () => {
       })
     );
     expect(configFile.api_site.ckzy).toBeDefined();
+    expect(refined.SiteConfig.DisableYellowFilter).toBe(false);
+  });
+
+  it('preserves enabled adult access when it was saved explicitly', () => {
+    const adminConfig = createAdminConfig({ api_site: {} });
+    adminConfig.SiteConfig.DisableYellowFilter = true;
+
+    const refined = refineConfig(adminConfig);
+
     expect(refined.SiteConfig.DisableYellowFilter).toBe(true);
   });
 
@@ -104,6 +113,6 @@ describe('config runtime defaults', () => {
     expect(refined.SourceConfig.some((source) => source.key === 'ckzy')).toBe(
       true
     );
-    expect(refined.SiteConfig.DisableYellowFilter).toBe(true);
+    expect(refined.SiteConfig.DisableYellowFilter).toBe(false);
   });
 });

@@ -106,6 +106,21 @@ function HomeClient() {
           return;
         }
 
+        const adultRecommendationsRequest = fetch(
+          '/api/adult/recommends?limit=24'
+        ).then((response) => (response.ok ? response.json() : { list: [] }));
+
+        void adultRecommendationsRequest
+          .then((data) => {
+            setAdultRecommendations(data.list || []);
+            setAdultRefreshKey(data.refreshKey || '');
+          })
+          .catch((error) => {
+            console.error('獲取成人推薦失敗:', error);
+            setAdultRecommendations([]);
+            setAdultRefreshKey('');
+          });
+
         // 並行獲取熱門電影、熱門劇集、熱門綜藝
         const [moviesData, tvShowsData, varietyShowsData, bangumiCalendarData] =
           await Promise.all([
@@ -132,18 +147,6 @@ function HomeClient() {
         }
 
         setBangumiCalendarData(bangumiCalendarData);
-
-        fetch('/api/adult/recommends?limit=24')
-          .then((response) => (response.ok ? response.json() : { list: [] }))
-          .then((data) => {
-            setAdultRecommendations(data.list || []);
-            setAdultRefreshKey(data.refreshKey || '');
-          })
-          .catch((error) => {
-            console.error('獲取成人推薦失敗:', error);
-            setAdultRecommendations([]);
-            setAdultRefreshKey('');
-          });
       } catch (error) {
         console.error('獲取推薦數據失敗:', error);
       } finally {

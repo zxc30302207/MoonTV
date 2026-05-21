@@ -213,6 +213,15 @@ export interface AnimeOption {
   }>;
 }
 
+export interface AnimeMatch {
+  animeId: number;
+  animeTitle: string;
+  type: string;
+  typeDescription: string;
+  episodeId: number;
+  episodeTitle: string;
+}
+
 /**
  * 動漫詳情接口響應
  */
@@ -271,21 +280,24 @@ export async function searchAnime(
  * @param animeTitle 動漫標題（搜索關鍵字）
  */
 
-export async function matchAnime(fileName: string, signal?: AbortSignal) {
+export async function matchAnime(
+  fileName: string,
+  signal?: AbortSignal
+): Promise<AnimeMatch[]> {
   if (!fileName) {
-    throw new Error("fileName 不能為空");
+    throw new Error('fileName 不能為空');
   }
 
   const baseUrl = getDanmakuApiBaseUrl();
 
   try {
     const response = await fetch(`${baseUrl}/api/v2/match`, {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json"
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({ fileName }),
-      signal
+      signal,
     });
 
     if (!response.ok) {
@@ -294,13 +306,63 @@ export async function matchAnime(fileName: string, signal?: AbortSignal) {
 
     const json = await response.json();
 
-    // 直接返回 matches
-    return json.matches || [];
+    return normalizeAnimeMatches(json);
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.error("matchAnime 失敗:", err);
+    console.error('matchAnime 失敗:', err);
     throw err;
   }
+}
+
+function normalizeAnimeMatches(json: unknown): AnimeMatch[] {
+  const payload = json as {
+    matches?: unknown;
+    data?: unknown;
+  };
+  const data = payload?.data as { matches?: unknown } | unknown[] | undefined;
+  const rawMatches = Array.isArray(payload?.matches)
+    ? payload.matches
+    : data && !Array.isArray(data) && Array.isArray(data.matches)
+    ? data.matches
+    : Array.isArray(data)
+    ? data
+    : [];
+
+  return rawMatches
+    .map((match) => normalizeAnimeMatch(match))
+    .filter((match): match is AnimeMatch => Boolean(match));
+}
+
+function normalizeAnimeMatch(match: unknown): AnimeMatch | null {
+  const raw = match as Record<string, unknown>;
+  const animeId = toNumber(raw.animeId ?? raw.anime_id);
+  const episodeId = toNumber(raw.episodeId ?? raw.episode_id);
+  const animeTitle = toText(raw.animeTitle ?? raw.anime_title);
+  const episodeTitle =
+    toText(raw.episodeTitle ?? raw.episode_title) ||
+    (episodeId ? `EP${episodeId}` : '');
+
+  if (!animeId || !episodeId || !animeTitle || !episodeTitle) {
+    return null;
+  }
+
+  return {
+    animeId,
+    animeTitle,
+    type: toText(raw.type),
+    typeDescription: toText(raw.typeDescription ?? raw.type_description),
+    episodeId,
+    episodeTitle,
+  };
+}
+
+function toNumber(value: unknown): number | null {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : null;
+}
+
+function toText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 /**
@@ -461,6 +523,13 @@ export function extractEpisodeNumber(episodeTitle: string): number | null {
   return null;
 }
 
+export function resolveDanmakuEpisodeNumber(
+  episodeTitle: string | null | undefined,
+  episodeIndex: number
+): number {
+  return extractEpisodeNumber(episodeTitle || '') || episodeIndex + 1;
+}
+
 /**
  * 根據選中的動漫和集數獲取彈幕 URL 地址
  * @param selectedAnime 選中的動漫選項
@@ -491,7 +560,18 @@ export async function getDanmakuBySelectedAnime(
     throw new Error(`未找到第 ${episodeNumber} 集的彈幕`);
   }
 
+  return getDanmakuUrlByEpisodeId(targetEpisode.episodeId, danmakuFormat);
+}
+
+export function getDanmakuUrlByEpisodeId(
+  episodeId: number | string,
+  format?: string
+): string {
+  if (!episodeId) {
+    throw new Error('彈幕 episodeId 不能為空');
+  }
+
   const baseUrl = getDanmakuApiBaseUrl();
-  const url = `${baseUrl}/api/v2/comment/${targetEpisode.episodeId.toString()}?format=${danmakuFormat}`;
-  return url;
+  const danmakuFormat = getDanmakuFormat(format);
+  return `${baseUrl}/api/v2/comment/${episodeId.toString()}?format=${danmakuFormat}`;
 }
