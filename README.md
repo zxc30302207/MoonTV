@@ -42,6 +42,14 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 USERNAME=admin
 PASSWORD=your-admin-password
 NEXT_PUBLIC_SITE_NAME=波波的秘密基地
+
+# Optional danmaku backend. Use a self-hosted danmu_api/misaka base URL,
+# including token/path prefix when your service requires one.
+DANMU_API_BASE_URL=https://your-danmu-api.example/token
+
+# Or use official dandanplay API credentials for the built-in proxy.
+DANDANPLAY_APP_ID=your-app-id
+DANDANPLAY_APP_SECRET=your-app-secret
 ```
 
 Supabase 初始化 SQL：

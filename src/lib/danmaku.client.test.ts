@@ -1,5 +1,6 @@
 import {
   buildDanmakuMatchFileNames,
+  DanmakuRequestError,
   getDanmakuUrlByEpisodeId,
   matchAnime,
   matchAnimeCandidates,
@@ -12,6 +13,14 @@ function jsonResponse(body: unknown): Response {
   return {
     ok: true,
     json: async () => body,
+  } as Response;
+}
+
+function errorResponse(status: number, body: unknown): Response {
+  return {
+    ok: false,
+    status,
+    text: async () => JSON.stringify(body),
   } as Response;
 }
 
@@ -115,6 +124,26 @@ describe('danmaku client', () => {
     }) as unknown as typeof fetch;
 
     await expect(matchAnime('missing S1E1 @dandan')).resolves.toEqual([]);
+  });
+
+  it('preserves structured HTTP errors from the danmaku proxy', async () => {
+    const consoleErrorSpy = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+    global.fetch = jest.fn(async () => {
+      return errorResponse(503, {
+        code: 'DANMAKU_UPSTREAM_AUTH_REQUIRED',
+        error: 'missing credentials',
+      });
+    }) as unknown as typeof fetch;
+
+    await expect(matchAnime('missing S1E1')).rejects.toMatchObject({
+      name: 'DanmakuRequestError',
+      status: 503,
+      code: 'DANMAKU_UPSTREAM_AUTH_REQUIRED',
+      message: 'missing credentials',
+    } satisfies Partial<DanmakuRequestError>);
+    consoleErrorSpy.mockRestore();
   });
 
   it('tries generated match candidates until one returns results', async () => {

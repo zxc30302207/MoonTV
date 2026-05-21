@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import {
+  buildDanmakuUpstreamHeaders,
   buildDanmakuUpstreamUrl,
   getDanmakuUpstreamBaseUrl,
+  getDanmakuUpstreamConfigError,
 } from '@/lib/danmaku.server';
 
 export const runtime = 'nodejs';
@@ -39,19 +41,28 @@ async function proxyDanmakuRequest(
 
     const requestUrl = new URL(request.url);
     const upstream = await getDanmakuUpstreamBaseUrl();
+    const upstreamPath = `/${path.join('/')}`;
+    const configError = getDanmakuUpstreamConfigError(upstream);
+    if (configError) {
+      return NextResponse.json(
+        { code: 'DANMAKU_UPSTREAM_AUTH_REQUIRED', error: configError },
+        { status: 503 }
+      );
+    }
+
     const body =
       request.method === 'GET' || request.method === 'HEAD'
         ? undefined
         : await request.text();
     const response = await fetch(
-      buildDanmakuUpstreamUrl(
-        upstream,
-        `/${path.join('/')}`,
-        requestUrl.search
-      ),
+      buildDanmakuUpstreamUrl(upstream, upstreamPath, requestUrl.search),
       {
         method: request.method,
-        headers: pickProxyHeaders(request),
+        headers: buildDanmakuUpstreamHeaders(
+          upstream,
+          upstreamPath,
+          pickProxyHeaders(request)
+        ),
         body,
         cache: 'no-store',
         signal: createTimeoutSignal(REQUEST_TIMEOUT_MS),

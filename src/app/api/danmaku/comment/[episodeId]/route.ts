@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import {
+  buildDanmakuUpstreamHeaders,
   buildDanmakuUpstreamUrl,
   getDanmakuUpstreamBaseUrl,
+  getDanmakuUpstreamConfigError,
 } from '@/lib/danmaku.server';
 
 export const runtime = 'nodejs';
@@ -30,16 +32,21 @@ export async function GET(
       ? requestedFormat
       : 'xml';
     const upstream = await getDanmakuUpstreamBaseUrl();
+    const upstreamPath = `/api/v2/comment/${encodeURIComponent(episodeId)}`;
+    const configError = getDanmakuUpstreamConfigError(upstream);
+    if (configError) {
+      return NextResponse.json(
+        { code: 'DANMAKU_UPSTREAM_AUTH_REQUIRED', error: configError },
+        { status: 503 }
+      );
+    }
+
     const response = await fetch(
-      buildDanmakuUpstreamUrl(
-        upstream,
-        `/api/v2/comment/${encodeURIComponent(episodeId)}`,
-        `?format=${format}`
-      ),
+      buildDanmakuUpstreamUrl(upstream, upstreamPath, `?format=${format}`),
       {
-        headers: {
+        headers: buildDanmakuUpstreamHeaders(upstream, upstreamPath, {
           Accept: format === 'json' ? 'application/json' : 'application/xml',
-        },
+        }),
         cache: 'no-store',
         signal: createTimeoutSignal(REQUEST_TIMEOUT_MS),
       }

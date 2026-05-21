@@ -230,6 +230,17 @@ export interface DanmakuMatchFileNameOptions {
   platform?: string;
 }
 
+export class DanmakuRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly code?: string
+  ) {
+    super(message);
+    this.name = 'DanmakuRequestError';
+  }
+}
+
 /**
  * 動漫詳情接口響應
  */
@@ -308,9 +319,7 @@ export async function matchAnime(
       signal,
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status = ${response.status}`);
-    }
+    if (!response.ok) throw await createDanmakuRequestError(response);
 
     const json = await response.json();
 
@@ -319,6 +328,34 @@ export async function matchAnime(
     // eslint-disable-next-line no-console
     console.error('matchAnime 失敗:', err);
     throw err;
+  }
+}
+
+async function createDanmakuRequestError(
+  response: Response
+): Promise<DanmakuRequestError> {
+  const fallbackMessage = `HTTP error! status = ${response.status}`;
+
+  try {
+    const text = await response.text();
+    if (!text) return new DanmakuRequestError(fallbackMessage, response.status);
+
+    const payload = JSON.parse(text) as {
+      code?: unknown;
+      error?: unknown;
+      message?: unknown;
+    };
+    const code = typeof payload.code === 'string' ? payload.code : undefined;
+    const message =
+      typeof payload.error === 'string'
+        ? payload.error
+        : typeof payload.message === 'string'
+        ? payload.message
+        : fallbackMessage;
+
+    return new DanmakuRequestError(message, response.status, code);
+  } catch {
+    return new DanmakuRequestError(fallbackMessage, response.status);
   }
 }
 

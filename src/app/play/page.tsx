@@ -8,6 +8,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import {
   AnimeOption,
   buildDanmakuMatchFileNames,
+  DanmakuRequestError,
   extractSeasonFromTitle,
   getDanmakuBySelectedAnime,
   getDanmakuUrlByEpisodeId,
@@ -1028,6 +1029,7 @@ function PlayPageClient() {
     let attempt = 0;
     let success = false;
     let hadRequestError = false;
+    let lastRequestError: unknown = null;
 
     const fetchDanmaku = async () => {
       setIsDanmakuLoading(true);
@@ -1095,6 +1097,7 @@ function PlayPageClient() {
             return;
           }
           hadRequestError = true;
+          lastRequestError = err;
           console.error(`自動彈幕匹配第${attempt}次失敗:`, err);
           if (retryCount === -1 || attempt <= retryCount) {
             await new Promise((res) => setTimeout(res, 1500));
@@ -1102,8 +1105,13 @@ function PlayPageClient() {
         }
       }
       if (!success && !abortController.signal.aborted) {
+        const missingDandanplayAuth =
+          lastRequestError instanceof DanmakuRequestError &&
+          lastRequestError.code === 'DANMAKU_UPSTREAM_AUTH_REQUIRED';
         triggerGlobalError(
-          hadRequestError
+          missingDandanplayAuth
+            ? '彈幕 API 尚未配置，請設定 NEXT_PUBLIC_DANMU_API_BASE_URL 或 DANDANPLAY_APP_ID / DANDANPLAY_APP_SECRET'
+            : hadRequestError
             ? '自動加載彈幕失敗，請手動選擇彈幕源'
             : '未匹配到彈幕，請手動選擇彈幕源'
         );
