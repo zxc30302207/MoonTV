@@ -2,7 +2,7 @@
 
 'use client';
 
-const CURRENT_VERSION = '3.8.2';
+const CURRENT_VERSION = '3.9.0';
 
 // 版本檢查結果枚舉
 export enum UpdateStatus {
