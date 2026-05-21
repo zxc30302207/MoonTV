@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { DEFAULT_DANMAKU_API_BASE_URL } from './danmaku.constants';
 import { DanmakuItem, DanmakuResponse } from './types';
 
 /**
@@ -12,12 +13,12 @@ export type DanmakuFormat = 'json' | 'xml';
  * 從環境變量或配置中獲取，默認為空（使用相對路徑）
  */
 function getDanmakuApiBaseUrl(): string {
-  if (typeof window === 'undefined') return '/api/danmaku';
+  if (typeof window === 'undefined') return DEFAULT_DANMAKU_API_BASE_URL;
 
   const baseUrl =
     (window as any).RUNTIME_CONFIG?.DANMU_API_BASE_URL ||
     process.env.NEXT_PUBLIC_DANMU_API_BASE_URL ||
-    '/api/danmaku';
+    DEFAULT_DANMAKU_API_BASE_URL;
 
   return baseUrl;
 }
@@ -235,6 +236,7 @@ export type AutoDanmakuMatchSource = 'match' | 'search';
 export interface AutoDanmakuMatchOptions extends DanmakuMatchFileNameOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
+  preferSearchSource?: boolean;
 }
 
 export interface AutoDanmakuMatchResult {
@@ -421,34 +423,56 @@ export async function findAutoDanmakuMatch(
   options.signal?.addEventListener('abort', abortFromParent, { once: true });
 
   const fileNames = buildDanmakuMatchFileNames(options);
-  const tasks = [
-    createAutoDanmakuTask('search', async () => {
-      const animes = await searchEpisodes(options.title, controller.signal);
-      return {
-        fileName: null,
-        match: findDanmakuEpisodeFromSearch(
-          animes || [],
-          options.episodeNumber,
-          options.platform
-        ),
-      };
-    }),
-    createAutoDanmakuTask('match', async () => {
-      const { matches, fileName } = await matchAnimeCandidates(
-        fileNames,
-        controller.signal
-      );
-      return {
-        fileName,
-        match: matches[0] || null,
-      };
-    }),
-  ];
+  const searchTask = createAutoDanmakuTask('search', async () => {
+    const animes = await searchEpisodes(options.title, controller.signal);
+    return {
+      fileName: null,
+      match: findDanmakuEpisodeFromSearch(
+        animes || [],
+        options.episodeNumber,
+        options.platform
+      ),
+    };
+  });
+  const matchTask = createAutoDanmakuTask('match', async () => {
+    const { matches, fileName } = await matchAnimeCandidates(
+      fileNames,
+      controller.signal
+    );
+    return {
+      fileName,
+      match: matches[0] || null,
+    };
+  });
+  const tasks = [searchTask, matchTask];
 
   const pending = new Set(tasks);
   let lastError: unknown = null;
 
   try {
+    if (options.preferSearchSource) {
+      const searchResult = await searchTask;
+      pending.delete(searchTask);
+
+      if (options.signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+
+      if (searchResult.match) {
+        controller.abort();
+        return {
+          match: searchResult.match,
+          source: searchResult.source,
+          fileName: searchResult.fileName,
+          error: null,
+        };
+      }
+
+      if (searchResult.error) {
+        lastError = searchResult.error;
+      }
+    }
+
     while (pending.size > 0) {
       const result = await Promise.race(pending);
       pending.delete(result.task);

@@ -49,6 +49,7 @@ import {
   getCachedAuthInfo,
   refreshAuthInfo,
 } from '@/lib/auth-client';
+import { DEFAULT_DANMAKU_API_BASE_URL } from '@/lib/danmaku.constants';
 
 import DataMigration from '@/components/DataMigration';
 import PageLayout from '@/components/PageLayout';
@@ -2653,7 +2654,7 @@ const SiteConfigComponent = ({
     DisableYellowFilter: false,
     TVBoxEnabled: false,
     TVBoxPassword: '',
-    DanmakuApiBaseUrl: '',
+    DanmakuApiBaseUrl: DEFAULT_DANMAKU_API_BASE_URL,
   });
   // 保存狀態
   const [saving, setSaving] = useState(false);
@@ -2750,7 +2751,8 @@ const SiteConfigComponent = ({
         DisableYellowFilter: config.SiteConfig.DisableYellowFilter || false,
         TVBoxEnabled: config.SiteConfig.TVBoxEnabled || false,
         TVBoxPassword: config.SiteConfig.TVBoxPassword || '',
-        DanmakuApiBaseUrl: config.SiteConfig.DanmakuApiBaseUrl || '',
+        DanmakuApiBaseUrl:
+          config.SiteConfig.DanmakuApiBaseUrl || DEFAULT_DANMAKU_API_BASE_URL,
       });
     }
   }, [config]);

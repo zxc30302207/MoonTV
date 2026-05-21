@@ -8,6 +8,7 @@ import './globals.css';
 import 'sweetalert2/dist/sweetalert2.min.css';
 
 import { getConfig } from '@/lib/config';
+import { DEFAULT_DANMAKU_API_BASE_URL } from '@/lib/danmaku.constants';
 
 import AuthBootstrap from '../components/AuthBootstrap';
 import ConditionalNav from '../components/ConditionalNav';
@@ -63,7 +64,8 @@ export default async function RootLayout({
   let doubanImageProxy = process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY || '';
   let disableYellowFilter =
     process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true';
-  let danmakuApiBaseUrl = process.env.NEXT_PUBLIC_DANMU_API_BASE_URL || '';
+  let danmakuApiBaseUrl =
+    process.env.NEXT_PUBLIC_DANMU_API_BASE_URL || DEFAULT_DANMAKU_API_BASE_URL;
   let autoUpdateEnabled = false;
   const isCloudPlatform =
     process.env.CF_PAGES === '1' ||

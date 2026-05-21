@@ -1,8 +1,8 @@
 import { createHash } from 'crypto';
 
 import { getConfig } from './config';
+import { DEFAULT_DANMAKU_API_BASE_URL } from './danmaku.constants';
 
-const DEFAULT_DANMAKU_API_BASE_URL = 'https://api.dandanplay.net';
 const INTERNAL_DANMAKU_PROXY_PREFIX = '/api/danmaku';
 
 export async function getDanmakuUpstreamBaseUrl(): Promise<string> {

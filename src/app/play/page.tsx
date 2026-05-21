@@ -11,6 +11,7 @@ import {
   DanmakuRequestError,
   extractSeasonFromTitle,
   findAutoDanmakuMatch,
+  findDanmakuEpisodeFromSearch,
   getDanmakuBySelectedAnime,
   getDanmakuUrlByEpisodeId,
   resolveDanmakuEpisodeNumber,
@@ -53,6 +54,12 @@ interface WakeLockSentinel {
   release(): Promise<void>;
   addEventListener(type: 'release', listener: () => void): void;
   removeEventListener(type: 'release', listener: () => void): void;
+}
+
+function getDanmakuSourceStorageKey(title: string, year?: string) {
+  const normalizedTitle = title.trim().toLowerCase();
+  const normalizedYear = (year || '').match(/\d{4}/)?.[0] || '';
+  return `danmakuSource:${normalizedTitle}:${normalizedYear}`;
 }
 
 function PlayPageClient() {
@@ -153,8 +160,6 @@ function PlayPageClient() {
 
   // 自動匹配彈幕設置
   const [autoDanmakuEnabled, setAutoDanmakuEnabled] = useState(false);
-  const [preferredDanmakuPlatform, setPreferredDanmakuPlatform] =
-    useState('bilibili1');
 
   const [currentTooltip, setCurrentTooltip] = useState('');
   const [selectedState, setSelectedState] = useState(false);
@@ -167,10 +172,7 @@ function PlayPageClient() {
       setAutoDanmakuEnabled(JSON.parse(savedAuto));
     }
 
-    const savedPlatform = localStorage.getItem('preferredDanmakuPlatform');
-    if (savedPlatform) {
-      setPreferredDanmakuPlatform(savedPlatform);
-    }
+    localStorage.removeItem('preferredDanmakuPlatform');
   }, []);
 
   const currentSourceRef = useRef(currentSource);
@@ -190,9 +192,6 @@ function PlayPageClient() {
       matchedEpisode =
         selectedDanmakuAnime.episodes[selectedDanmakuEpisode - 1];
       setSelectedState(false);
-    } else if (autoDanmakuEnabled) {
-      /** ② 自動匹配模式：直接使用第 0 集 */
-      matchedEpisode = selectedDanmakuAnime.episodes[0];
     }
 
     if (!matchedEpisode) return;
@@ -1047,15 +1046,68 @@ function PlayPageClient() {
             currentEpisodeTitle,
             currentEpisodeIndexRef.current
           );
-          const platform = preferredDanmakuPlatform;
+          let manualDanmakuAnime: AnimeOption | null = null;
+          if (typeof window !== 'undefined') {
+            try {
+              const saved = localStorage.getItem(
+                getDanmakuSourceStorageKey(title, videoYearRef.current)
+              );
+              if (saved) {
+                manualDanmakuAnime = JSON.parse(saved) as AnimeOption;
+              }
+            } catch {
+              manualDanmakuAnime = null;
+            }
+          }
+          if (
+            !manualDanmakuAnime &&
+            title.trim() &&
+            selectedDanmakuAnime?.animeTitle
+              ?.toLowerCase()
+              .includes(title.toLowerCase())
+          ) {
+            manualDanmakuAnime = selectedDanmakuAnime;
+          }
+          const manualDanmaku = manualDanmakuAnime
+            ? findDanmakuEpisodeFromSearch([manualDanmakuAnime], epNum)
+            : null;
+          if (manualDanmaku && manualDanmakuAnime) {
+            const url = getDanmakuUrlByEpisodeId(
+              manualDanmaku.episodeId,
+              'xml'
+            );
+            if (
+              danmukuPluginInstanceRef.current &&
+              url !== lastDanmakuUrlRef.current
+            ) {
+              danmukuPluginInstanceRef.current.config({ danmuku: url });
+              danmukuPluginInstanceRef.current.load();
+              lastDanmakuUrlRef.current = url;
+            }
+            const tooltip =
+              manualDanmaku.episodeTitle ||
+              `${manualDanmaku.animeTitle} EP${epNum}`;
+            if (artPlayerRef.current) {
+              artPlayerRef.current.setting.update({
+                name: '彈幕源',
+                tooltip,
+              });
+            }
+            setSelectedDanmakuAnime(manualDanmakuAnime);
+            setSelectedDanmakuSource(manualDanmakuAnime.animeTitle);
+            setCurrentTooltip(tooltip);
+            success = true;
+            break;
+          }
+
           const season = extractSeasonFromTitle(title);
           const result = await findAutoDanmakuMatch({
             title,
             year: videoYearRef.current,
             episodeNumber: epNum,
             season,
-            platform,
             signal: abortController.signal,
+            preferSearchSource: true,
           });
           console.log(
             `自動彈幕快速匹配第${attempt}次:`,
@@ -1084,7 +1136,7 @@ function PlayPageClient() {
                 tooltip,
               });
             }
-            setSelectedDanmakuSource(m.animeTitle || platform);
+            setSelectedDanmakuSource(m.animeTitle || '自動彈幕');
             setCurrentTooltip(tooltip);
             success = true;
             break;
@@ -1143,7 +1195,7 @@ function PlayPageClient() {
     detail,
     autoDanmakuEnabled,
     isDanmakuPluginReady,
-    preferredDanmakuPlatform,
+    selectedDanmakuAnime,
     videoTitle,
     videoYear,
   ]);
@@ -2378,6 +2430,14 @@ function PlayPageClient() {
                       episodeNumber?: number
                     ) => {
                       const sourceName = anime.animeTitle;
+                      try {
+                        localStorage.setItem(
+                          getDanmakuSourceStorageKey(videoTitle, videoYear),
+                          JSON.stringify(anime)
+                        );
+                      } catch {
+                        // ignore
+                      }
                       setSelectedDanmakuSource(sourceName);
                       selectedDanmakuSourceRef.current = sourceName;
                       setShowDanmakuSelector(false);

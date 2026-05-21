@@ -298,6 +298,65 @@ describe('danmaku client', () => {
     });
   });
 
+  it('can prefer the manual search source over a faster match result', async () => {
+    global.fetch = jest.fn((input) => {
+      const url = String(input);
+
+      if (url.includes('/search/episodes')) {
+        return new Promise<Response>((resolve) => {
+          setTimeout(() => {
+            resolve(
+              jsonResponse({
+                success: true,
+                errorCode: 0,
+                animes: [
+                  {
+                    animeId: 31,
+                    animeTitle: 'Manual source',
+                    type: 'tv',
+                    typeDescription: 'TV',
+                    episodes: [{ episodeId: 3101, episodeTitle: 'Manual EP1' }],
+                  },
+                ],
+              })
+            );
+          }, 10);
+        });
+      }
+
+      if (url.includes('/api/v2/match')) {
+        return Promise.resolve(
+          jsonResponse({
+            matches: [
+              {
+                animeId: 32,
+                animeTitle: 'Fast match',
+                episodeId: 3201,
+              },
+            ],
+          })
+        );
+      }
+
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    }) as unknown as typeof fetch;
+
+    const result = await findAutoDanmakuMatch({
+      title: 'Demo',
+      episodeNumber: 1,
+      preferSearchSource: true,
+    });
+
+    expect(result).toMatchObject({
+      source: 'search',
+      match: {
+        animeId: 31,
+        animeTitle: 'Manual source',
+        episodeId: 3101,
+      },
+    });
+  });
+
   it('builds comment URL from episode id and resolves fallback episode number', () => {
     expect(getDanmakuUrlByEpisodeId(123, 'xml')).toBe(
       'https://danmu.example/api/v2/comment/123?format=xml'
@@ -367,7 +426,7 @@ describe('danmaku client', () => {
     });
   });
 
-  it('uses the internal danmaku proxy when no base URL is configured', () => {
+  it('uses the default danmaku service when no base URL is configured', () => {
     (
       window as Window & {
         RUNTIME_CONFIG?: { DANMU_API_BASE_URL?: string };
@@ -375,7 +434,7 @@ describe('danmaku client', () => {
     ).RUNTIME_CONFIG = {};
 
     expect(getDanmakuUrlByEpisodeId(456, 'xml')).toBe(
-      '/api/danmaku/api/v2/comment/456?format=xml'
+      'https://danmu.let.gs/api/v2/comment/456?format=xml'
     );
   });
 });

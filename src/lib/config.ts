@@ -4,6 +4,7 @@ import { ensureAdultAuthConfig } from '@/lib/adult-authorization';
 import { getStorage } from '@/lib/db';
 
 import { AdminConfig } from './admin.types';
+import { DEFAULT_DANMAKU_API_BASE_URL } from './danmaku.constants';
 import runtimeConfig from './runtime';
 
 export interface ApiSite {
@@ -430,7 +431,9 @@ async function initConfig() {
             DoubanImageProxy: process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY || '',
             DisableYellowFilter:
               process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true',
-            DanmakuApiBaseUrl: process.env.NEXT_PUBLIC_DANMU_API_BASE_URL || '',
+            DanmakuApiBaseUrl:
+              process.env.NEXT_PUBLIC_DANMU_API_BASE_URL ||
+              DEFAULT_DANMAKU_API_BASE_URL,
             TVBoxEnabled: false,
             TVBoxPassword: '',
           },
@@ -495,7 +498,9 @@ async function initConfig() {
         DoubanImageProxy: process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY || '',
         DisableYellowFilter:
           process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true',
-        DanmakuApiBaseUrl: process.env.NEXT_PUBLIC_DANMU_API_BASE_URL || '',
+        DanmakuApiBaseUrl:
+          process.env.NEXT_PUBLIC_DANMU_API_BASE_URL ||
+          DEFAULT_DANMAKU_API_BASE_URL,
         TVBoxEnabled: false,
         TVBoxPassword: '',
       },
@@ -589,7 +594,7 @@ export async function getConfig(): Promise<AdminConfig> {
     adminConfig.SiteConfig.DanmakuApiBaseUrl =
       adminConfig.SiteConfig.DanmakuApiBaseUrl ||
       process.env.NEXT_PUBLIC_DANMU_API_BASE_URL ||
-      '';
+      DEFAULT_DANMAKU_API_BASE_URL;
     // TVBox 開關與密碼默認值
     const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
     if (storageType === 'localstorage') {
@@ -892,7 +897,9 @@ export async function resetConfig() {
       DoubanImageProxy: process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY || '',
       DisableYellowFilter:
         process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true',
-      DanmakuApiBaseUrl: process.env.NEXT_PUBLIC_DANMU_API_BASE_URL || '',
+      DanmakuApiBaseUrl:
+        process.env.NEXT_PUBLIC_DANMU_API_BASE_URL ||
+        DEFAULT_DANMAKU_API_BASE_URL,
       TVBoxEnabled: false,
       TVBoxPassword: '',
     },

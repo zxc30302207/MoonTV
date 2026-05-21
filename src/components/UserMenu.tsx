@@ -70,23 +70,6 @@ export const UserMenu: React.FC = () => {
     return 3; // 默認重試3次
   });
   const [enablePreferBestSource, setEnablePreferBestSource] = useState(false);
-  const [preferredDanmakuPlatform, setPreferredDanmakuPlatform] =
-    useState('bilibili1');
-  const [isDanmakuPlatformDropdownOpen, setIsDanmakuPlatformDropdownOpen] =
-    useState(false);
-
-  // 優選彈幕平臺
-  const danmakuPlatformOptions = [
-    { value: 'qiyi', label: 'qiyi（愛奇藝）' },
-    { value: 'bilibili1', label: 'bilibili1（嗶哩嗶哩）' },
-    { value: 'imgo', label: 'imgo（芒果）' },
-    { value: 'youku', label: 'youku（優酷）' },
-    { value: 'qq', label: 'qq（騰訊）' },
-    { value: 'renren', label: 'renren（人人）' },
-    { value: 'hanjutv', label: 'hanjutv（韓劇TV）' },
-    { value: 'bahamut', label: 'bahamut（巴哈姆特）' },
-    { value: 'dandan', label: 'dandan（彈彈）' },
-  ];
 
   // 豆瓣數據源選項
   const doubanDataSourceOptions = [
@@ -247,12 +230,7 @@ export const UserMenu: React.FC = () => {
         setEnablePreferBestSource(JSON.parse(savedEnablePreferBestSource));
       }
 
-      const savedPreferredPlatform = localStorage.getItem(
-        'preferredDanmakuPlatform'
-      );
-      if (savedPreferredPlatform) {
-        setPreferredDanmakuPlatform(savedPreferredPlatform);
-      }
+      localStorage.removeItem('preferredDanmakuPlatform');
     }
   }, []);
 
@@ -425,11 +403,6 @@ export const UserMenu: React.FC = () => {
     localStorage.setItem('enablePreferBestSource', JSON.stringify(value));
   };
 
-  const handlePreferredPlatformChange = (value: string) => {
-    setPreferredDanmakuPlatform(value);
-    localStorage.setItem('preferredDanmakuPlatform', value);
-  };
-
   const handleAggregateToggle = (value: boolean) => {
     setDefaultAggregateSearch(value);
     if (typeof window !== 'undefined') {
@@ -524,7 +497,6 @@ export const UserMenu: React.FC = () => {
 
     setEnablePreferBestSource(false);
     setAutoDanmakuEnabled(false);
-    setPreferredDanmakuPlatform('bilibili1');
     setDanmakuRetryCount(3); // 新增：重置彈幕自動嘗試次數為3
 
     if (typeof window !== 'undefined') {
@@ -539,7 +511,7 @@ export const UserMenu: React.FC = () => {
 
       localStorage.setItem('enablePreferBestSource', JSON.stringify(false));
       localStorage.setItem('autoDanmakuEnabled', JSON.stringify(false));
-      localStorage.setItem('preferredDanmakuPlatform', 'bilibili1');
+      localStorage.removeItem('preferredDanmakuPlatform');
       localStorage.setItem('danmakuRetryCount', '3'); // 新增：重置本地彈幕自動嘗試次數為3
     }
   };
@@ -1063,67 +1035,6 @@ export const UserMenu: React.FC = () => {
                 handleDanmakuRetryCountChange(Number(e.target.value))
               }
             />
-          </div>
-
-          {/* 優選彈幕平臺 */}
-          <div className='mt-3 relative'>
-            <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-              優先彈幕平臺
-            </h4>
-
-            {/* 自定義下拉選擇框 */}
-            <button
-              type='button'
-              onClick={() =>
-                setIsDanmakuPlatformDropdownOpen(!isDanmakuPlatformDropdownOpen)
-              }
-              className='w-full px-3 py-2.5 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm hover:border-gray-400 dark:hover:border-gray-500 text-left mt-2'
-            >
-              {
-                danmakuPlatformOptions.find(
-                  (option) => option.value === preferredDanmakuPlatform
-                )?.label
-              }
-            </button>
-
-            {/* 下拉箭頭 */}
-            <div className='absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none mt-2'>
-              <ChevronDown
-                className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform duration-200 ${
-                  isDanmakuPlatformDropdownOpen ? 'rotate-180' : ''
-                }`}
-              />
-            </div>
-
-            {/* 下拉選項列表 */}
-            {isDanmakuPlatformDropdownOpen && (
-              <div className='absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-auto'>
-                {danmakuPlatformOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    type='button'
-                    onClick={() => {
-                      handlePreferredPlatformChange(option.value);
-                      setIsDanmakuPlatformDropdownOpen(false);
-                    }}
-                    className={`w-full px-3 py-2.5 text-left text-sm transition-colors duration-150 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700 ${
-                      preferredDanmakuPlatform === option.value
-                        ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
-                        : 'text-gray-900 dark:text-gray-100'
-                    }`}
-                  >
-                    <span className='truncate'>{option.label}</span>
-                    {preferredDanmakuPlatform === option.value && (
-                      <Check className='w-4 h-4 text-green-600 dark:text-green-400 flex-shrink-0 ml-2' />
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-              自動匹配彈幕時優先使用此平臺
-            </p>
           </div>
 
           {/* 分割線 */}
