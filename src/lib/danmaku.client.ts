@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { DEFAULT_DANMAKU_API_BASE_URL } from './danmaku.constants';
 import { DanmakuItem, DanmakuResponse } from './types';
+
+const INTERNAL_DANMAKU_API_BASE_URL = '/api/danmaku';
 
 /**
  * 彈幕格式類型
@@ -13,14 +14,14 @@ export type DanmakuFormat = 'json' | 'xml';
  * 從環境變量或配置中獲取，默認為空（使用相對路徑）
  */
 function getDanmakuApiBaseUrl(): string {
-  if (typeof window === 'undefined') return DEFAULT_DANMAKU_API_BASE_URL;
+  if (typeof window === 'undefined') return INTERNAL_DANMAKU_API_BASE_URL;
 
-  const baseUrl =
-    (window as any).RUNTIME_CONFIG?.DANMU_API_BASE_URL ||
-    process.env.NEXT_PUBLIC_DANMU_API_BASE_URL ||
-    DEFAULT_DANMAKU_API_BASE_URL;
+  const baseUrl = (window as any).RUNTIME_CONFIG?.DANMU_API_BASE_URL;
 
-  return baseUrl;
+  return typeof baseUrl === 'string' &&
+    baseUrl.startsWith(INTERNAL_DANMAKU_API_BASE_URL)
+    ? baseUrl.replace(/\/$/, '')
+    : INTERNAL_DANMAKU_API_BASE_URL;
 }
 
 /**

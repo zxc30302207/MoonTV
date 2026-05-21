@@ -33,7 +33,7 @@ describe('danmaku client', () => {
         RUNTIME_CONFIG?: { DANMU_API_BASE_URL: string };
       }
     ).RUNTIME_CONFIG = {
-      DANMU_API_BASE_URL: 'https://danmu.example',
+      DANMU_API_BASE_URL: '/api/danmaku',
     };
     jest.clearAllMocks();
   });
@@ -61,7 +61,7 @@ describe('danmaku client', () => {
     const matches = await matchAnime('波波 S1E1 @bilibili1');
 
     expect(global.fetch).toHaveBeenCalledWith(
-      'https://danmu.example/api/v2/match',
+      '/api/danmaku/api/v2/match',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ fileName: '波波 S1E1 @bilibili1' }),
@@ -359,7 +359,7 @@ describe('danmaku client', () => {
 
   it('builds comment URL from episode id and resolves fallback episode number', () => {
     expect(getDanmakuUrlByEpisodeId(123, 'xml')).toBe(
-      'https://danmu.example/api/v2/comment/123?format=xml'
+      '/api/danmaku/api/v2/comment/123?format=xml'
     );
     expect(resolveDanmakuEpisodeNumber('第12集', 0)).toBe(12);
     expect(resolveDanmakuEpisodeNumber('', 4)).toBe(5);
@@ -426,7 +426,7 @@ describe('danmaku client', () => {
     });
   });
 
-  it('uses the default danmaku service when no base URL is configured', () => {
+  it('uses the internal danmaku proxy when no base URL is configured', () => {
     (
       window as Window & {
         RUNTIME_CONFIG?: { DANMU_API_BASE_URL?: string };
@@ -434,7 +434,7 @@ describe('danmaku client', () => {
     ).RUNTIME_CONFIG = {};
 
     expect(getDanmakuUrlByEpisodeId(456, 'xml')).toBe(
-      'https://danmu.let.gs/api/v2/comment/456?format=xml'
+      '/api/danmaku/api/v2/comment/456?format=xml'
     );
   });
 });
