@@ -38,7 +38,10 @@ import DanmakuSelector from '@/components/DanmakuSelector';
 import DoubanComments from '@/components/DoubanComments';
 import EpisodeSelector from '@/components/EpisodeSelector';
 import ExternalPlayerMenu from '@/components/ExternalPlayerMenu';
-import { triggerGlobalError } from '@/components/GlobalErrorIndicator';
+import {
+  clearGlobalError,
+  triggerGlobalError,
+} from '@/components/GlobalErrorIndicator';
 import PageLayout from '@/components/PageLayout';
 
 // 擴展 HTMLVideoElement 類型以支持 hls 屬性
@@ -60,6 +63,13 @@ function getDanmakuSourceStorageKey(title: string, year?: string) {
   const normalizedTitle = title.trim().toLowerCase();
   const normalizedYear = (year || '').match(/\d{4}/)?.[0] || '';
   return `danmakuSource:${normalizedTitle}:${normalizedYear}`;
+}
+
+function getDanmakuPlaybackStorageKey(source?: string, id?: string) {
+  const normalizedSource = (source || '').trim().toLowerCase();
+  const normalizedId = (id || '').trim();
+  if (!normalizedSource || !normalizedId) return '';
+  return `danmakuSource:play:${normalizedSource}:${normalizedId}`;
 }
 
 function PlayPageClient() {
@@ -226,6 +236,7 @@ function PlayPageClient() {
           danmukuPluginInstanceRef.current.load();
           lastDanmakuUrlRef.current = url;
           setCurrentTooltip(matchedEpisode.episodeTitle);
+          clearGlobalError();
         }
       } catch (e) {
         console.error('獲取彈幕 URL 失敗:', e);
@@ -1049,23 +1060,25 @@ function PlayPageClient() {
           let manualDanmakuAnime: AnimeOption | null = null;
           if (typeof window !== 'undefined') {
             try {
-              const saved = localStorage.getItem(
-                getDanmakuSourceStorageKey(title, videoYearRef.current)
-              );
-              if (saved) {
-                manualDanmakuAnime = JSON.parse(saved) as AnimeOption;
+              const storageKeys = [
+                getDanmakuPlaybackStorageKey(
+                  currentSourceRef.current,
+                  currentIdRef.current
+                ),
+                getDanmakuSourceStorageKey(title, videoYearRef.current),
+              ].filter(Boolean);
+              for (const key of storageKeys) {
+                const saved = localStorage.getItem(key);
+                if (saved) {
+                  manualDanmakuAnime = JSON.parse(saved) as AnimeOption;
+                  break;
+                }
               }
             } catch {
               manualDanmakuAnime = null;
             }
           }
-          if (
-            !manualDanmakuAnime &&
-            title.trim() &&
-            selectedDanmakuAnime?.animeTitle
-              ?.toLowerCase()
-              .includes(title.toLowerCase())
-          ) {
+          if (!manualDanmakuAnime && selectedDanmakuAnime) {
             manualDanmakuAnime = selectedDanmakuAnime;
           }
           const manualDanmaku = manualDanmakuAnime
@@ -1096,6 +1109,7 @@ function PlayPageClient() {
             setSelectedDanmakuAnime(manualDanmakuAnime);
             setSelectedDanmakuSource(manualDanmakuAnime.animeTitle);
             setCurrentTooltip(tooltip);
+            clearGlobalError();
             success = true;
             break;
           }
@@ -1138,6 +1152,7 @@ function PlayPageClient() {
             }
             setSelectedDanmakuSource(m.animeTitle || '自動彈幕');
             setCurrentTooltip(tooltip);
+            clearGlobalError();
             success = true;
             break;
           }
@@ -2431,10 +2446,21 @@ function PlayPageClient() {
                     ) => {
                       const sourceName = anime.animeTitle;
                       try {
+                        const serializedAnime = JSON.stringify(anime);
                         localStorage.setItem(
                           getDanmakuSourceStorageKey(videoTitle, videoYear),
-                          JSON.stringify(anime)
+                          serializedAnime
                         );
+                        const playbackStorageKey = getDanmakuPlaybackStorageKey(
+                          currentSource,
+                          currentId
+                        );
+                        if (playbackStorageKey) {
+                          localStorage.setItem(
+                            playbackStorageKey,
+                            serializedAnime
+                          );
+                        }
                       } catch {
                         // ignore
                       }

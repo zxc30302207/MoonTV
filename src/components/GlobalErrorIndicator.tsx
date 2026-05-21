@@ -39,12 +39,19 @@ export function GlobalErrorIndicator() {
 
       setIsVisible(true);
     };
+    const handleClear = () => {
+      setIsVisible(false);
+      setCurrentError(null);
+      setIsReplacing(false);
+    };
 
     // 監聽錯誤事件
     window.addEventListener('globalError', handleError as EventListener);
+    window.addEventListener('globalErrorClear', handleClear);
 
     return () => {
       window.removeEventListener('globalError', handleError as EventListener);
+      window.removeEventListener('globalErrorClear', handleClear);
     };
   }, [currentError]);
 
@@ -101,5 +108,11 @@ export function triggerGlobalError(message: string) {
         detail: { message },
       })
     );
+  }
+}
+
+export function clearGlobalError() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('globalErrorClear'));
   }
 }
