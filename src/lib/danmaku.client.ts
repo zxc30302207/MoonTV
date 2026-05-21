@@ -164,6 +164,17 @@ export async function getDanmakuByCommentId(
  * 搜索動漫接口響應
  */
 interface AnimeSearchResult {
+  errorCode?: number;
+  success?: boolean;
+  errorMessage?: string;
+  animes?: Array<{
+    animeId?: number | string;
+    bangumiId?: number | string;
+    animeTitle?: string;
+    type?: string;
+    typeDescription?: string;
+    [key: string]: any;
+  }>;
   code?: number;
   message?: string;
   data?: Array<{
@@ -261,6 +272,23 @@ export class DanmakuRequestError extends Error {
  * 動漫詳情接口響應
  */
 interface BangumiDetailResult {
+  errorCode?: number;
+  success?: boolean;
+  errorMessage?: string;
+  bangumi?: {
+    animeId?: number | string;
+    bangumiId?: number | string;
+    animeTitle?: string;
+    type?: string;
+    typeDescription?: string;
+    episodes?: Array<{
+      episodeId?: number | string;
+      episodeTitle?: string;
+      episodeNumber?: number | string;
+      [key: string]: any;
+    }>;
+    [key: string]: any;
+  };
   code?: number;
   message?: string;
   data?: {
@@ -283,8 +311,9 @@ interface BangumiDetailResult {
  * @param keyword 搜索關鍵字（通常是視頻標題）
  */
 export async function searchAnime(
-  keyword: string
-): Promise<AnimeSearchResult['data']> {
+  keyword: string,
+  signal?: AbortSignal
+): Promise<NonNullable<AnimeSearchResult['animes']>> {
   if (!keyword) {
     throw new Error('搜索關鍵字不能為空');
   }
@@ -295,19 +324,38 @@ export async function searchAnime(
   )}`;
 
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, { signal });
 
     if (!response.ok) {
       throw new Error(`HTTP error! Status: ${response.status}`);
     }
 
     const json: AnimeSearchResult = await response.json();
-    return json.data || json.list || [];
+    return normalizeAnimeSearchResults(json);
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw error;
+    }
+
     // eslint-disable-next-line no-console
     console.error('搜索動漫失敗:', error);
     throw new Error(`搜索動漫失敗: ${(error as Error).message}`);
   }
+}
+
+function normalizeAnimeSearchResults(
+  json: AnimeSearchResult
+): NonNullable<AnimeSearchResult['animes']> {
+  if (Array.isArray(json.animes)) return json.animes;
+
+  const legacyItems = json.data || json.list || [];
+  return legacyItems.map((item) => ({
+    animeId: item.id,
+    bangumiId: item.id,
+    animeTitle: item.name_cn || item.name,
+    type: toText(item.type),
+    typeDescription: toText(item.typeDescription ?? item.type_description),
+  }));
 }
 
 /**
@@ -643,6 +691,20 @@ export async function searchEpisodes(
     throw new Error('搜索關鍵字不能為空');
   }
 
+  try {
+    const fastOptions = await searchEpisodesByAnimeDetail(animeTitle, signal);
+    if (fastOptions.length > 0) {
+      return fastOptions;
+    }
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw error;
+    }
+
+    // eslint-disable-next-line no-console
+    console.warn('快速彈幕搜尋失敗，改用完整搜尋:', error);
+  }
+
   const baseUrl = getDanmakuApiBaseUrl();
   const url = `${baseUrl}/api/v2/search/episodes?anime=${encodeURIComponent(
     animeTitle
@@ -679,6 +741,93 @@ export async function searchEpisodes(
     console.error('搜索劇集失敗:', error);
     throw new Error(`搜索劇集失敗: ${(error as Error).message}`);
   }
+}
+
+async function searchEpisodesByAnimeDetail(
+  animeTitle: string,
+  signal?: AbortSignal
+): Promise<AnimeOption[]> {
+  const animes = await searchAnime(animeTitle, signal);
+  const candidates = animes
+    .map((anime) => ({
+      animeId: toNumber(anime.animeId ?? anime.bangumiId),
+      animeTitle: toText(anime.animeTitle),
+      type: toText(anime.type),
+      typeDescription: toText(anime.typeDescription),
+    }))
+    .filter(
+      (
+        anime
+      ): anime is {
+        animeId: number;
+        animeTitle: string;
+        type: string;
+        typeDescription: string;
+      } => Boolean(anime.animeId && anime.animeTitle)
+    )
+    .slice(0, 5);
+
+  if (candidates.length === 0) return [];
+
+  const settled = await Promise.allSettled(
+    candidates.map((anime) => fetchBangumiEpisodes(anime, signal))
+  );
+
+  return settled
+    .map((result) => (result.status === 'fulfilled' ? result.value : null))
+    .filter((option): option is AnimeOption => Boolean(option));
+}
+
+async function fetchBangumiEpisodes(
+  fallback: {
+    animeId: number;
+    animeTitle: string;
+    type: string;
+    typeDescription: string;
+  },
+  signal?: AbortSignal
+): Promise<AnimeOption | null> {
+  const baseUrl = getDanmakuApiBaseUrl();
+  const url = `${baseUrl}/api/v2/bangumi/${encodeURIComponent(
+    fallback.animeId.toString()
+  )}`;
+  const response = await fetch(url, { signal });
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! Status: ${response.status}`);
+  }
+
+  const json: BangumiDetailResult = await response.json();
+  const bangumi = json.bangumi;
+  if (!bangumi) return null;
+
+  const episodes = (bangumi.episodes || [])
+    .map((episode) => ({
+      episodeId: toNumber(episode.episodeId),
+      episodeTitle:
+        toText(episode.episodeTitle) ||
+        (episode.episodeNumber ? `EP${episode.episodeNumber}` : ''),
+    }))
+    .filter(
+      (
+        episode
+      ): episode is {
+        episodeId: number;
+        episodeTitle: string;
+      } => Boolean(episode.episodeId && episode.episodeTitle)
+    );
+
+  if (episodes.length === 0) return null;
+
+  return {
+    animeId: toNumber(bangumi.animeId ?? bangumi.bangumiId) || fallback.animeId,
+    animeTitle: toText(bangumi.animeTitle) || fallback.animeTitle,
+    type: toText(bangumi.type) || fallback.type,
+    typeDescription:
+      toText(bangumi.typeDescription) || fallback.typeDescription,
+    episodeCount: episodes.length,
+    episodes,
+  };
 }
 
 /**

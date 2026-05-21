@@ -7,6 +7,7 @@ import {
   matchAnime,
   matchAnimeCandidates,
   resolveDanmakuEpisodeNumber,
+  searchEpisodes,
 } from './danmaku.client';
 
 const originalFetch = global.fetch;
@@ -230,6 +231,10 @@ describe('danmaku client', () => {
     global.fetch = jest.fn((input, init) => {
       const url = String(input);
 
+      if (url.includes('/search/anime')) {
+        return Promise.resolve(jsonResponse({ animes: [] }));
+      }
+
       if (url.includes('/search/episodes')) {
         return Promise.resolve(
           jsonResponse({
@@ -298,9 +303,73 @@ describe('danmaku client', () => {
     });
   });
 
+  it('uses fast anime detail lookup before the slower episode search', async () => {
+    global.fetch = jest.fn((input) => {
+      const url = String(input);
+
+      if (url.includes('/search/anime')) {
+        return Promise.resolve(
+          jsonResponse({
+            success: true,
+            errorCode: 0,
+            animes: [
+              {
+                animeId: 57078,
+                animeTitle: '泥娃娃 from renren',
+                type: '電影',
+                typeDescription: '電影',
+              },
+            ],
+          })
+        );
+      }
+
+      if (url.includes('/api/v2/bangumi/57078')) {
+        return Promise.resolve(
+          jsonResponse({
+            success: true,
+            errorCode: 0,
+            bangumi: {
+              animeId: 57078,
+              animeTitle: '泥娃娃 from renren',
+              type: '電影',
+              typeDescription: '電影',
+              episodes: [{ episodeId: 10002, episodeTitle: '[renren] 第01集' }],
+            },
+          })
+        );
+      }
+
+      if (url.includes('/search/episodes')) {
+        return Promise.reject(new Error('slow endpoint should not be used'));
+      }
+
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    }) as unknown as typeof fetch;
+
+    await expect(searchEpisodes('泥娃娃')).resolves.toEqual([
+      {
+        animeId: 57078,
+        animeTitle: '泥娃娃 from renren',
+        type: '電影',
+        typeDescription: '電影',
+        episodeCount: 1,
+        episodes: [{ episodeId: 10002, episodeTitle: '[renren] 第01集' }],
+      },
+    ]);
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining('/search/episodes'),
+      expect.anything()
+    );
+  });
+
   it('can prefer the manual search source over a faster match result', async () => {
     global.fetch = jest.fn((input) => {
       const url = String(input);
+
+      if (url.includes('/search/anime')) {
+        return Promise.resolve(jsonResponse({ animes: [] }));
+      }
 
       if (url.includes('/search/episodes')) {
         return new Promise<Response>((resolve) => {
