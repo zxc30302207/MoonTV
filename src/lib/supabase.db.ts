@@ -222,6 +222,11 @@ export class SupabaseStorage implements IStorage {
     return valid;
   }
 
+  async getUserPassword(userName: string): Promise<string | null> {
+    const stored = await this.getValue<string>(this.userPwdKey(userName));
+    return stored === null ? null : ensureString(stored);
+  }
+
   async checkUserExist(userName: string): Promise<boolean> {
     return (await this.getValue<string>(this.userPwdKey(userName))) !== null;
   }

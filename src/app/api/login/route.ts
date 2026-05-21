@@ -9,11 +9,9 @@ export const runtime = 'nodejs';
 
 // 讀取存儲類型環境變量，默認 localstorage
 const STORAGE_TYPE =
-  (process.env.NEXT_PUBLIC_STORAGE_TYPE as
-    | 'localstorage'
-    | 'redis'
-    | 'upstash'
-    | undefined) || 'localstorage';
+  process.env.NEXT_PUBLIC_STORAGE_TYPE === 'supabase'
+    ? 'supabase'
+    : 'localstorage';
 
 type AuthCookieData = {
   role: 'owner' | 'admin' | 'user';
@@ -122,7 +120,7 @@ export async function POST(req: NextRequest) {
       return response;
     }
 
-    // 數據庫 / redis 模式——校驗用戶名並嘗試連接數據庫
+    // 數據庫模式——校驗用戶名並嘗試連接數據庫
     const { username, password } = await req.json();
 
     if (!username || typeof username !== 'string') {

@@ -12,12 +12,12 @@ export type DanmakuFormat = 'json' | 'xml';
  * 從環境變量或配置中獲取，默認為空（使用相對路徑）
  */
 function getDanmakuApiBaseUrl(): string {
-  if (typeof window === 'undefined') return '';
+  if (typeof window === 'undefined') return '/api/danmaku';
 
   const baseUrl =
     (window as any).RUNTIME_CONFIG?.DANMU_API_BASE_URL ||
     process.env.NEXT_PUBLIC_DANMU_API_BASE_URL ||
-    '';
+    '/api/danmaku';
 
   return baseUrl;
 }
@@ -222,6 +222,14 @@ export interface AnimeMatch {
   episodeTitle: string;
 }
 
+export interface DanmakuMatchFileNameOptions {
+  title: string;
+  year?: string;
+  episodeNumber: number;
+  season?: number;
+  platform?: string;
+}
+
 /**
  * 動漫詳情接口響應
  */
@@ -312,6 +320,63 @@ export async function matchAnime(
     console.error('matchAnime 失敗:', err);
     throw err;
   }
+}
+
+export async function matchAnimeCandidates(
+  fileNames: string[],
+  signal?: AbortSignal
+): Promise<{ matches: AnimeMatch[]; fileName: string | null }> {
+  for (const fileName of fileNames) {
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+
+    const matches = await matchAnime(fileName, signal);
+    if (matches.length > 0) {
+      return { matches, fileName };
+    }
+  }
+
+  return { matches: [], fileName: null };
+}
+
+export function buildDanmakuMatchFileNames(
+  options: DanmakuMatchFileNameOptions
+): string[] {
+  const title = options.title.trim();
+  if (!title) return [];
+
+  const episodeNumber = Math.max(1, Math.floor(options.episodeNumber || 1));
+  const season = Math.max(1, Math.floor(options.season || 1));
+  const paddedSeason = String(season).padStart(2, '0');
+  const paddedEpisode = String(episodeNumber).padStart(2, '0');
+  const year = options.year?.match(/\d{4}/)?.[0] || '';
+  const platformSuffix = options.platform ? ` @${options.platform}` : '';
+  const titles = year ? [`${title} ${year}`, title] : [title];
+  const patterns = [
+    `S${paddedSeason}E${paddedEpisode}`,
+    `S${season}E${episodeNumber}`,
+    `第${episodeNumber}集`,
+    `EP${episodeNumber}`,
+    `${episodeNumber}`,
+  ];
+  const candidates: string[] = [];
+
+  for (const candidateTitle of titles) {
+    for (const pattern of patterns) {
+      candidates.push(`${candidateTitle} ${pattern}${platformSuffix}`);
+    }
+  }
+
+  if (options.platform) {
+    for (const candidateTitle of titles) {
+      for (const pattern of patterns) {
+        candidates.push(`${candidateTitle} ${pattern}`);
+      }
+    }
+  }
+
+  return Array.from(new Set(candidates));
 }
 
 function normalizeAnimeMatches(json: unknown): AnimeMatch[] {

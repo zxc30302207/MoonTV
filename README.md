@@ -96,23 +96,10 @@ alter table public.moontv_kv enable row level security;
 <details>
   <summary>儲存後端</summary>
 
-| 後端            | 狀態           |
-| --------------- | -------------- |
-| Supabase        | 推薦           |
-| Upstash Redis   | 支援           |
-| Redis / Kvrocks | 支援           |
-| Cloudflare D1   | 支援           |
-| localstorage    | 僅適合單機體驗 |
-
-</details>
-
-<details>
-  <summary>Upstash 搬到 Supabase</summary>
-
-```bash
-node scripts/migrate-upstash-to-supabase.mjs --dry-run
-node scripts/migrate-upstash-to-supabase.mjs
-```
+| 後端         | 狀態           |
+| ------------ | -------------- |
+| Supabase     | 推薦           |
+| localstorage | 僅適合單機體驗 |
 
 </details>
 

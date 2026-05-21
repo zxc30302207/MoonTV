@@ -139,59 +139,9 @@ export async function POST(req: NextRequest) {
 // 輔助函數：獲取用戶密碼（通過數據庫直接訪問）
 async function getUserPassword(username: string): Promise<string | null> {
   try {
-    const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
-
-    if (storageType === 'd1') {
-      type D1Statement = {
-        bind: (...values: (string | number | null | undefined)[]) => {
-          first: () => Promise<{ password: string } | null>;
-          run?: () => Promise<unknown>;
-        };
-      };
-      const d1Db = (
-        process.env as { DB?: { prepare: (query: string) => D1Statement } }
-      ).DB;
-      if (d1Db) {
-        const result = (await d1Db
-          .prepare('SELECT password FROM users WHERE username = ?')
-          .bind(username)
-          .first()) as { password: string } | null;
-        if (!result?.password) return null;
-        if (isPasswordHash(result.password)) return result.password;
-        const hashed = await hashPassword(result.password);
-        await d1Db
-          .prepare('UPDATE users SET password = ? WHERE username = ?')
-          .bind(hashed, username)
-          .run?.();
-        return hashed;
-      }
-      return null;
-    }
-
-    // 使用 Redis 存儲的直接訪問方法
-    const storage = (
-      db as unknown as {
-        storage?: {
-          client?: {
-            get?: (key: string) => Promise<string | null>;
-            set?: (key: string, value: string) => Promise<unknown>;
-          };
-        };
-      }
-    ).storage;
-    if (storage && typeof storage.client?.get === 'function') {
-      const passwordKey = `u:${username}:pwd`;
-      const password = await storage.client.get(passwordKey);
-      if (!password) return null;
-      if (isPasswordHash(password)) return password;
-      const hashed = await hashPassword(password);
-      if (typeof storage.client?.set === 'function') {
-        await storage.client.set(passwordKey, hashed);
-      }
-      return hashed;
-    }
-
-    return null;
+    const password = await db.getUserPassword(username);
+    if (!password) return null;
+    return isPasswordHash(password) ? password : await hashPassword(password);
   } catch {
     return null;
   }

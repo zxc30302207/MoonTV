@@ -1,37 +1,22 @@
 /* eslint-disable no-console, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
 import { AdminConfig } from './admin.types';
-import { D1Storage } from './d1.db';
-import { KvrocksStorage } from './kvrocks.db';
-import { RedisStorage } from './redis.db';
 import { SupabaseStorage } from './supabase.db';
 import { Favorite, IStorage, PlayRecord, SkipConfig } from './types';
-import { UpstashRedisStorage } from './upstash.db';
 
-// storage type 常量: 'localstorage' | 'redis' | 'kvrocks' | 'upstash' | 'd1'，默認 'localstorage'
-const STORAGE_TYPE =
-  (process.env.NEXT_PUBLIC_STORAGE_TYPE as
-    | 'localstorage'
-    | 'redis'
-    | 'kvrocks'
-    | 'upstash'
-    | 'supabase'
-    | 'd1'
-    | undefined) || 'localstorage';
+type StorageType = 'localstorage' | 'supabase';
+
+function getStorageType(): StorageType {
+  return process.env.NEXT_PUBLIC_STORAGE_TYPE === 'supabase'
+    ? 'supabase'
+    : 'localstorage';
+}
 
 // 創建存儲實例
 function createStorage(): IStorage {
-  switch (STORAGE_TYPE) {
-    case 'redis':
-      return new RedisStorage();
-    case 'kvrocks':
-      return new KvrocksStorage();
-    case 'upstash':
-      return new UpstashRedisStorage();
+  switch (getStorageType()) {
     case 'supabase':
       return new SupabaseStorage();
-    case 'd1':
-      return new D1Storage();
     case 'localstorage':
     default:
       return null as unknown as IStorage;
@@ -147,6 +132,13 @@ export class DbManager {
 
   async verifyUser(userName: string, password: string): Promise<boolean> {
     return this.storage.verifyUser(userName, password);
+  }
+
+  async getUserPassword(userName: string): Promise<string | null> {
+    if (typeof (this.storage as any).getUserPassword === 'function') {
+      return (this.storage as any).getUserPassword(userName);
+    }
+    return null;
   }
 
   // 檢查用戶是否已存在

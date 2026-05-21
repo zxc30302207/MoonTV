@@ -7,10 +7,11 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 
 import {
   AnimeOption,
+  buildDanmakuMatchFileNames,
   extractSeasonFromTitle,
   getDanmakuBySelectedAnime,
   getDanmakuUrlByEpisodeId,
-  matchAnime,
+  matchAnimeCandidates,
   resolveDanmakuEpisodeNumber,
 } from '@/lib/danmaku.client';
 import {
@@ -26,7 +27,7 @@ import {
   saveSkipConfig,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
-import { filterAdsFromM3U8 } from '@/lib/m3u8-ad-filter';
+import { filterAdsFromM3U8WithStats } from '@/lib/m3u8-ad-filter';
 import { SearchResult } from '@/lib/types';
 import { getRequestTimeout, getVideoResolutionFromM3u8 } from '@/lib/utils';
 
@@ -179,10 +180,7 @@ function PlayPageClient() {
   const currentEpisodeIndexRef = useRef(currentEpisodeIndex);
 
   useEffect(() => {
-    if (!selectedDanmakuAnime || !detail) return;
-
-    const currentEpisodeTitle = detail?.episodes_titles?.[currentEpisodeIndex];
-    if (!currentEpisodeTitle) return;
+    if (!selectedDanmakuAnime) return;
 
     let matchedEpisode: any = null;
 
@@ -1029,6 +1027,7 @@ function PlayPageClient() {
 
     let attempt = 0;
     let success = false;
+    let hadRequestError = false;
 
     const fetchDanmaku = async () => {
       setIsDanmakuLoading(true);
@@ -1046,9 +1045,22 @@ function PlayPageClient() {
           );
           const platform = preferredDanmakuPlatform;
           const season = extractSeasonFromTitle(title);
-          const fileName = `${title} S${season}E${epNum} @${platform}`;
-          const matches = await matchAnime(fileName, abortController.signal);
-          console.log(`自動彈幕匹配嘗試第${attempt}次:`, matches);
+          const fileNames = buildDanmakuMatchFileNames({
+            title,
+            year: videoYearRef.current,
+            episodeNumber: epNum,
+            season,
+            platform,
+          });
+          const { matches, fileName } = await matchAnimeCandidates(
+            fileNames,
+            abortController.signal
+          );
+          console.log(
+            `自動彈幕匹配嘗試第${attempt}次:`,
+            fileName || 'no-match',
+            matches
+          );
           if (abortController.signal.aborted) return;
           if (matches.length > 0) {
             const m = matches[0];
@@ -1082,6 +1094,7 @@ function PlayPageClient() {
             console.log('自動加載彈幕已取消');
             return;
           }
+          hadRequestError = true;
           console.error(`自動彈幕匹配第${attempt}次失敗:`, err);
           if (retryCount === -1 || attempt <= retryCount) {
             await new Promise((res) => setTimeout(res, 1500));
@@ -1089,7 +1102,11 @@ function PlayPageClient() {
         }
       }
       if (!success && !abortController.signal.aborted) {
-        triggerGlobalError('自動加載彈幕失敗，請手動選擇彈幕源');
+        triggerGlobalError(
+          hadRequestError
+            ? '自動加載彈幕失敗，請手動選擇彈幕源'
+            : '未匹配到彈幕，請手動選擇彈幕源'
+        );
       }
       if (!abortController.signal.aborted) {
         setIsDanmakuLoading(false);
@@ -1683,22 +1700,26 @@ function PlayPageClient() {
           super(config);
           const load = this.load.bind(this);
           this.load = function (context: any, config: any, callbacks: any) {
-            if (
-              (context as any).type === 'manifest' ||
-              (context as any).type === 'level'
+            const onSuccess = callbacks.onSuccess;
+            callbacks.onSuccess = function (
+              response: any,
+              stats: any,
+              context: any
             ) {
-              const onSuccess = callbacks.onSuccess;
-              callbacks.onSuccess = function (
-                response: any,
-                stats: any,
-                context: any
-              ) {
-                if (response.data && typeof response.data === 'string') {
-                  response.data = filterAdsFromM3U8(response.data);
+              if (response.data && typeof response.data === 'string') {
+                const filtered = filterAdsFromM3U8WithStats(response.data);
+                response.data = filtered.content;
+                if (
+                  filtered.droppedSegments > 0 &&
+                  process.env.NODE_ENV !== 'production'
+                ) {
+                  console.log(
+                    `AD 去廣告已移除 ${filtered.droppedSegments} 個片段`
+                  );
                 }
-                return onSuccess(response, stats, context, null);
-              };
-            }
+              }
+              return onSuccess(response, stats, context, null);
+            };
             load(context, config, callbacks);
           };
         }
@@ -2083,10 +2104,7 @@ function PlayPageClient() {
 
       artPlayerRef.current.on('video:timeupdate', () => {
         const now = Date.now();
-        let interval = 5000;
-        if (process.env.NEXT_PUBLIC_STORAGE_TYPE === 'upstash') {
-          interval = 20000;
-        }
+        const interval = 5000;
         if (now - lastSaveTimeRef.current > interval) {
           saveCurrentPlayProgress();
           lastSaveTimeRef.current = now;

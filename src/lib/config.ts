@@ -61,6 +61,27 @@ export const ADULT_SOURCE_KEYS = new Set([
   'souav',
 ]);
 
+export const RETIRED_SOURCE_KEYS = new Set([
+  'dbzy',
+  'guangsu',
+  'heimuer',
+  'hongniu',
+  'huya',
+  'jinying',
+  'maotaizy',
+  'mozhua',
+  'wolong',
+  'xiaomaomi',
+]);
+
+function disableRetiredSources(adminSources: AdminConfig['SourceConfig']) {
+  adminSources.forEach((source) => {
+    if (RETIRED_SOURCE_KEYS.has(source.key)) {
+      source.disabled = true;
+    }
+  });
+}
+
 export function mergeRuntimeDefaultApiSites(config: ConfigFileStruct): {
   changed: boolean;
   config: ConfigFileStruct;
@@ -159,6 +180,7 @@ export function refineConfig(adminConfig: AdminConfig): AdminConfig {
 
   // 將 Map 轉換回數組
   adminConfig.SourceConfig = Array.from(sourceConfigMap.values());
+  disableRetiredSources(adminConfig.SourceConfig);
 
   // 覆蓋 CustomCategories
   const customCategories = fileConfig.custom_category || [];
@@ -269,18 +291,20 @@ async function initConfig() {
         );
 
         apiSiteEntries.forEach(([key, site]) => {
+          const existingSource = sourceConfigMap.get(key);
           sourceConfigMap.set(key, {
             key,
             name: site.name,
             api: site.api,
             detail: site.detail,
             from: 'config',
-            disabled: false,
+            disabled: existingSource?.disabled ?? false,
           });
         });
 
         // 將 Map 轉換回數組
         adminConfig.SourceConfig = Array.from(sourceConfigMap.values());
+        disableRetiredSources(adminConfig.SourceConfig);
 
         // 檢查現有源是否在 fileConfig.api_site 中，如果不在則標記為 custom
         const apiSiteKeys = new Set(apiSiteEntries.map(([key]) => key));
@@ -630,6 +654,7 @@ export async function getConfig(): Promise<AdminConfig> {
 
     // 將 Map 轉換回數組
     adminConfig.SourceConfig = Array.from(sourceConfigMap.values());
+    disableRetiredSources(adminConfig.SourceConfig);
 
     // 覆蓋 CustomCategories - 只覆蓋 from 為 config 的項
     const customCategories = fileConfig.custom_category || [];
@@ -810,7 +835,6 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
 }
 
 export async function resetConfig() {
-  const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
   const storage = getStorage();
   // 獲取所有用戶名，用於補全 Users
   let userNames: string[] = [];
@@ -885,15 +909,13 @@ export async function resetConfig() {
       disabled: false,
     })),
     CustomCategories:
-      storageType === 'redis'
-        ? customCategories?.map((category) => ({
-            name: category.name,
-            type: category.type,
-            query: category.query,
-            from: 'config',
-            disabled: false,
-          })) || []
-        : [],
+      customCategories?.map((category) => ({
+        name: category.name,
+        type: category.type,
+        query: category.query,
+        from: 'config',
+        disabled: false,
+      })) || [],
     SubscriptionConfig: {},
     AdultAuthConfig: {
       cards: [],
@@ -926,7 +948,9 @@ export async function getAvailableApiSites(
   username?: string
 ): Promise<ApiSite[]> {
   const config = await getConfig();
-  const all = config.SourceConfig.filter((s) => !s.disabled);
+  const all = config.SourceConfig.filter(
+    (s) => !s.disabled && !RETIRED_SOURCE_KEYS.has(s.key)
+  );
   if (
     !username ||
     !config.UserConfig?.Groups ||

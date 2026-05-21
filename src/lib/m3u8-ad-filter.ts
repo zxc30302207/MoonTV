@@ -7,38 +7,53 @@ type PlaylistEntry = {
   cueAd: boolean;
 };
 
+export type M3U8AdFilterResult = {
+  content: string;
+  droppedSegments: number;
+};
+
 const AD_URI_PATTERN =
-  /(^|[/?#&._=-])(ad|ads|adv|advert|advertise|commercial|promo|preroll|pre-roll|gg|hdgg)([/?#&._=-]|$)|\u5e7f\u544a|\u5ee3\u544a/i;
+  /(^|[/?#&._=-])(ad|ads|adv|adver|advert|advertise|advertisement|adbreak|adinsert|adseg|commercial|doubleclick|googleads|promo|preroll|pre-roll|sponsor|vast|vmap|gg|hdgg|iqiyiad|youkuad)([/?#&._=-]|$)|\u5e7f\u544a|\u5ee3\u544a/i;
 
 const AD_TAG_PATTERN =
-  /(^|[",:=._ -])(AD|ADS|ADV|ADVERT|COMMERCIAL|CUE|PREROLL|PRE-ROLL|SCTE35|SCTE-35)([",:=._ -]|$)/;
+  /(^|[",:=._ -])(AD|ADS|ADV|ADVERT|ADVERTISEMENT|ASSET|COMMERCIAL|CUE|INTERSTITIAL|PREROLL|PRE-ROLL|SCTE35|SCTE-35|SPLICE|VAST|VMAP)([",:=._ -]|$)/;
+
+const NON_MEDIA_SEGMENT_PATTERN = /\.(?:gif|jpe?g|png|webp)(?:[?#].*)?$/i;
 
 const MAX_PREROLL_SECONDS = 90;
 const MAX_PREROLL_SEGMENTS = 60;
 
 export function filterAdsFromM3U8(content: string): string {
+  return filterAdsFromM3U8WithStats(content).content;
+}
+
+export function filterAdsFromM3U8WithStats(
+  content: string
+): M3U8AdFilterResult {
   if (!content || !content.trimStart().startsWith('#EXTM3U')) {
-    return content || '';
+    return { content: content || '', droppedSegments: 0 };
   }
 
   if (isMasterPlaylist(content)) {
-    return content;
+    return { content, droppedSegments: 0 };
   }
 
   const { entries, header, tail } = parseMediaPlaylist(content);
   if (entries.length === 0) {
-    return content;
+    return { content, droppedSegments: 0 };
   }
 
   const dropGroups = getPrerollGroupsToDrop(entries);
   const result: string[] = [...header];
   let droppedBeforeNextEntry = false;
+  let droppedSegments = 0;
 
   for (const entry of entries) {
     const shouldDrop =
       entry.explicitAd || entry.cueAd || dropGroups.has(entry.group);
 
     if (shouldDrop) {
+      droppedSegments += 1;
       droppedBeforeNextEntry = true;
       continue;
     }
@@ -54,7 +69,10 @@ export function filterAdsFromM3U8(content: string): string {
 
   result.push(...tail.filter((line) => !isAdControlTag(line)));
 
-  return result.join('\n');
+  return {
+    content: result.join('\n'),
+    droppedSegments,
+  };
 }
 
 function parseMediaPlaylist(content: string): {
@@ -182,7 +200,8 @@ function isMasterPlaylist(content: string): boolean {
 }
 
 function isAdSegmentUri(uri: string): boolean {
-  return AD_URI_PATTERN.test(normalizeUrlLikeValue(uri));
+  const normalized = normalizeUrlLikeValue(uri);
+  return AD_URI_PATTERN.test(normalized) || NON_MEDIA_SEGMENT_PATTERN.test(uri);
 }
 
 function isCueOutTag(line: string): boolean {
@@ -202,6 +221,8 @@ function isAdMarkerTag(line: string): boolean {
   const upper = line.toUpperCase();
   return (
     isCueOutTag(upper) ||
+    upper.startsWith('#EXT-X-ASSET') ||
+    upper.startsWith('#EXT-X-VMAP') ||
     (upper.startsWith('#EXT-X-DATERANGE') && AD_TAG_PATTERN.test(upper))
   );
 }

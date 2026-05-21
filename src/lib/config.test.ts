@@ -102,6 +102,37 @@ describe('config runtime defaults', () => {
     expect(refined.SiteConfig.DisableYellowFilter).toBe(true);
   });
 
+  it('marks audited failing sources as disabled when found in saved config', () => {
+    const adminConfig = createAdminConfig({
+      api_site: {
+        dbzy: {
+          key: 'dbzy',
+          name: 'Retired Source',
+          api: 'https://dbzy.tv/api.php/provide/vod',
+        },
+      },
+    });
+    adminConfig.SourceConfig = [
+      {
+        key: 'dbzy',
+        name: 'Retired Source',
+        api: 'https://dbzy.tv/api.php/provide/vod',
+        from: 'custom',
+        disabled: false,
+      },
+    ];
+
+    const refined = refineConfig(adminConfig);
+
+    expect(
+      refined.SourceConfig.find((source) => source.key === 'dbzy')
+    ).toEqual(
+      expect.objectContaining({
+        disabled: true,
+      })
+    );
+  });
+
   it('repairs empty DB config files by seeding runtime sources', () => {
     const adminConfig = createAdminConfig({ api_site: {} });
     adminConfig.ConfigFile = '';
@@ -109,7 +140,7 @@ describe('config runtime defaults', () => {
     const refined = refineConfig(adminConfig);
     const configFile = JSON.parse(refined.ConfigFile) as ConfigFileStruct;
 
-    expect(Object.keys(configFile.api_site).length).toBeGreaterThanOrEqual(39);
+    expect(Object.keys(configFile.api_site).length).toBeGreaterThanOrEqual(31);
     expect(refined.SourceConfig.some((source) => source.key === 'ckzy')).toBe(
       true
     );

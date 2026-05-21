@@ -2207,11 +2207,6 @@ const CategoryConfig = ({
       <div className='flex items-center justify-between'>
         <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
           自定義分類列表
-          {false && (
-            <span className='ml-2 text-xs text-gray-500 dark:text-gray-400'>
-              (Upstash 環境下請通過配置文件修改)
-            </span>
-          )}
         </h4>
         <button
           onClick={() => setShowAddForm(!showAddForm)}
@@ -3062,11 +3057,6 @@ const SiteConfigComponent = ({
         <div>
           <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
             豆瓣圖片代理
-            {false && (
-              <span className='ml-2 text-xs text-gray-500 dark:text-gray-400'>
-                (Upstash 環境下請通過環境變量修改)
-              </span>
-            )}
           </label>
           <div className='relative' data-dropdown='douban-image-proxy'>
             {/* 自定義下拉選擇框 */}
@@ -3215,11 +3205,6 @@ const SiteConfigComponent = ({
         <div className='flex items-center justify-between'>
           <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
             禁用黃色過濾器
-            {false && (
-              <span className='ml-2 text-xs text-gray-500 dark:text-gray-400'>
-                (Upstash 環境下請通過環境變量修改)
-              </span>
-            )}
           </label>
           <button
             type='button'

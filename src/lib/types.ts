@@ -46,6 +46,7 @@ export interface IStorage {
   // 用戶相關
   registerUser(userName: string, password: string): Promise<void>;
   verifyUser(userName: string, password: string): Promise<boolean>;
+  getUserPassword(userName: string): Promise<string | null>;
   // 檢查用戶是否存在（無需密碼）
   checkUserExist(userName: string): Promise<boolean>;
   // 修改用戶密碼

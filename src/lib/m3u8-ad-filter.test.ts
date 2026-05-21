@@ -1,4 +1,7 @@
-import { filterAdsFromM3U8 } from './m3u8-ad-filter';
+import {
+  filterAdsFromM3U8,
+  filterAdsFromM3U8WithStats,
+} from './m3u8-ad-filter';
 
 describe('filterAdsFromM3U8', () => {
   it('removes explicit ad segments and keeps the real encrypted media', () => {
@@ -76,6 +79,64 @@ describe('filterAdsFromM3U8', () => {
     expect(filtered).not.toContain('#EXT-X-CUE-IN');
     expect(filtered).toContain('/videos/main/index0.ts');
     expect(filtered).toContain('/videos/main/index1.ts');
+  });
+
+  it('removes daterange and interstitial ad markers', () => {
+    const playlist = [
+      '#EXTM3U',
+      '#EXT-X-VERSION:6',
+      '#EXT-X-TARGETDURATION:6',
+      '#EXTINF:6.000000,',
+      '/videos/main/index0.ts',
+      '#EXT-X-DATERANGE:ID="ad-1",CLASS="com.apple.hls.interstitial",START-DATE="2026-05-21T00:00:00Z",DURATION=6',
+      '#EXTINF:6.000000,',
+      '/promo/vast-ad-1.ts',
+      '#EXTINF:6.000000,',
+      '/videos/main/index1.ts',
+      '#EXT-X-ENDLIST',
+    ].join('\n');
+
+    const result = filterAdsFromM3U8WithStats(playlist);
+
+    expect(result.droppedSegments).toBe(1);
+    expect(result.content).not.toContain('DATERANGE');
+    expect(result.content).not.toContain('vast-ad-1');
+    expect(result.content).toContain('/videos/main/index0.ts');
+    expect(result.content).toContain('/videos/main/index1.ts');
+  });
+
+  it('removes image placeholders that appear as media entries', () => {
+    const playlist = [
+      '#EXTM3U',
+      '#EXT-X-VERSION:3',
+      '#EXT-X-TARGETDURATION:6',
+      '#EXTINF:6.000000,',
+      '/mov/uphls/banner.jpg',
+      '#EXTINF:6.000000,',
+      '/mov/uphls/main0000.ts',
+      '#EXT-X-ENDLIST',
+    ].join('\n');
+
+    const filtered = filterAdsFromM3U8(playlist);
+
+    expect(filtered).not.toContain('banner.jpg');
+    expect(filtered).toContain('main0000.ts');
+  });
+
+  it('reports zero dropped segments for clean media playlists', () => {
+    const playlist = [
+      '#EXTM3U',
+      '#EXT-X-VERSION:3',
+      '#EXT-X-TARGETDURATION:6',
+      '#EXTINF:6.000000,',
+      '/videos/main/index0.ts',
+      '#EXT-X-ENDLIST',
+    ].join('\n');
+
+    expect(filterAdsFromM3U8WithStats(playlist)).toEqual({
+      content: playlist,
+      droppedSegments: 0,
+    });
   });
 
   it('leaves master playlists untouched so hls.js can select a level', () => {

@@ -27,26 +27,10 @@
       "api": "https://360zy.com/api.php/provide/vod",
       "name": "360資源"
     },
-    "maotaizy": {
-      "api": "https://caiji.maotaizy.cc/api.php/provide/vod",
-      "name": "茅臺資源"
-    },
-    "wolong": {
-      "api": "https://wolongzyw.com/api.php/provide/vod",
-      "name": "臥龍資源"
-    },
     "jisu": {
       "api": "https://jszyapi.com/api.php/provide/vod",
       "name": "極速資源",
       "detail": "https://jszyapi.com"
-    },
-    "dbzy": {
-      "api": "https://dbzy.tv/api.php/provide/vod",
-      "name": "豆瓣資源"
-    },
-    "mozhua": {
-      "api": "https://mozhuazy.com/api.php/provide/vod",
-      "name": "魔爪資源"
     },
     "mdzy": {
       "api": "https://www.mdzyapi.com/api.php/provide/vod",
@@ -85,25 +69,10 @@
       "name": "非凡影视新接口",
       "detail": "http://ffzy5.tv"
     },
-    "guangsu": {
-      "api": "https://api.guangsuapi.com/api.php/provide/vod",
-      "name": "光速资源",
-      "detail": "https://api.guangsuapi.com"
-    },
     "xinlang": {
       "api": "https://api.xinlangapi.com/xinlangapi.php/provide/vod",
       "name": "新浪资源",
       "detail": "https://api.xinlangapi.com"
-    },
-    "hongniu": {
-      "api": "https://www.hongniuzy2.com/api.php/provide/vod",
-      "name": "红牛资源",
-      "detail": "https://www.hongniuzy2.com"
-    },
-    "huya": {
-      "api": "https://www.huyaapi.com/api.php/provide/vod",
-      "name": "虎牙资源",
-      "detail": "https://www.huyaapi.com"
     },
     "hhzy": {
       "api": "https://hhzyapi.com/api.php/provide/vod",
@@ -114,11 +83,6 @@
       "api": "https://subocaiji.com/api.php/provide/vod",
       "name": "速博资源",
       "detail": "https://subocaiji.com"
-    },
-    "jinying": {
-      "api": "https://jinyingzy.com/api.php/provide/vod",
-      "name": "金鹰点播",
-      "detail": "https://jinyingzy.com"
     },
     "p2100": {
       "api": "https://p2100.net/api.php/provide/vod",

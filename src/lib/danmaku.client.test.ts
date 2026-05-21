@@ -1,6 +1,8 @@
 import {
+  buildDanmakuMatchFileNames,
   getDanmakuUrlByEpisodeId,
   matchAnime,
+  matchAnimeCandidates,
   resolveDanmakuEpisodeNumber,
 } from './danmaku.client';
 
@@ -115,6 +117,40 @@ describe('danmaku client', () => {
     await expect(matchAnime('missing S1E1 @dandan')).resolves.toEqual([]);
   });
 
+  it('tries generated match candidates until one returns results', async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ matches: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          matches: [{ animeId: 7, animeTitle: '波波', episodeId: 701 }],
+        })
+      ) as unknown as typeof fetch;
+
+    const candidates = buildDanmakuMatchFileNames({
+      title: '波波',
+      year: '2026',
+      episodeNumber: 1,
+      season: 1,
+      platform: 'bilibili1',
+    });
+    const result = await matchAnimeCandidates(candidates);
+
+    expect(candidates).toContain('波波 S01E01 @bilibili1');
+    expect(candidates).toContain('波波 第1集');
+    expect(result).toMatchObject({
+      fileName: candidates[1],
+      matches: [
+        {
+          animeId: 7,
+          animeTitle: '波波',
+          episodeId: 701,
+          episodeTitle: 'EP701',
+        },
+      ],
+    });
+  });
+
   it('builds comment URL from episode id and resolves fallback episode number', () => {
     expect(getDanmakuUrlByEpisodeId(123, 'xml')).toBe(
       'https://danmu.example/api/v2/comment/123?format=xml'
@@ -122,5 +158,17 @@ describe('danmaku client', () => {
     expect(resolveDanmakuEpisodeNumber('第12集', 0)).toBe(12);
     expect(resolveDanmakuEpisodeNumber('', 4)).toBe(5);
     expect(resolveDanmakuEpisodeNumber(undefined, 2)).toBe(3);
+  });
+
+  it('uses the internal danmaku proxy when no base URL is configured', () => {
+    (
+      window as Window & {
+        RUNTIME_CONFIG?: { DANMU_API_BASE_URL?: string };
+      }
+    ).RUNTIME_CONFIG = {};
+
+    expect(getDanmakuUrlByEpisodeId(456, 'xml')).toBe(
+      '/api/danmaku/api/v2/comment/456?format=xml'
+    );
   });
 });
