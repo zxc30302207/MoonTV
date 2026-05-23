@@ -32,6 +32,12 @@ interface AuthInfo {
   role?: 'owner' | 'admin' | 'user';
 }
 
+function formatAdultAuthExpiry(expiresAt?: number | null) {
+  if (expiresAt === null) return '永久';
+  if (!expiresAt) return '-';
+  return new Date(expiresAt).toLocaleString('zh-TW', { hour12: false });
+}
+
 export const UserMenu: React.FC = () => {
   const router = useRouter();
   const pathname = usePathname();
@@ -39,6 +45,7 @@ export const UserMenu: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const [isAdultAuthOpen, setIsAdultAuthOpen] = useState(false);
   const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
   const [authInfo, setAuthInfo] = useState<AuthInfo | null>(null);
   const [storageType, setStorageType] = useState<string>('localstorage');
@@ -101,6 +108,10 @@ export const UserMenu: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordError, setPasswordError] = useState('');
+  const [adultCardCode, setAdultCardCode] = useState('');
+  const [adultAuthLoading, setAdultAuthLoading] = useState(false);
+  const [adultAuthError, setAdultAuthError] = useState('');
+  const [adultAuthSuccess, setAdultAuthSuccess] = useState('');
 
   // 版本檢查相關狀態
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
@@ -331,6 +342,55 @@ export const UserMenu: React.FC = () => {
     setPasswordError('');
   };
 
+  const handleAdultAuth = () => {
+    setIsOpen(false);
+    setIsAdultAuthOpen(true);
+    setAdultCardCode('');
+    setAdultAuthError('');
+    setAdultAuthSuccess('');
+  };
+
+  const handleCloseAdultAuth = () => {
+    setIsAdultAuthOpen(false);
+    setAdultCardCode('');
+    setAdultAuthError('');
+    setAdultAuthSuccess('');
+  };
+
+  const handleSubmitAdultAuth = async () => {
+    const normalizedCode = adultCardCode.trim();
+    setAdultAuthError('');
+    setAdultAuthSuccess('');
+
+    if (!normalizedCode) {
+      setAdultAuthError('請輸入授權卡號');
+      return;
+    }
+
+    setAdultAuthLoading(true);
+    try {
+      const response = await fetch('/api/adult/authorization', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: normalizedCode }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.error || '授權失敗');
+      }
+
+      setAdultCardCode('');
+      setAdultAuthSuccess(
+        `授權成功，到期時間：${formatAdultAuthExpiry(data.expiresAt ?? null)}`
+      );
+    } catch (error) {
+      setAdultAuthError(error instanceof Error ? error.message : '授權失敗');
+    } finally {
+      setAdultAuthLoading(false);
+    }
+  };
+
   const handleSubmitChangePassword = async () => {
     setPasswordError('');
 
@@ -524,6 +584,9 @@ export const UserMenu: React.FC = () => {
   const showChangePassword =
     authInfo?.role !== 'owner' && storageType !== 'localstorage';
 
+  const showAdultAuth =
+    authInfo?.role === 'user' && storageType !== 'localstorage';
+
   // 角色中文映射
   const getRoleText = (role?: string) => {
     switch (role) {
@@ -610,6 +673,16 @@ export const UserMenu: React.FC = () => {
             >
               <KeyRound className='w-4 h-4 text-gray-500 dark:text-gray-400' />
               <span className='font-medium'>修改密碼</span>
+            </button>
+          )}
+
+          {showAdultAuth && (
+            <button
+              onClick={handleAdultAuth}
+              className='w-full px-3 py-2 text-left flex items-center gap-2.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-sm'
+            >
+              <KeyRound className='w-4 h-4 text-amber-500 dark:text-amber-300' />
+              <span className='font-medium'>成人授權</span>
             </button>
           )}
 
@@ -1271,6 +1344,84 @@ export const UserMenu: React.FC = () => {
     </>
   );
 
+  const adultAuthPanel = (
+    <>
+      <div
+        className='fixed inset-0 bg-black/50 backdrop-blur-sm z-[1000]'
+        onClick={handleCloseAdultAuth}
+      />
+
+      <div className='fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-white dark:bg-gray-900 rounded-xl shadow-xl z-[1001] p-6'>
+        <div className='flex items-center justify-between mb-6'>
+          <div>
+            <h3 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
+              成人內容授權
+            </h3>
+            <p className='mt-1 text-sm text-gray-500 dark:text-gray-400'>
+              輸入管理員提供的授權卡號後即可解鎖成人內容。
+            </p>
+          </div>
+          <button
+            onClick={handleCloseAdultAuth}
+            className='w-8 h-8 p-1 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors'
+            aria-label='Close'
+          >
+            <X className='w-full h-full' />
+          </button>
+        </div>
+
+        <div className='space-y-4'>
+          <div>
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+              授權卡號
+            </label>
+            <input
+              type='text'
+              className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-colors bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 font-mono'
+              placeholder='ADULT-XXXX-XXXX-XXXX-XXXXXX'
+              value={adultCardCode}
+              onChange={(e) => {
+                setAdultCardCode(e.target.value);
+                setAdultAuthError('');
+                setAdultAuthSuccess('');
+              }}
+              disabled={adultAuthLoading}
+            />
+          </div>
+
+          {adultAuthError && (
+            <div className='text-red-500 text-sm bg-red-50 dark:bg-red-900/20 p-3 rounded-md border border-red-200 dark:border-red-800'>
+              {adultAuthError}
+            </div>
+          )}
+
+          {adultAuthSuccess && (
+            <div className='text-green-700 text-sm bg-green-50 dark:bg-green-900/20 p-3 rounded-md border border-green-200 dark:border-green-800 dark:text-green-300'>
+              {adultAuthSuccess}
+            </div>
+          )}
+        </div>
+
+        <div className='flex gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700'>
+          <button
+            onClick={handleCloseAdultAuth}
+            className='flex-1 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-md transition-colors'
+            disabled={adultAuthLoading}
+          >
+            取消
+          </button>
+          <button
+            onClick={handleSubmitAdultAuth}
+            className='flex-1 px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
+            disabled={adultAuthLoading || !adultCardCode.trim()}
+          >
+            {adultAuthLoading ? '授權中...' : '啟用授權'}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+
   return (
     <>
       <div className='relative'>
@@ -1296,6 +1447,10 @@ export const UserMenu: React.FC = () => {
       {isChangePasswordOpen &&
         mounted &&
         createPortal(changePasswordPanel, document.body)}
+
+      {isAdultAuthOpen &&
+        mounted &&
+        createPortal(adultAuthPanel, document.body)}
 
       {/* 版本面板 */}
       <VersionPanel

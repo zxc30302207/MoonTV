@@ -167,6 +167,29 @@ export function redeemAdultAuthCard(
   return grant;
 }
 
+export function grantAdultAuthToUser(
+  config: AdminConfig,
+  username: string,
+  duration: AdultAuthDuration,
+  grantedBy: string,
+  now = Date.now()
+): { card: AdultAuthCard; grant: AdultAuthGrant } {
+  const user = config.UserConfig.Users.find(
+    (entry) => entry.username === username
+  );
+  if (!user || user.banned) {
+    throw new Error('目標用戶不存在或已封禁');
+  }
+
+  if (user.role !== 'user') {
+    throw new Error('管理員和站長已自動擁有成人權限');
+  }
+
+  const card = createAdultAuthCard(config, duration, grantedBy, now);
+  const grant = redeemAdultAuthCard(config, username, card.code, now);
+  return { card, grant };
+}
+
 export function setAdultAuthCardDisabled(
   config: AdminConfig,
   code: string,

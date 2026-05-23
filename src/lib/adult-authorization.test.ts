@@ -2,6 +2,7 @@ import { AdminConfig } from './admin.types';
 import {
   createAdultAuthCard,
   getAdultAuthorizationStatus,
+  grantAdultAuthToUser,
   redeemAdultAuthCard,
 } from './adult-authorization';
 
@@ -69,6 +70,36 @@ describe('adult authorization cards', () => {
       reason: 'expired',
       expiresAt: 2_000,
     });
+  });
+
+  it('grants adult access directly to a normal user', () => {
+    const config = createConfig();
+    const { card, grant } = grantAdultAuthToUser(
+      config,
+      'alice',
+      'month',
+      'admin',
+      10_000
+    );
+
+    expect(card.usedBy).toBe('alice');
+    expect(grant).toMatchObject({
+      username: 'alice',
+      cardCode: card.code,
+      grantedBy: 'admin',
+      expiresAt: 10_000 + 30 * 24 * 60 * 60 * 1000,
+    });
+    expect(
+      getAdultAuthorizationStatus(config, 'alice', 11_000).authorized
+    ).toBe(true);
+  });
+
+  it('does not directly grant cards to admin users', () => {
+    const config = createConfig();
+
+    expect(() =>
+      grantAdultAuthToUser(config, 'admin', 'month', 'admin', 10_000)
+    ).toThrow('管理員和站長已自動擁有成人權限');
   });
 });
 

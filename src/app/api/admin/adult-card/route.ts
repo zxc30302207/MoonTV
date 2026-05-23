@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   createAdultAuthCard,
   deleteAdultAuthCard,
+  grantAdultAuthToUser,
   isAdminUser,
   isAdultAuthDuration,
   setAdultAuthCardDisabled,
@@ -13,7 +14,7 @@ import { getStorage } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
-const ACTIONS = ['create', 'disable', 'enable', 'delete'] as const;
+const ACTIONS = ['create', 'disable', 'enable', 'delete', 'grant'] as const;
 
 export async function POST(request: NextRequest) {
   const authInfo = await getVerifiedAuthInfo(request);
@@ -25,6 +26,7 @@ export async function POST(request: NextRequest) {
     action?: (typeof ACTIONS)[number];
     duration?: string;
     code?: string;
+    targetUsername?: string;
   };
 
   if (!body.action || !ACTIONS.includes(body.action)) {
@@ -46,6 +48,7 @@ export async function POST(request: NextRequest) {
 
   try {
     let card = null;
+    let grant = null;
     switch (body.action) {
       case 'create': {
         if (!body.duration || !isAdultAuthDuration(body.duration)) {
@@ -78,11 +81,34 @@ export async function POST(request: NextRequest) {
         deleteAdultAuthCard(config, body.code);
         break;
       }
+      case 'grant': {
+        if (!body.targetUsername || typeof body.targetUsername !== 'string') {
+          return NextResponse.json(
+            { error: '缺少目標用戶名' },
+            { status: 400 }
+          );
+        }
+        if (!body.duration || !isAdultAuthDuration(body.duration)) {
+          return NextResponse.json(
+            { error: '請選擇有效的授權期限' },
+            { status: 400 }
+          );
+        }
+        const result = grantAdultAuthToUser(
+          config,
+          body.targetUsername,
+          body.duration,
+          authInfo.username
+        );
+        card = result.card;
+        grant = result.grant;
+        break;
+      }
     }
 
     await storage.setAdminConfig(config);
     return NextResponse.json(
-      { ok: true, card },
+      { ok: true, card, grant },
       { headers: { 'Cache-Control': 'no-store' } }
     );
   } catch (error) {

@@ -119,10 +119,31 @@ const ADULT_AUTH_DURATION_LABELS: Record<AdultAuthDuration, string> =
     {} as Record<AdultAuthDuration, string>
   );
 
+function isAdultAuthDurationValue(value: unknown): value is AdultAuthDuration {
+  return ADULT_AUTH_DURATION_OPTIONS.some((option) => option.value === value);
+}
+
 function formatAdultAuthDate(timestamp?: number | null) {
   if (timestamp === null) return '永久';
   if (!timestamp) return '-';
   return new Date(timestamp).toLocaleString('zh-TW', { hour12: false });
+}
+
+function getAdultGrantStatus(
+  grants: NonNullable<AdminConfig['AdultAuthConfig']>['grants'],
+  username: string
+) {
+  const grant = grants.find((entry) => entry.username === username);
+  if (!grant) {
+    return { label: '未授權', active: false, expiresAt: undefined };
+  }
+
+  const expired = grant.expiresAt !== null && grant.expiresAt <= Date.now();
+  return {
+    label: expired ? '已過期' : '已授權',
+    active: !expired,
+    expiresAt: grant.expiresAt,
+  };
 }
 
 // 可折疊標簽組件
@@ -850,6 +871,34 @@ const UserConfig = ({
     }
   };
 
+  const handleGrantAdultAccess = async (targetUsername: string) => {
+    const { isConfirmed, value } = await Swal.fire({
+      title: `授權 ${targetUsername}`,
+      text: '授權後該普通用戶可載入成人推薦、成人列表與成人片源。',
+      input: 'select',
+      inputOptions: ADULT_AUTH_DURATION_OPTIONS.reduce(
+        (options, option) => ({ ...options, [option.value]: option.label }),
+        {} as Record<AdultAuthDuration, string>
+      ),
+      inputValue: adultCardDuration,
+      showCancelButton: true,
+      confirmButtonText: '確認授權',
+      cancelButtonText: '取消',
+      confirmButtonColor: '#16a34a',
+    });
+    if (!isConfirmed || !value || !isAdultAuthDurationValue(value)) return;
+
+    setAdultCardDuration(value);
+    const data = await callAdultCardApi({
+      action: 'grant',
+      duration: value,
+      targetUsername,
+    });
+    if (data?.grant) {
+      showSuccess(`已授權 ${targetUsername}`);
+    }
+  };
+
   if (!config) {
     return (
       <div className='text-center text-gray-500 dark:text-gray-400'>
@@ -1300,6 +1349,12 @@ const UserConfig = ({
                 </th>
                 <th
                   scope='col'
+                  className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'
+                >
+                  成人權限
+                </th>
+                <th
+                  scope='col'
                   className='px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'
                 >
                   操作
@@ -1340,6 +1395,10 @@ const UserConfig = ({
                       user.username !== currentUsername &&
                       (role === 'owner' ||
                         (role === 'admin' && user.role === 'user'));
+                    const adultGrantStatus = getAdultGrantStatus(
+                      adultGrants,
+                      user.username
+                    );
                     return (
                       <tr
                         key={user.username}
@@ -1395,6 +1454,32 @@ const UserConfig = ({
                             {!user.banned ? '正常' : '已封禁'}
                           </span>
                         </td>
+                        <td className='px-6 py-4 whitespace-nowrap'>
+                          {user.role === 'user' ? (
+                            <div className='flex flex-col gap-1 text-xs'>
+                              <span
+                                className={`w-fit rounded-full px-2 py-1 ${
+                                  adultGrantStatus.active
+                                    ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300'
+                                    : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                                }`}
+                              >
+                                {adultGrantStatus.label}
+                              </span>
+                              {adultGrantStatus.expiresAt !== undefined && (
+                                <span className='text-gray-500 dark:text-gray-400'>
+                                  {formatAdultAuthDate(
+                                    adultGrantStatus.expiresAt
+                                  )}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className='text-xs text-gray-500 dark:text-gray-400'>
+                              自動擁有
+                            </span>
+                          )}
+                        </td>
                         <td className='px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2'>
                           {/* 修改密碼按鈕 */}
                           {canChangePassword && (
@@ -1416,6 +1501,19 @@ const UserConfig = ({
                                   className='inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 hover:bg-purple-200 dark:bg-purple-900/40 dark:hover:bg-purple-900/60 dark:text-purple-200 transition-colors'
                                 >
                                   設為管理
+                                </button>
+                              )}
+                              {user.role === 'user' && (
+                                <button
+                                  onClick={() =>
+                                    handleGrantAdultAccess(user.username)
+                                  }
+                                  disabled={adultCardBusy || user.banned}
+                                  className='inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 dark:text-amber-200 transition-colors'
+                                >
+                                  {adultGrantStatus.active
+                                    ? '續期授權'
+                                    : '成人授權'}
                                 </button>
                               )}
                               {user.role === 'admin' && (
