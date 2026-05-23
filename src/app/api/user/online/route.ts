@@ -2,7 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie } from '@/lib/auth';
+import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { configSelfCheck, getConfig } from '@/lib/config';
 import { getStorage } from '@/lib/db';
 
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const auth = getAuthInfoFromCookie(request);
+    const auth = await getVerifiedAuthInfo(request);
     if (!auth?.username) {
       return NextResponse.json({ error: '未登錄' }, { status: 401 });
     }
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('更新用戶上線時間失敗:', error);
     return NextResponse.json(
-      { error: '更新用戶上線時間失敗', details: (error as Error).message },
+      { error: '更新用戶上線時間失敗' },
       { status: 500 }
     );
   }

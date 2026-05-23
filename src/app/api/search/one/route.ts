@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie } from '@/lib/auth';
+import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import {
   canAccessAdultContent,
   getAvailableApiSites,
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
 
   let authInfo = null;
   if (!isLocalStorage) {
-    authInfo = getAuthInfoFromCookie(request);
+    authInfo = await getVerifiedAuthInfo(request);
     if (!authInfo || !authInfo.username) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

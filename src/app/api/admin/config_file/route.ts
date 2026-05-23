@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie } from '@/lib/auth';
+import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { getConfig } from '@/lib/config';
 import { getStorage } from '@/lib/db';
 
@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const authInfo = getAuthInfoFromCookie(request);
+  const authInfo = await getVerifiedAuthInfo(request);
   if (!authInfo || !authInfo.username) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -82,7 +82,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: '更新配置文件失敗',
-        details: (error as Error).message,
       },
       { status: 500 }
     );

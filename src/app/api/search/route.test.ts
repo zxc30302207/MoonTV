@@ -5,10 +5,11 @@ import type { NextRequest } from 'next/server';
 const mockCanAccessAdultContent = jest.fn();
 const mockGetAvailableApiSites = jest.fn();
 const mockGetConfig = jest.fn();
+const mockGetVerifiedAuthInfo = jest.fn();
 const mockSearchFromApiStream = jest.fn();
 
-jest.mock('@/lib/auth', () => ({
-  getAuthInfoFromCookie: jest.fn(() => ({ username: 'alice' })),
+jest.mock('@/lib/auth-server', () => ({
+  getVerifiedAuthInfo: mockGetVerifiedAuthInfo,
 }));
 
 jest.mock('@/lib/config', () => ({
@@ -43,6 +44,11 @@ describe('/api/search', () => {
     jest.clearAllMocks();
     mockSearchFromApiStream.mockReset();
     process.env.NEXT_PUBLIC_STORAGE_TYPE = 'supabase';
+    mockGetVerifiedAuthInfo.mockResolvedValue({
+      role: 'user',
+      timestamp: Date.now(),
+      username: 'alice',
+    });
     mockGetConfig.mockResolvedValue({
       SiteConfig: {
         DisableYellowFilter: true,

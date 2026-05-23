@@ -2756,6 +2756,12 @@ const SiteConfigComponent = ({
   });
   // 保存狀態
   const [saving, setSaving] = useState(false);
+  const [tvboxConfigUrl, setTvboxConfigUrl] = useState('');
+
+  // 僅在 localstorage 場景禁用（無法寫入 DB）
+  const isLocalStorage =
+    typeof window !== 'undefined' &&
+    (window as any).RUNTIME_CONFIG?.STORAGE_TYPE === 'localstorage';
 
   // TVBox 密碼生成
   const generateRandomPassword = () => {
@@ -2766,22 +2772,30 @@ const SiteConfigComponent = ({
       .join('');
   };
 
-  const encodeUsername = (username: string) => {
-    if (!username) return '';
-    const bytes = new TextEncoder().encode(username);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
-  };
-
   const getTvboxConfigUrl = () => {
     if (typeof window === 'undefined') return '';
-    const un = encodeUsername(currentUsername || '');
-    const base = `${window.location.origin}/api/tvbox/config`;
-    return un ? `${base}?un=${encodeURIComponent(un)}` : base;
+    if (isLocalStorage) return `${window.location.origin}/api/tvbox/config`;
+    return tvboxConfigUrl;
   };
+
+  const refreshTvboxConfigUrl = useCallback(async () => {
+    if (!currentUsername && !isLocalStorage) {
+      setTvboxConfigUrl('');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/admin/tvbox', { cache: 'no-store' });
+      if (!response.ok) {
+        setTvboxConfigUrl('');
+        return;
+      }
+      const data = (await response.json()) as { url?: string };
+      setTvboxConfigUrl(data.url || '');
+    } catch (_) {
+      setTvboxConfigUrl('');
+    }
+  }, [currentUsername, isLocalStorage]);
 
   // 豆瓣數據源相關狀態
   const [isDoubanDropdownOpen, setIsDoubanDropdownOpen] = useState(false);
@@ -2832,11 +2846,6 @@ const SiteConfigComponent = ({
     }
   };
 
-  // 僅在 localstorage 場景禁用（無法寫入 DB）
-  const isLocalStorage =
-    typeof window !== 'undefined' &&
-    (window as any).RUNTIME_CONFIG?.STORAGE_TYPE === 'localstorage';
-
   useEffect(() => {
     if (config?.SiteConfig) {
       setSiteSettings({
@@ -2854,6 +2863,10 @@ const SiteConfigComponent = ({
       });
     }
   }, [config]);
+
+  useEffect(() => {
+    refreshTvboxConfigUrl();
+  }, [refreshTvboxConfigUrl]);
 
   // 點擊外部區域關閉下拉框
   useEffect(() => {
@@ -2926,6 +2939,7 @@ const SiteConfigComponent = ({
       }
 
       showSuccess('保存成功, 請刷新頁面');
+      await refreshTvboxConfigUrl();
     } catch (err) {
       showError(err instanceof Error ? err.message : '保存失敗');
     } finally {

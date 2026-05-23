@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie } from '@/lib/auth';
-import { getStorage } from '@/lib/db';
+import { getVerifiedAuthInfo } from '@/lib/auth-server';
+import { db, getStorage } from '@/lib/db';
 import { IStorage } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -21,10 +21,10 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { newPassword } = body;
+    const { currentPassword, newPassword } = body;
 
     // 獲取認證信息
-    const authInfo = getAuthInfoFromCookie(request);
+    const authInfo = await getVerifiedAuthInfo(request);
     if (!authInfo || !authInfo.username) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -32,6 +32,9 @@ export async function POST(request: NextRequest) {
     // 驗證新密碼
     if (!newPassword || typeof newPassword !== 'string') {
       return NextResponse.json({ error: '新密碼不得為空' }, { status: 400 });
+    }
+    if (!currentPassword || typeof currentPassword !== 'string') {
+      return NextResponse.json({ error: '請輸入目前密碼' }, { status: 400 });
     }
 
     const username = authInfo.username;
@@ -42,6 +45,14 @@ export async function POST(request: NextRequest) {
         { error: '站長不能通過此接口修改密碼' },
         { status: 403 }
       );
+    }
+
+    const verifiedCurrentPassword = await db.verifyUser(
+      username,
+      currentPassword
+    );
+    if (!verifiedCurrentPassword) {
+      return NextResponse.json({ error: '目前密碼錯誤' }, { status: 401 });
     }
 
     // 獲取存儲實例
@@ -61,7 +72,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: '修改密碼失敗',
-        details: (error as Error).message,
       },
       { status: 500 }
     );

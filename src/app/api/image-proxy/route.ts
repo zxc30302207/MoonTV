@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { getClientIp, getRateLimitHeaders, rateLimit } from '@/lib/rate-limit';
-import { assertSafeUrl, parseAllowedHosts } from '@/lib/url-safety';
+import { parseAllowedHosts, safeFetch } from '@/lib/url-safety';
 
 export const runtime = 'nodejs';
 
@@ -29,70 +29,64 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Missing image URL' }, { status: 400 });
   }
 
-  let safeUrl: URL;
   try {
     const allowedHosts = parseAllowedHosts(
       process.env.ALLOWED_IMAGE_PROXY_HOSTS || process.env.ALLOWED_PROXY_HOSTS
     );
-    safeUrl = assertSafeUrl(imageUrl, {
-      allowPrivateNetworks: process.env.ALLOW_PRIVATE_NETWORKS === 'true',
-      allowedHosts,
-    });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'URL 校驗失敗' },
-      { status: 400 }
-    );
-  }
-
-  try {
-    const imageResponse = await fetch(safeUrl.toString(), {
-      headers: {
-        Referer: 'https://movie.douban.com/',
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    const imageResponse = await safeFetch(
+      imageUrl,
+      {
+        headers: {
+          Referer: 'https://movie.douban.com/',
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        },
       },
-    });
+      {
+        allowPrivateNetworks: process.env.ALLOW_PRIVATE_NETWORKS === 'true',
+        allowedHosts,
+      }
+    );
 
     if (!imageResponse.ok) {
       return NextResponse.json(
-        { error: imageResponse.statusText },
-        { status: imageResponse.status }
+        { error: 'Image fetch failed' },
+        {
+          status: imageResponse.status,
+          headers: { 'Cache-Control': 'private, no-store' },
+        }
       );
     }
-
-    const contentType = imageResponse.headers.get('content-type');
 
     if (!imageResponse.body) {
       return NextResponse.json(
         { error: 'Image response has no body' },
-        { status: 500 }
+        { status: 500, headers: { 'Cache-Control': 'private, no-store' } }
       );
     }
 
-    // 創建響應頭
     const headers = new Headers();
+    const contentType = imageResponse.headers.get('content-type');
+    if (contentType && !contentType.toLowerCase().startsWith('image/')) {
+      return NextResponse.json(
+        { error: 'Proxy target is not an image' },
+        { status: 400, headers: { 'Cache-Control': 'private, no-store' } }
+      );
+    }
     if (contentType) {
       headers.set('Content-Type', contentType);
     }
+    headers.set('Cache-Control', 'private, no-store');
+    headers.set('Vary', 'Cookie');
 
-    // 設置緩存頭（可選）
-    headers.set('Cache-Control', 'public, max-age=15720000, s-maxage=15720000'); // 緩存半年
-    headers.set('CDN-Cache-Control', 'public, s-maxage=15720000');
-    headers.set('Vercel-CDN-Cache-Control', 'public, s-maxage=15720000');
-    headers.set('Netlify-Vary', 'query');
-
-    // 直接返回圖片流
     return new Response(imageResponse.body, {
       status: 200,
       headers,
     });
-  } catch (error) {
+  } catch (_) {
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : 'Error fetching image',
-      },
-      { status: 500 }
+      { error: 'Error fetching image' },
+      { status: 400, headers: { 'Cache-Control': 'private, no-store' } }
     );
   }
 }

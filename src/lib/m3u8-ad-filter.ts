@@ -15,6 +15,14 @@ type PlaylistGroupInfo = {
   signature: string;
 };
 
+type SegmentRun = {
+  duration: number;
+  endIndex: number;
+  segmentCount: number;
+  signature: string;
+  startIndex: number;
+};
+
 export type M3U8AdFilterResult = {
   content: string;
   droppedSegments: number;
@@ -58,14 +66,19 @@ export function filterAdsFromM3U8WithStats(
   for (const group of Array.from(getRecurringInsertedAdGroupsToDrop(entries))) {
     dropGroups.add(group);
   }
+  const dropSegmentIndexes = getRecurringInlineAdSegmentsToDrop(entries);
   const result: string[] = [...header];
   let droppedBeforeNextEntry = false;
   let droppedSegments = 0;
   let hasKeptSegment = false;
 
-  for (const entry of entries) {
+  for (let index = 0; index < entries.length; index++) {
+    const entry = entries[index];
     const shouldDrop =
-      entry.explicitAd || entry.cueAd || dropGroups.has(entry.group);
+      entry.explicitAd ||
+      entry.cueAd ||
+      dropGroups.has(entry.group) ||
+      dropSegmentIndexes.has(index);
 
     if (shouldDrop) {
       droppedSegments += 1;
@@ -281,6 +294,134 @@ function getRecurringInsertedAdGroupsToDrop(
   }
 
   return dropGroups;
+}
+
+function getRecurringInlineAdSegmentsToDrop(
+  entries: PlaylistEntry[]
+): Set<number> {
+  const signatures = entries.map((entry) => getPathSignature(entry.uri));
+  if (signatures.filter(Boolean).length < 3) {
+    return new Set();
+  }
+
+  const signatureDurations = new Map<string, number>();
+  for (let index = 0; index < entries.length; index++) {
+    const signature = signatures[index];
+    if (!signature) continue;
+    signatureDurations.set(
+      signature,
+      (signatureDurations.get(signature) || 0) + entries[index].duration
+    );
+  }
+
+  const primarySignature = Array.from(signatureDurations.entries()).sort(
+    (a, b) => b[1] - a[1]
+  )[0]?.[0];
+  if (!primarySignature) {
+    return new Set();
+  }
+  const primaryDuration = signatureDurations.get(primarySignature) || 0;
+
+  const runs = buildSegmentRuns(entries, signatures);
+  const runsBySignature = new Map<string, SegmentRun[]>();
+  for (const run of runs) {
+    if (!run.signature || run.signature === primarySignature) continue;
+    const list = runsBySignature.get(run.signature) || [];
+    list.push(run);
+    runsBySignature.set(run.signature, list);
+  }
+
+  const dropIndexes = new Set<number>();
+  for (const [signature, signatureRuns] of Array.from(
+    runsBySignature.entries()
+  )) {
+    const signatureDuration = signatureDurations.get(signature) || 0;
+    const isMinorInsertedTrack =
+      primaryDuration > 0 && signatureDuration <= primaryDuration * 0.35;
+    const allRunsAreShort = signatureRuns.every(
+      (run) =>
+        run.segmentCount <= MAX_INSERTED_AD_SEGMENTS &&
+        run.duration > 0 &&
+        run.duration <= MAX_INSERTED_AD_SECONDS &&
+        isRunBetweenPrimaryContent(run, signatures, primarySignature)
+    );
+
+    if (
+      !isMinorInsertedTrack ||
+      !allRunsAreShort ||
+      signatureRuns.length < MIN_RECURRING_AD_GROUPS
+    ) {
+      continue;
+    }
+
+    for (const run of signatureRuns) {
+      for (let index = run.startIndex; index <= run.endIndex; index++) {
+        dropIndexes.add(index);
+      }
+    }
+  }
+
+  return dropIndexes;
+}
+
+function buildSegmentRuns(
+  entries: PlaylistEntry[],
+  signatures: string[]
+): SegmentRun[] {
+  const runs: SegmentRun[] = [];
+  let index = 0;
+
+  while (index < entries.length) {
+    const signature = signatures[index];
+    const startIndex = index;
+    let duration = 0;
+
+    while (index < entries.length && signatures[index] === signature) {
+      duration += entries[index].duration;
+      index++;
+    }
+
+    runs.push({
+      duration,
+      endIndex: index - 1,
+      segmentCount: index - startIndex,
+      signature,
+      startIndex,
+    });
+  }
+
+  return runs;
+}
+
+function isRunBetweenPrimaryContent(
+  run: SegmentRun,
+  signatures: string[],
+  primarySignature: string
+): boolean {
+  const previousSignature = findNearestSignature(
+    signatures,
+    run.startIndex - 1,
+    -1
+  );
+  const nextSignature = findNearestSignature(signatures, run.endIndex + 1, 1);
+  return (
+    previousSignature === primarySignature && nextSignature === primarySignature
+  );
+}
+
+function findNearestSignature(
+  signatures: string[],
+  startIndex: number,
+  direction: 1 | -1
+): string {
+  for (
+    let index = startIndex;
+    index >= 0 && index < signatures.length;
+    index += direction
+  ) {
+    if (signatures[index]) return signatures[index];
+  }
+  return '';
 }
 
 function groupEntriesByDiscontinuity(

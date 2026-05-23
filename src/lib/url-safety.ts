@@ -1,8 +1,15 @@
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
+
 export type UrlSafetyOptions = {
   allowPrivateNetworks?: boolean;
   allowLocalhost?: boolean;
   allowedProtocols?: string[];
   allowedHosts?: string[];
+};
+
+export type SafeFetchOptions = UrlSafetyOptions & {
+  maxRedirects?: number;
 };
 
 function isIpv4Address(hostname: string): boolean {
@@ -30,7 +37,10 @@ function isPrivateIpv4(hostname: string): boolean {
 }
 
 function isPrivateIpv6(hostname: string): boolean {
-  const normalized = hostname.split('%')[0].toLowerCase();
+  const normalized = hostname
+    .replace(/^\[|\]$/g, '')
+    .split('%')[0]
+    .toLowerCase();
   if (normalized === '::' || normalized === '::1') return true;
   if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
   if (normalized.startsWith('fe80:')) return true;
@@ -47,6 +57,15 @@ function isLocalHostname(hostname: string): boolean {
   if (lower.endsWith('.local') || lower.endsWith('.internal')) return true;
   if (lower.endsWith('.lan')) return true;
   return false;
+}
+
+function normalizeHostname(hostname: string): string {
+  return hostname.replace(/^\[|\]$/g, '').toLowerCase();
+}
+
+function isPrivateAddress(address: string): boolean {
+  const normalized = normalizeHostname(address);
+  return isPrivateIpv4(normalized) || isPrivateIpv6(normalized);
 }
 
 function isAllowedHostname(hostname: string, allowedHosts: string[]): boolean {
@@ -90,13 +109,13 @@ export function assertSafeUrl(
     throw new Error('URL 不允許包含用戶名或密碼');
   }
 
-  const hostname = url.hostname;
+  const hostname = normalizeHostname(url.hostname);
   if (!options.allowLocalhost && isLocalHostname(hostname)) {
     throw new Error('不允許訪問本地地址');
   }
 
   if (!options.allowPrivateNetworks) {
-    if (isPrivateIpv4(hostname) || isPrivateIpv6(hostname)) {
+    if (isPrivateAddress(hostname)) {
       throw new Error('不允許訪問內網地址');
     }
   }
@@ -108,4 +127,71 @@ export function assertSafeUrl(
   }
 
   return url;
+}
+
+export async function assertSafeResolvedUrl(
+  input: string,
+  options: UrlSafetyOptions = {}
+): Promise<URL> {
+  const url = assertSafeUrl(input, options);
+  if (options.allowPrivateNetworks) return url;
+
+  const hostname = normalizeHostname(url.hostname);
+  if (isIP(hostname)) {
+    if (isPrivateAddress(hostname)) {
+      throw new Error('不允許訪問內網地址');
+    }
+    return url;
+  }
+
+  const records = await lookup(hostname, { all: true, verbatim: true });
+  if (records.some((record) => isPrivateAddress(record.address))) {
+    throw new Error('不允許訪問內網地址');
+  }
+
+  return url;
+}
+
+export async function safeFetch(
+  input: string,
+  init: RequestInit = {},
+  options: SafeFetchOptions = {}
+): Promise<Response> {
+  const maxRedirects = options.maxRedirects ?? 3;
+  let currentUrl = (await assertSafeResolvedUrl(input, options)).toString();
+
+  for (
+    let redirectCount = 0;
+    redirectCount <= maxRedirects;
+    redirectCount += 1
+  ) {
+    const response = await fetch(currentUrl, {
+      ...init,
+      redirect: 'manual',
+    });
+    const location = response.headers.get('location');
+
+    if (
+      response.status >= 300 &&
+      response.status < 400 &&
+      location &&
+      redirectCount < maxRedirects
+    ) {
+      currentUrl = (
+        await assertSafeResolvedUrl(
+          new URL(location, currentUrl).toString(),
+          options
+        )
+      ).toString();
+      continue;
+    }
+
+    if (response.status >= 300 && response.status < 400 && location) {
+      throw new Error('Redirect 次數過多');
+    }
+
+    return response;
+  }
+
+  throw new Error('Redirect 次數過多');
 }

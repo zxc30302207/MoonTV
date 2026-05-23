@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie } from '@/lib/auth';
+import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { resetConfig } from '@/lib/config';
 
 export const runtime = 'nodejs';
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const authInfo = getAuthInfoFromCookie(request);
+  const authInfo = await getVerifiedAuthInfo(request);
   if (!authInfo || !authInfo.username) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -45,7 +45,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: '重置管理員配置失敗',
-        details: (error as Error).message,
       },
       { status: 500 }
     );

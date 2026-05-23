@@ -262,6 +262,45 @@ describe('filterAdsFromM3U8', () => {
     expect(result.content).toContain('main619.ts');
   });
 
+  it('removes repeated inline Modu-style ad runs without discontinuity tags', () => {
+    const playlist = [
+      '#EXTM3U',
+      '#EXT-X-VERSION:3',
+      '#EXT-X-TARGETDURATION:4',
+      ...segmentLines(30, 3.753, '/20251012/Wsc1LdY1/1500kb/hls/', 'main'),
+      ...segmentLines(10, 2.0235, '/20260521/iMvWvkWK/10088kb/hls/', 'ad'),
+      ...segmentLines(30, 3.753, '/20251012/Wsc1LdY1/1500kb/hls/', 'main', 30),
+      ...segmentLines(10, 2.0235, '/20260521/iMvWvkWK/10088kb/hls/', 'ad', 10),
+      ...segmentLines(30, 3.753, '/20251012/Wsc1LdY1/1500kb/hls/', 'main', 60),
+      '#EXT-X-ENDLIST',
+    ].join('\n');
+
+    const result = filterAdsFromM3U8WithStats(playlist);
+
+    expect(result.droppedSegments).toBe(20);
+    expect(countMediaSegments(result.content)).toBe(90);
+    expect(result.content).not.toContain('/20260521/iMvWvkWK/');
+    expect(result.content).toContain('main0.ts');
+    expect(result.content).toContain('main89.ts');
+  });
+
+  it('keeps a single inline alternate run because recurrence is required', () => {
+    const playlist = [
+      '#EXTM3U',
+      '#EXT-X-VERSION:3',
+      '#EXT-X-TARGETDURATION:4',
+      ...segmentLines(30, 3.753, '/video/main/hls/', 'main'),
+      ...segmentLines(5, 3.753, '/video/opening/hls/', 'op'),
+      ...segmentLines(30, 3.753, '/video/main/hls/', 'main', 30),
+      '#EXT-X-ENDLIST',
+    ].join('\n');
+
+    expect(filterAdsFromM3U8WithStats(playlist)).toEqual({
+      content: playlist,
+      droppedSegments: 0,
+    });
+  });
+
   it('keeps playlists with many discontinuities when all groups share the same path', () => {
     const playlist = [
       '#EXTM3U',

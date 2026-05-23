@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { getConfig } from '@/lib/config';
 import { getStorage } from '@/lib/db';
+import { createTVBoxToken } from '@/lib/tvbox-auth';
 
 export const runtime = 'nodejs';
 
@@ -37,14 +38,14 @@ export async function GET(request: NextRequest) {
   const base = new URL(request.url);
   base.pathname = '/api/tvbox/config';
   base.search = '';
-  // 為生成的訂閱 URL 添加加密後的 un 查詢參數
-  const un = Buffer.from(authInfo.username, 'utf8').toString('base64');
-  const url = `${base.toString()}?un=${encodeURIComponent(un)}`;
+  const token = await createTVBoxToken(authInfo.username);
+  const url = `${base.toString()}?token=${encodeURIComponent(token)}`;
 
   const payload = {
     enabled: adminConfig.SiteConfig.TVBoxEnabled === true,
     password: adminConfig.SiteConfig.TVBoxPassword || '',
     url,
+    token,
     localMode: false,
   };
 
@@ -113,12 +114,11 @@ export async function POST(request: NextRequest) {
   base.pathname = '/api/tvbox/config';
   base.search = '';
 
+  const token = await createTVBoxToken(username);
   return NextResponse.json({
     enabled: adminConfig.SiteConfig.TVBoxEnabled === true,
     password: adminConfig.SiteConfig.TVBoxPassword || '',
-    url: (() => {
-      const un = Buffer.from(username, 'utf8').toString('base64');
-      return `${base.toString()}?un=${encodeURIComponent(un)}`;
-    })(),
+    token,
+    url: `${base.toString()}?token=${encodeURIComponent(token)}`,
   });
 }

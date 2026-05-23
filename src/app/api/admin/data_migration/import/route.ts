@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { inflate } from 'pako';
 
 import type { AdminConfig } from '@/lib/admin.types';
-import { getAuthInfoFromCookie } from '@/lib/auth';
+import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { configSelfCheck, setCachedConfig } from '@/lib/config';
 import { SimpleCrypto } from '@/lib/crypto';
 import { db } from '@/lib/db';
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 驗證身份和權限
-    const authInfo = getAuthInfoFromCookie(req);
+    const authInfo = await getVerifiedAuthInfo(req);
     if (!authInfo || !authInfo.username) {
       return NextResponse.json({ error: '未登錄' }, { status: 401 });
     }

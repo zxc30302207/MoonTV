@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { getAvailableApiSites, getConfig } from '@/lib/config';
+import { verifyTVBoxToken } from '@/lib/tvbox-auth';
 
 export const runtime = 'nodejs';
 
@@ -20,22 +21,25 @@ export async function GET(request: Request) {
         ? url.searchParams.get('pwd') || url.searchParams.get('password')
         : '') ||
       '';
-    const un = url.searchParams.get('un') || '';
+    const token = url.searchParams.get('token') || '';
+    const legacyUn = url.searchParams.get('un') || '';
 
     const adminConfig = await getConfig();
     const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
 
-    // 本地存儲模式下 un 參數可以為空
-    if (storageType !== 'localstorage' && !un.trim()) {
-      return NextResponse.json({ error: '缺少參數 un' }, { status: 400 });
-    }
-
     let username = '';
-    if (un.trim()) {
-      try {
-        username = Buffer.from(un, 'base64').toString('utf8');
-      } catch (e) {
-        return NextResponse.json({ error: '參數 un 非法' }, { status: 400 });
+    if (storageType !== 'localstorage') {
+      if (token.trim()) {
+        const verifiedUsername = await verifyTVBoxToken(token);
+        if (!verifiedUsername) {
+          return NextResponse.json(
+            { error: 'TVBox token 無效或已過期' },
+            { status: 401 }
+          );
+        }
+        username = verifiedUsername;
+      } else if (!legacyUn.trim()) {
+        return NextResponse.json({ error: '缺少參數 token' }, { status: 400 });
       }
     }
 

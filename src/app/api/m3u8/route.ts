@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { downloadTsSegment, parseM3U8 } from '@/lib/m3u8-downloader';
+import { parseM3U8 } from '@/lib/m3u8-downloader';
 import { getClientIp, getRateLimitHeaders, rateLimit } from '@/lib/rate-limit';
-import { assertSafeUrl, parseAllowedHosts } from '@/lib/url-safety';
+import {
+  assertSafeResolvedUrl,
+  assertSafeUrl,
+  parseAllowedHosts,
+  safeFetch,
+} from '@/lib/url-safety';
 
 export const runtime = 'nodejs';
 
@@ -52,7 +57,11 @@ export async function POST(request: NextRequest) {
     const validateUrl = (targetUrl: string) => {
       assertSafeUrl(targetUrl, { allowPrivateNetworks, allowedHosts });
     };
-    const task = await parseM3U8(safeUrl, { validateUrl });
+    const task = await parseM3U8(safeUrl, {
+      fetcher: (targetUrl, init) =>
+        safeFetch(targetUrl, init, { allowPrivateNetworks, allowedHosts }),
+      validateUrl,
+    });
 
     return NextResponse.json({
       success: true,
@@ -125,15 +134,27 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
-    const data = await downloadTsSegment(safeUrl, undefined, {
-      validateUrl: (targetUrl: string) =>
-        assertSafeUrl(targetUrl, { allowPrivateNetworks, allowedHosts }),
+    await assertSafeResolvedUrl(safeUrl, {
+      allowPrivateNetworks,
+      allowedHosts,
     });
+    const response = await safeFetch(
+      safeUrl,
+      {},
+      {
+        allowPrivateNetworks,
+        allowedHosts,
+      }
+    );
+    if (!response.ok) {
+      throw new Error(`下載失敗: ${response.status}`);
+    }
+    const data = await response.arrayBuffer();
 
     return new NextResponse(data, {
       headers: {
         'Content-Type': 'application/octet-stream',
-        'Cache-Control': 'public, max-age=31536000',
+        'Cache-Control': 'private, no-store',
       },
     });
   } catch (error) {

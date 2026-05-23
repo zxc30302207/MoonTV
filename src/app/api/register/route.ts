@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { generateSignature } from '@/lib/auth-crypto';
+import { getAuthSignaturePayload } from '@/lib/auth-server';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 import { getClientIp, getRateLimitHeaders, rateLimit } from '@/lib/rate-limit';
@@ -44,7 +45,7 @@ async function generateAuthCookie(
   const signingKey = process.env.PASSWORD || '';
   if (signingKey) {
     const signature = await generateSignature(
-      `${username}:${authData.timestamp}`,
+      getAuthSignaturePayload(authData),
       signingKey
     );
     authData.signature = signature;

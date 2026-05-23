@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie } from '@/lib/auth';
+import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { getAvailableApiSites } from '@/lib/config';
 import { getDetailFromApi } from '@/lib/downstream';
 
@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
   const sourceCode = searchParams.get('source');
-  const auth = getAuthInfoFromCookie(request);
+  const auth = await getVerifiedAuthInfo(request);
   const username = auth?.username;
 
   if (!id || !sourceCode) {
@@ -40,10 +40,10 @@ export async function GET(request: NextRequest) {
         Vary: 'Cookie',
       },
     });
-  } catch (error) {
+  } catch (_) {
     return NextResponse.json(
-      { error: (error as Error).message },
-      { status: 500 }
+      { error: '獲取詳情失敗' },
+      { status: 500, headers: { 'Cache-Control': 'private, no-store' } }
     );
   }
 }

@@ -62,7 +62,11 @@ export interface M3U8Task {
   title: string;
   type: 'TS' | 'MP4';
   tsUrlList: string[];
-  finishList: Array<{ title: string; status: '' | 'downloading' | 'success' | 'error'; retryCount?: number }>;
+  finishList: Array<{
+    title: string;
+    status: '' | 'downloading' | 'success' | 'error';
+    retryCount?: number;
+  }>;
   downloadIndex: number;
   finishNum: number;
   errorNum: number;
@@ -84,6 +88,7 @@ export interface M3U8Task {
 }
 
 export type M3U8ParseOptions = {
+  fetcher?: (url: string, init?: RequestInit) => Promise<Response>;
   validateUrl?: (url: string) => void;
 };
 
@@ -118,11 +123,18 @@ function isMasterPlaylist(m3u8Content: string): boolean {
 /**
  * 從主播放列表中提取子播放列表URL
  */
-function extractSubPlaylistUrl(m3u8Content: string, baseUrl: string): string | null {
+function extractSubPlaylistUrl(
+  m3u8Content: string,
+  baseUrl: string
+): string | null {
   const lines = m3u8Content.split('\n');
 
   // 查找所有子播放列表
-  const playlists: Array<{ url: string; bandwidth?: number; resolution?: string }> = [];
+  const playlists: Array<{
+    url: string;
+    bandwidth?: number;
+    resolution?: string;
+  }> = [];
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -170,7 +182,8 @@ export async function parseM3U8(
   }
 
   options?.validateUrl?.(url);
-  const response = await fetch(url);
+  const fetcher = options?.fetcher || fetch;
+  const response = await fetcher(url);
   const m3u8Str = await response.text();
 
   if (m3u8Str.substring(0, 7).toUpperCase() !== '#EXTM3U') {
@@ -238,7 +251,7 @@ export async function parseM3U8(
 
   // 估算總文件大小（基於時長和比特率）
   // 假設平均比特率為 2Mbps (TS 流媒體的常見值)
-  const estimatedBitrate = 2 * 1024 * 1024 / 8; // 2Mbps 轉為字節/秒
+  const estimatedBitrate = (2 * 1024 * 1024) / 8; // 2Mbps 轉為字節/秒
   task.totalSize = Math.round(task.durationSecond * estimatedBitrate);
 
   // 檢測 AES 加密
@@ -254,7 +267,7 @@ export async function parseM3U8(
     // 獲取 AES key
     if (task.aesConf.uri) {
       options?.validateUrl?.(task.aesConf.uri);
-      const keyResponse = await fetch(task.aesConf.uri);
+      const keyResponse = await fetcher(task.aesConf.uri);
       const keyArrayBuffer = await keyResponse.arrayBuffer();
       task.aesConf.key = arrayBufferToWordArray(keyArrayBuffer);
     }
@@ -276,7 +289,15 @@ function extractTitleFromUrl(url: string): string {
   }
 
   const now = new Date();
-  return `video_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+  return `video_${now.getFullYear()}${String(now.getMonth() + 1).padStart(
+    2,
+    '0'
+  )}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(
+    2,
+    '0'
+  )}${String(now.getMinutes()).padStart(2, '0')}${String(
+    now.getSeconds()
+  ).padStart(2, '0')}`;
 }
 
 /**
@@ -295,11 +316,17 @@ function arrayBufferToWordArray(arrayBuffer: ArrayBuffer): any {
 /**
  * AES 解密
  */
-export function aesDecrypt(data: ArrayBuffer, key: any, iv: string): ArrayBuffer {
+export function aesDecrypt(
+  data: ArrayBuffer,
+  key: any,
+  iv: string
+): ArrayBuffer {
   if (!key) return data;
 
   const wordArray = arrayBufferToWordArray(data);
-  const ivWordArray = iv ? CryptoJS.enc.Hex.parse(iv.replace('0x', '')) : CryptoJS.lib.WordArray.create();
+  const ivWordArray = iv
+    ? CryptoJS.enc.Hex.parse(iv.replace('0x', ''))
+    : CryptoJS.lib.WordArray.create();
 
   const decrypted = CryptoJS.AES.decrypt(
     { ciphertext: wordArray } as any,
@@ -339,7 +366,10 @@ export async function downloadTsSegment(
 /**
  * 合並所有片段為 Blob
  */
-export function mergeSegments(segments: ArrayBuffer[], type: 'TS' | 'MP4'): Blob {
+export function mergeSegments(
+  segments: ArrayBuffer[],
+  type: 'TS' | 'MP4'
+): Blob {
   const mimeType = type === 'MP4' ? 'video/mp4' : 'video/MP2T';
   return new Blob(segments, { type: mimeType });
 }
@@ -347,7 +377,11 @@ export function mergeSegments(segments: ArrayBuffer[], type: 'TS' | 'MP4'): Blob
 /**
  * 觸發瀏覽器下載
  */
-export function triggerDownload(blob: Blob, filename: string, type: 'TS' | 'MP4'): void {
+export function triggerDownload(
+  blob: Blob,
+  filename: string,
+  type: 'TS' | 'MP4'
+): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -430,7 +464,9 @@ export async function downloadM3U8Video(
         console.log('✅ 使用 Service Worker 流式下載');
       } else if (streamMode === 'file-system') {
         // 使用 File System Access API
-        const { createFileSystemWriteStream } = await import('./stream-saver-fallback');
+        const { createFileSystemWriteStream } = await import(
+          './stream-saver-fallback'
+        );
         stream = await createFileSystemWriteStream(filename, estimatedSize);
         if (stream) {
           // eslint-disable-next-line no-console
@@ -514,7 +550,11 @@ export async function downloadM3U8Video(
           // eslint-disable-next-line no-console
           console.error(`片段 ${nextWriteIndex + 1} 寫入流失敗:`, error);
           // 寫入失敗意味著用戶可能取消了下載，應該停止整個下載任務
-          throw new Error(`寫入失敗: ${error instanceof Error ? error.message : String(error)}`);
+          throw new Error(
+            `寫入失敗: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
         }
       }
     });
@@ -561,7 +601,10 @@ export async function downloadM3U8Video(
   }
 
   // 並發下載函數（帶重試機制）
-  const downloadSegment = async (index: number, retryCount = 0): Promise<void> => {
+  const downloadSegment = async (
+    index: number,
+    retryCount = 0
+  ): Promise<void> => {
     const retryDelay = 1000; // 重試延遲（毫秒）
 
     if (signal?.aborted) {
@@ -598,7 +641,11 @@ export async function downloadM3U8Video(
 
       // AES 解密
       if (task.aesConf.key) {
-        segmentData = aesDecrypt(segmentData, task.aesConf.key, task.aesConf.iv);
+        segmentData = aesDecrypt(
+          segmentData,
+          task.aesConf.key,
+          task.aesConf.iv
+        );
       }
 
       // 解密後再次檢查暫停狀態
@@ -644,11 +691,14 @@ export async function downloadM3U8Video(
         total: totalSegments,
         percentage: Math.floor((completedCount / totalSegments) * 100),
         status: 'downloading',
-        message: `正在下載 ${completedCount}/${totalSegments} 個片段 (${concurrency} 線程)${retryCount > 0 ? ` [重試成功]` : ''}`,
+        message: `正在下載 ${completedCount}/${totalSegments} 個片段 (${concurrency} 線程)${
+          retryCount > 0 ? ` [重試成功]` : ''
+        }`,
       });
     } catch (error) {
       // 檢查是否是寫入失敗（用戶取消下載）
-      const isWriteError = error instanceof Error && error.message.includes('寫入失敗');
+      const isWriteError =
+        error instanceof Error && error.message.includes('寫入失敗');
       if (isWriteError) {
         // 寫入失敗意味著用戶可能取消了下載，不應該重試，直接拋出錯誤停止下載
         // eslint-disable-next-line no-console
@@ -659,7 +709,11 @@ export async function downloadM3U8Video(
       // 如果還有重試機會，進行重試
       if (retryCount < maxRetries) {
         // eslint-disable-next-line no-console
-        console.warn(`片段 ${index + 1} 下載失敗，${retryDelay}ms 後進行第 ${retryCount + 1} 次重試...`);
+        console.warn(
+          `片段 ${index + 1} 下載失敗，${retryDelay}ms 後進行第 ${
+            retryCount + 1
+          } 次重試...`
+        );
 
         onProgress?.({
           current: completedCount,
@@ -670,7 +724,7 @@ export async function downloadM3U8Video(
         });
 
         // 等待一段時間後重試
-        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        await new Promise((resolve) => setTimeout(resolve, retryDelay));
         return downloadSegment(index, retryCount + 1);
       }
 
@@ -681,7 +735,10 @@ export async function downloadM3U8Video(
       task.finishList[index].retryCount = retryCount;
 
       // eslint-disable-next-line no-console
-      console.error(`片段 ${index + 1} 下載失敗（已重試 ${maxRetries} 次）:`, error);
+      console.error(
+        `片段 ${index + 1} 下載失敗（已重試 ${maxRetries} 次）:`,
+        error
+      );
 
       // 邊下邊存模式下，失敗的片段標記為 'failed' 並加入隊列
       if (streamMode !== 'disabled' && writer) {
@@ -698,7 +755,9 @@ export async function downloadM3U8Video(
           total: totalSegments,
           percentage: Math.floor((completedCount / totalSegments) * 100),
           status: 'downloading',
-          message: `片段 ${index + 1} 失敗已跳過 (已完成 ${completedCount}/${totalSegments})`,
+          message: `片段 ${
+            index + 1
+          } 失敗已跳過 (已完成 ${completedCount}/${totalSegments})`,
         });
       } else {
         // 普通模式下，片段失敗不影響任務狀態，保持 downloading 等待手動重試
@@ -707,7 +766,9 @@ export async function downloadM3U8Video(
           total: totalSegments,
           percentage: Math.floor((completedCount / totalSegments) * 100),
           status: 'downloading',
-          message: `片段 ${index + 1} 下載失敗，等待重試 (已完成 ${completedCount}/${totalSegments})`,
+          message: `片段 ${
+            index + 1
+          } 下載失敗，等待重試 (已完成 ${completedCount}/${totalSegments})`,
         });
       }
     }
@@ -791,13 +852,13 @@ export async function downloadM3U8Video(
   // 檢查是否有失敗的片段（在下載範圍內）
   const hasFailedSegments = task.finishList
     .slice(startSegment - 1, endSegment)
-    .some(item => item.status === 'error');
+    .some((item) => item.status === 'error');
 
   if (hasFailedSegments) {
     // 有失敗片段，不執行保存，保持下載狀態等待手動重試
     const failedCount = task.finishList
       .slice(startSegment - 1, endSegment)
-      .filter(item => item.status === 'error').length;
+      .filter((item) => item.status === 'error').length;
 
     // eslint-disable-next-line no-console
     console.warn(`⚠️ 有 ${failedCount} 個片段下載失敗，等待手動重試...`);
@@ -828,14 +889,17 @@ export async function downloadM3U8Video(
     total: endSegment - startSegment + 1,
     percentage: 100,
     status: 'processing',
-    message: task.type === 'MP4' ? '正在轉碼為 MP4 格式...' : '正在合並視頻文件...',
+    message:
+      task.type === 'MP4' ? '正在轉碼為 MP4 格式...' : '正在合並視頻文件...',
   });
 
   // 如果是 MP4 格式，進行轉碼
   let blob: Blob;
   if (task.type === 'MP4') {
     // 傳遞範圍內片段的實際時長累加值
-    const actualDuration = task.segmentDurations.slice(startSegment - 1, endSegment).reduce((a, b) => a + b, 0);
+    const actualDuration = task.segmentDurations
+      .slice(startSegment - 1, endSegment)
+      .reduce((a, b) => a + b, 0);
     blob = transmuxTSToMP4(segments, actualDuration);
   } else {
     blob = mergeSegments(segments, task.type);

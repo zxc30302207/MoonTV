@@ -2,11 +2,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie } from '@/lib/auth';
+import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { configSelfCheck, getConfig } from '@/lib/config';
 import { getStorage } from '@/lib/db';
 import { IStorage } from '@/lib/types';
-import { assertSafeUrl, parseAllowedHosts } from '@/lib/url-safety';
+import { assertSafeUrl, parseAllowedHosts, safeFetch } from '@/lib/url-safety';
 
 export const runtime = 'nodejs';
 
@@ -55,7 +55,17 @@ function validateSubscriptionUrl(url: string): string {
 
 async function fetchSubscriptionData(url: string): Promise<any> {
   const safeUrl = validateSubscriptionUrl(url);
-  const response = await fetch(safeUrl);
+  const allowedHosts = parseAllowedHosts(
+    process.env.ALLOWED_SUBSCRIPTION_HOSTS || process.env.ALLOWED_PROXY_HOSTS
+  );
+  const response = await safeFetch(
+    safeUrl,
+    {},
+    {
+      allowPrivateNetworks: process.env.ALLOW_PRIVATE_NETWORKS === 'true',
+      allowedHosts,
+    }
+  );
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
@@ -146,7 +156,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const authInfo = getAuthInfoFromCookie(request);
+  const authInfo = await getVerifiedAuthInfo(request);
   if (!authInfo || !authInfo.username) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -169,13 +179,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('獲取訂閱配置失敗:', error);
-    return NextResponse.json(
-      {
-        error: '獲取訂閱配置失敗',
-        details: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: '獲取訂閱配置失敗' }, { status: 500 });
   }
 }
 
@@ -203,7 +207,7 @@ export async function POST(request: NextRequest) {
     // 對於 update 和 import 操作需要身份驗證
     let username: string | null = null;
     if (action === 'update' || action === 'import') {
-      const authInfo = getAuthInfoFromCookie(request);
+      const authInfo = await getVerifiedAuthInfo(request);
       if (!authInfo || !authInfo.username) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
@@ -354,7 +358,7 @@ export async function POST(request: NextRequest) {
               {
                 success: false,
                 updated: false,
-                error: (error as Error).message,
+                error: '自動更新導入失敗',
               },
               { status: 500 }
             );
@@ -373,12 +377,6 @@ export async function POST(request: NextRequest) {
     }
   } catch (error) {
     console.error('訂閱操作失敗:', error);
-    return NextResponse.json(
-      {
-        error: '訂閱操作失敗',
-        details: (error as Error).message,
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: '訂閱操作失敗' }, { status: 500 });
   }
 }

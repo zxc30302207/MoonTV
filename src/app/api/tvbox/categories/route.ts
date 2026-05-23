@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { getCacheTime, getConfig } from '@/lib/config';
+import { getConfig } from '@/lib/config';
 import type { DoubanItem, DoubanResult } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -37,7 +37,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const [cfg, cacheTime] = await Promise.all([getConfig(), getCacheTime()]);
+    const cfg = await getConfig();
 
     // 豆瓣默認分類（來源於 README 可用分類）
     const doubanDefaults = {
@@ -152,7 +152,8 @@ export async function GET(request: Request) {
 
       return NextResponse.json(payload, {
         headers: {
-          'Cache-Control': `public, max-age=${cacheTime}, s-maxage=0`,
+          'Cache-Control': 'private, no-store',
+          Vary: 'x-tvbox-password',
         },
       });
     }
@@ -162,7 +163,8 @@ export async function GET(request: Request) {
       { code: 1, msg: 'success', class: classes, list: [] },
       {
         headers: {
-          'Cache-Control': `public, max-age=${cacheTime}, s-maxage=0`,
+          'Cache-Control': 'private, no-store',
+          Vary: 'x-tvbox-password',
         },
       }
     );

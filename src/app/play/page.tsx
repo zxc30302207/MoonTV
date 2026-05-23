@@ -617,6 +617,13 @@ function PlayPageClient() {
     }
   };
 
+  const isM3U8Url = (url: string) => /\.m3u8(?:$|[?#])/i.test(url);
+
+  const getPlaybackUrl = (url: string, enableBlockAd: boolean) => {
+    if (!enableBlockAd || !isM3U8Url(url)) return url;
+    return `/api/m3u8/filter?url=${encodeURIComponent(url)}`;
+  };
+
   // Wake Lock 相關函數
   const requestWakeLock = async () => {
     try {
@@ -1748,7 +1755,7 @@ function PlayPageClient() {
       setError('視頻地址無效');
       return;
     }
-    console.log(videoUrl);
+    const playbackUrl = getPlaybackUrl(videoUrl, blockAdEnabledRef.current);
 
     // 檢測是否為WebKit瀏覽器
     const isWebkit =
@@ -1757,7 +1764,7 @@ function PlayPageClient() {
 
     // 非WebKit瀏覽器且播放器已存在，使用switch方法切換
     if (!isWebkit && artPlayerRef.current) {
-      artPlayerRef.current.switch = videoUrl;
+      artPlayerRef.current.switch = playbackUrl;
       artPlayerRef.current.title = `${videoTitle} - 第${
         currentEpisodeIndex + 1
       }集`;
@@ -1765,7 +1772,7 @@ function PlayPageClient() {
       if (artPlayerRef.current?.video) {
         ensureVideoSource(
           artPlayerRef.current.video as HTMLVideoElement,
-          videoUrl
+          playbackUrl
         );
       }
       return;
@@ -1814,7 +1821,7 @@ function PlayPageClient() {
 
       artPlayerRef.current = new Artplayer({
         container: artRef.current,
-        url: videoUrl,
+        url: playbackUrl,
         poster: videoCover,
         volume: 0.7,
         isLive: false,
@@ -2205,7 +2212,7 @@ function PlayPageClient() {
       if (artPlayerRef.current?.video) {
         ensureVideoSource(
           artPlayerRef.current.video as HTMLVideoElement,
-          videoUrl
+          playbackUrl
         );
       }
     } catch (err) {

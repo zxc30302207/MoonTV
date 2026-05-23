@@ -2,7 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getVerifiedAuthInfo } from '@/lib/auth-server';
+import { getVerifiedAuthCookie } from '@/lib/auth-cookie';
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -24,7 +24,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(warningUrl);
   }
 
-  const authInfo = await getVerifiedAuthInfo(request);
+  const authInfo = await getVerifiedAuthCookie(request);
   if (!authInfo) {
     return handleAuthFailure(request, pathname);
   }

@@ -1,63 +1,48 @@
 import { NextRequest } from 'next/server';
 
-import { getAuthInfoFromCookie } from './auth';
-import { generateSignature, safeEqual } from './auth-crypto';
+import {
+  type AuthCookieData,
+  getAuthSignaturePayload,
+  getVerifiedAuthCookie,
+} from './auth-cookie';
+import { getConfig } from './config';
 
-export type AuthCookieData = {
-  role?: 'owner' | 'admin' | 'user';
-  username?: string;
-  signature?: string;
-  timestamp?: number;
-  mode?: 'localstorage';
-};
-
-function isSignatureMatch(
-  actual: string | undefined,
-  expected: string
-): boolean {
-  if (!actual) return false;
-  return safeEqual(actual, expected);
-}
+export type { AuthCookieData };
+export { getAuthSignaturePayload };
 
 export async function getVerifiedAuthInfo(
   request: NextRequest
 ): Promise<AuthCookieData | null> {
-  const authInfo = getAuthInfoFromCookie(request) as AuthCookieData | null;
+  const authInfo = await getVerifiedAuthCookie(request);
   if (!authInfo) return null;
 
-  const secret = process.env.PASSWORD || '';
-  if (!secret) return null;
+  const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
+  if (storageType === 'localstorage') {
+    return authInfo;
+  }
+
+  if (!authInfo.username || !authInfo.role) return null;
+  return (await isActiveUser(authInfo.username, authInfo.role))
+    ? authInfo
+    : null;
+}
+
+async function isActiveUser(
+  username: string,
+  role: 'owner' | 'admin' | 'user'
+): Promise<boolean> {
+  if (username === process.env.USERNAME) {
+    return role === 'owner';
+  }
 
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
-  const timestamp =
-    typeof authInfo.timestamp === 'number'
-      ? authInfo.timestamp
-      : Number(authInfo.timestamp);
-  const hasValidTimestamp = Number.isFinite(timestamp);
-
   if (storageType === 'localstorage') {
-    if (authInfo.mode !== 'localstorage' || !hasValidTimestamp) {
-      return null;
-    }
-    const expected = await generateSignature(
-      `localstorage:${timestamp}`,
-      secret
-    );
-    return isSignatureMatch(authInfo.signature, expected) ? authInfo : null;
+    return false;
   }
 
-  if (!authInfo.username) return null;
-
-  if (hasValidTimestamp) {
-    const expectedWithTimestamp = await generateSignature(
-      `${authInfo.username}:${timestamp}`,
-      secret
-    );
-    if (isSignatureMatch(authInfo.signature, expectedWithTimestamp)) {
-      return authInfo;
-    }
-  }
-
-  const expectedLegacy = await generateSignature(authInfo.username, secret);
-  return isSignatureMatch(authInfo.signature, expectedLegacy) ? authInfo : null;
+  const config = await getConfig();
+  const user = config.UserConfig.Users.find(
+    (entry) => entry.username === username
+  );
+  return Boolean(user && !user.banned && user.role === role);
 }

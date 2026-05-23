@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getAuthInfoFromCookie } from '@/lib/auth';
+import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import {
   canAccessAdultContent,
   getAvailableApiSites,
@@ -28,7 +28,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const authInfo = getAuthInfoFromCookie(request);
+    const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
+    const authInfo =
+      storageType === 'localstorage'
+        ? null
+        : await getVerifiedAuthInfo(request);
+    if (storageType !== 'localstorage' && !authInfo?.username) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     const username = authInfo?.username;
 
     // 用 ReadableStream 流式返回搜索建議
