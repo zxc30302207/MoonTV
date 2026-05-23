@@ -90,13 +90,43 @@ function LoginPageClient() {
 
   // 在客戶端掛載後設置配置
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const storageType = (window as any).RUNTIME_CONFIG?.STORAGE_TYPE;
+    if (typeof window === 'undefined') return;
+
+    let mounted = true;
+    const runtimeConfig = (window as any).RUNTIME_CONFIG || {};
+    const applyRuntimeFallback = () => {
+      const storageType = runtimeConfig.STORAGE_TYPE;
       setShouldAskUsername(storageType && storageType !== 'localstorage');
-      setEnableRegister(
-        Boolean((window as any).RUNTIME_CONFIG?.ENABLE_REGISTER)
-      );
-    }
+      setEnableRegister(Boolean(runtimeConfig.ENABLE_REGISTER));
+    };
+
+    applyRuntimeFallback();
+
+    fetch('/api/server-config', { cache: 'no-store' })
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error('Failed to load server config');
+        }
+        return res.json() as Promise<{
+          StorageType?: string;
+          EnableRegister?: boolean;
+        }>;
+      })
+      .then((config) => {
+        if (!mounted) return;
+        const storageType = config.StorageType || runtimeConfig.STORAGE_TYPE;
+        setShouldAskUsername(storageType && storageType !== 'localstorage');
+        setEnableRegister(Boolean(config.EnableRegister));
+      })
+      .catch(() => {
+        if (mounted) {
+          applyRuntimeFallback();
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {

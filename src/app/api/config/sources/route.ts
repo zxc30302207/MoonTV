@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
-import { getAvailableApiSites, getCacheTime } from '@/lib/config';
+import { getAvailableApiSites } from '@/lib/config';
 
 export const runtime = 'nodejs';
 
@@ -10,10 +10,10 @@ export async function GET(request: NextRequest) {
     const auth = getAuthInfoFromCookie(request);
     const username = auth?.username;
     const sites = await getAvailableApiSites(username);
-    const cacheTime = await getCacheTime();
     return NextResponse.json(sites, {
       headers: {
-        'Cache-Control': `public, max-age=${cacheTime}, s-maxage=0`,
+        'Cache-Control': 'private, no-store',
+        Vary: 'Cookie',
       },
     });
   } catch (error) {

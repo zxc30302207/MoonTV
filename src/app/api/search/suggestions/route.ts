@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getCacheTime, getConfig } from '@/lib/config';
+import { getAuthInfoFromCookie } from '@/lib/auth';
+import {
+  canAccessAdultContent,
+  getAvailableApiSites,
+  getConfig,
+} from '@/lib/config';
 import { searchFromApiStream } from '@/lib/downstream';
 import { SearchResult } from '@/lib/types';
+import { isYellowSearchResult } from '@/lib/yellow';
 import { toSimplified } from '@/lib/zh';
 export const runtime = 'nodejs';
 
@@ -16,10 +22,14 @@ export async function GET(request: NextRequest) {
       : undefined; // 轉換為毫秒
 
     if (!query) {
-      return NextResponse.json({ suggestions: [] });
+      return NextResponse.json(
+        { suggestions: [] },
+        { headers: { 'Cache-Control': 'private, no-store' } }
+      );
     }
 
-    const cacheTime = await getCacheTime();
+    const authInfo = getAuthInfoFromCookie(request);
+    const username = authInfo?.username;
 
     // 用 ReadableStream 流式返回搜索建議
     const stream = new ReadableStream({
@@ -28,6 +38,7 @@ export async function GET(request: NextRequest) {
 
         const suggestionsStream = generateSuggestionsStream(
           toSimplified(query || ''),
+          username,
           timeout
         );
 
@@ -44,7 +55,7 @@ export async function GET(request: NextRequest) {
     return new Response(stream, {
       headers: {
         'Content-Type': 'application/json; charset=utf-8',
-        'Cache-Control': `private, max-age=${cacheTime}`,
+        'Cache-Control': 'private, no-store',
       },
     });
   } catch (error) {
@@ -52,10 +63,15 @@ export async function GET(request: NextRequest) {
   }
 }
 
-async function* generateSuggestionsStream(query: string, timeout?: number) {
+async function* generateSuggestionsStream(
+  query: string,
+  username?: string,
+  timeout?: number
+) {
   const queryLower = toSimplified(query).toLowerCase();
   const config = await getConfig();
-  const apiSites = config.SourceConfig.filter((site) => !site.disabled);
+  const shouldFilterYellow = !canAccessAdultContent(config, username);
+  const apiSites = await getAvailableApiSites(username);
 
   if (apiSites.length > 0) {
     // 使用第一個可用的數據源進行流式搜索
@@ -67,9 +83,13 @@ async function* generateSuggestionsStream(query: string, timeout?: number) {
       true,
       timeout
     )) {
+      const filteredResults = shouldFilterYellow
+        ? results.filter((result) => !isYellowSearchResult(result))
+        : results;
+
       // 統計關鍵詞出現頻率
       const keywordFrequency = new Map<string, number>();
-      const allKeywords = results
+      const allKeywords = filteredResults
         .map((r: SearchResult) => r.title)
         .filter(Boolean)
         .flatMap((title: string) => title.split(/[ -:：·、-]/))

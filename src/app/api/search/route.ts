@@ -1,10 +1,14 @@
 import { NextRequest } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
-import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
+import {
+  canAccessAdultContent,
+  getAvailableApiSites,
+  getConfig,
+} from '@/lib/config';
 import { searchFromApiStream } from '@/lib/downstream';
 import { SearchResult } from '@/lib/types';
-import { yellowWords } from '@/lib/yellow';
+import { isYellowSearchResult } from '@/lib/yellow';
 import { toSimplified } from '@/lib/zh';
 
 export const runtime = 'nodejs';
@@ -35,6 +39,7 @@ export async function GET(request: NextRequest) {
   const timeout = timeoutParam ? parseInt(timeoutParam, 10) * 1000 : undefined; // 轉換為毫秒
 
   const config = await getConfig();
+  const shouldFilterYellow = !canAccessAdultContent(config, authInfo?.username);
 
   // 獲取用戶可用的搜索源
   let apiSites = await getAvailableApiSites(authInfo?.username);
@@ -104,11 +109,10 @@ export async function GET(request: NextRequest) {
           if (filteredResults.length !== 0) {
             hasResults = true;
           }
-          if (!config.SiteConfig.DisableYellowFilter) {
-            filteredResults = pageResults.filter((result) => {
-              const typeName = result.type_name || '';
-              return !yellowWords.some((word) => typeName.includes(word));
-            });
+          if (shouldFilterYellow) {
+            filteredResults = pageResults.filter(
+              (result) => !isYellowSearchResult(result)
+            );
           }
           if (hasResults && filteredResults.length === 0) {
             throw new Error('結果被過濾');
@@ -156,12 +160,11 @@ export async function GET(request: NextRequest) {
         },
       });
     } else {
-      const cacheTime = await getCacheTime();
       const body = { results: aggregatedResults, failedSources };
       return new Response(JSON.stringify(body), {
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
-          'Cache-Control': `private, max-age=${cacheTime}`,
+          'Cache-Control': 'private, no-store',
         },
       });
     }
@@ -189,11 +192,10 @@ export async function GET(request: NextRequest) {
           if (filteredResults.length !== 0) {
             hasResults = true;
           }
-          if (!config.SiteConfig.DisableYellowFilter) {
-            filteredResults = pageResults.filter((result) => {
-              const typeName = result.type_name || '';
-              return !yellowWords.some((word) => typeName.includes(word));
-            });
+          if (shouldFilterYellow) {
+            filteredResults = pageResults.filter(
+              (result) => !isYellowSearchResult(result)
+            );
           }
 
           if (hasResults && filteredResults.length === 0) {
@@ -258,11 +260,10 @@ export async function GET(request: NextRequest) {
     }
   })();
 
-  const cacheTime = await getCacheTime();
   return new Response(readable, {
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': `private, max-age=${cacheTime}`,
+      'Cache-Control': 'private, no-store',
     },
   });
 }

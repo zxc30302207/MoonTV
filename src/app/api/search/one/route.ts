@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
-import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
+import {
+  canAccessAdultContent,
+  getAvailableApiSites,
+  getConfig,
+} from '@/lib/config';
 import { searchFromApiStream } from '@/lib/downstream';
 import { SearchResult } from '@/lib/types';
-import { yellowWords } from '@/lib/yellow';
+import { isYellowSearchResult } from '@/lib/yellow';
 import { normalizeForCompare, toSimplified } from '@/lib/zh';
 
 export const runtime = 'nodejs';
@@ -31,21 +35,18 @@ export async function GET(request: NextRequest) {
   const timeout = timeoutParam ? parseInt(timeoutParam, 10) * 1000 : undefined; // 毫秒
 
   if (!query || !resourceId) {
-    const cacheTime = await getCacheTime();
     return NextResponse.json(
       { result: null, error: '缺少必要參數: q 或 resourceId' },
       {
         headers: {
-          'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,
-          'CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-          'Vercel-CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-          'Netlify-Vary': 'query',
+          'Cache-Control': 'private, no-store',
         },
       }
     );
   }
 
   const config = await getConfig();
+  const shouldFilterYellow = !canAccessAdultContent(config, authInfo?.username);
   const apiSites = await getAvailableApiSites(authInfo?.username);
 
   try {
@@ -56,7 +57,7 @@ export async function GET(request: NextRequest) {
           error: `未找到指定的視頻源: ${resourceId}`,
           result: null,
         },
-        { status: 404 }
+        { status: 404, headers: { 'Cache-Control': 'private, no-store' } }
       );
     }
 
@@ -74,14 +75,9 @@ export async function GET(request: NextRequest) {
     // OrionTV 行為：按標題完全匹配過濾
     const cmp = normalizeForCompare(query || '');
     let result = allResults.filter((r) => normalizeForCompare(r.title) === cmp);
-    if (!config.SiteConfig.DisableYellowFilter) {
-      result = result.filter((item) => {
-        const typeName = item.type_name || '';
-        return !yellowWords.some((word: string) => typeName.includes(word));
-      });
+    if (shouldFilterYellow) {
+      result = result.filter((item) => !isYellowSearchResult(item));
     }
-
-    const cacheTime = await getCacheTime();
 
     if (result.length === 0) {
       return NextResponse.json(
@@ -89,7 +85,7 @@ export async function GET(request: NextRequest) {
           error: '未找到結果',
           result: null,
         },
-        { status: 404 }
+        { status: 404, headers: { 'Cache-Control': 'private, no-store' } }
       );
     }
 
@@ -97,10 +93,7 @@ export async function GET(request: NextRequest) {
       { results: result },
       {
         headers: {
-          'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,
-          'CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-          'Vercel-CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-          'Netlify-Vary': 'query',
+          'Cache-Control': 'private, no-store',
         },
       }
     );

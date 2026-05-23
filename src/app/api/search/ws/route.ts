@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
-import { getAvailableApiSites, getConfig } from '@/lib/config';
+import {
+  canAccessAdultContent,
+  getAvailableApiSites,
+  getConfig,
+} from '@/lib/config';
 import { searchFromApiStream } from '@/lib/downstream';
 import { SearchResult } from '@/lib/types';
-import { yellowWords } from '@/lib/yellow';
+import { isYellowSearchResult } from '@/lib/yellow';
 import { toSimplified } from '@/lib/zh';
 
 export const runtime = 'nodejs';
@@ -29,6 +33,7 @@ export async function GET(request: NextRequest) {
   }
 
   const config = await getConfig();
+  const shouldFilterYellow = !canAccessAdultContent(config, authInfo.username);
   const apiSites = await getAvailableApiSites(authInfo.username);
 
   // 共享狀態
@@ -99,13 +104,10 @@ export async function GET(request: NextRequest) {
 
           // 過濾黃色內容
           let filteredResults = allResults;
-          if (!config.SiteConfig.DisableYellowFilter) {
-            filteredResults = allResults.filter((result) => {
-              const typeName = result.type_name || '';
-              return !yellowWords.some((word: string) =>
-                typeName.includes(word)
-              );
-            });
+          if (shouldFilterYellow) {
+            filteredResults = allResults.filter(
+              (result) => !isYellowSearchResult(result)
+            );
           }
 
           // 發送該源的搜索結果

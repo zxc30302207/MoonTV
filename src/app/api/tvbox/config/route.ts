@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
+import { getAvailableApiSites, getConfig } from '@/lib/config';
 
 export const runtime = 'nodejs';
 
@@ -58,10 +58,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: '密碼錯誤或未提供' }, { status: 401 });
     }
 
-    const [sites, cacheTime] = await Promise.all([
-      getAvailableApiSites(username || undefined),
-      getCacheTime(),
-    ]);
+    const sites = await getAvailableApiSites(username || undefined);
 
     // 將內部 SourceConfig 映射為 TVBox 兼容的 sites
     // 常見字段：key/api/name/type/searchable/quickSearch
@@ -99,7 +96,8 @@ export async function GET(request: Request) {
 
     return NextResponse.json(payload, {
       headers: {
-        'Cache-Control': `public, max-age=${cacheTime}, s-maxage=0`,
+        'Cache-Control': 'private, no-store',
+        Vary: 'x-tvbox-password',
       },
     });
   } catch (e) {

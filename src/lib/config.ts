@@ -1,6 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, no-console, @typescript-eslint/no-non-null-assertion */
 
-import { ensureAdultAuthConfig } from '@/lib/adult-authorization';
+import {
+  ensureAdultAuthConfig,
+  getAdultAuthorizationStatus,
+} from '@/lib/adult-authorization';
 import { getStorage } from '@/lib/db';
 
 import { AdminConfig } from './admin.types';
@@ -81,6 +84,38 @@ function disableRetiredSources(adminSources: AdminConfig['SourceConfig']) {
       source.disabled = true;
     }
   });
+}
+
+export function canAccessAdultContent(
+  config: AdminConfig,
+  username?: string
+): boolean {
+  if (!config.SiteConfig.DisableYellowFilter) {
+    return false;
+  }
+
+  return getAdultAuthorizationStatus(config, username).authorized;
+}
+
+function filterAdultSourcesForUser<T extends { key: string }>(
+  sources: T[],
+  config: AdminConfig,
+  username?: string
+): T[] {
+  if (canAccessAdultContent(config, username)) {
+    return sources;
+  }
+
+  return sources.filter((source) => !ADULT_SOURCE_KEYS.has(source.key));
+}
+
+function toApiSite(source: AdminConfig['SourceConfig'][number]): ApiSite {
+  return {
+    key: source.key,
+    name: source.name,
+    api: source.api,
+    detail: source.detail,
+  };
 }
 
 export function mergeRuntimeDefaultApiSites(config: ConfigFileStruct): {
@@ -955,48 +990,32 @@ export async function getAvailableApiSites(
   username?: string
 ): Promise<ApiSite[]> {
   const config = await getConfig();
-  const all = config.SourceConfig.filter(
-    (s) => !s.disabled && !RETIRED_SOURCE_KEYS.has(s.key)
+  const all = filterAdultSourcesForUser(
+    config.SourceConfig.filter(
+      (s) => !s.disabled && !RETIRED_SOURCE_KEYS.has(s.key)
+    ),
+    config,
+    username
   );
   if (
     !username ||
     !config.UserConfig?.Groups ||
     config.UserConfig.Groups.length === 0
   ) {
-    return all.map((s) => ({
-      key: s.key,
-      name: s.name,
-      api: s.api,
-      detail: s.detail,
-    }));
+    return all.map(toApiSite);
   }
   const user = config.UserConfig.Users.find((u) => u.username === username);
   const groupName = user?.group;
   if (!groupName) {
-    return all.map((s) => ({
-      key: s.key,
-      name: s.name,
-      api: s.api,
-      detail: s.detail,
-    }));
+    return all.map(toApiSite);
   }
   const group = config.UserConfig.Groups.find((g) => g.name === groupName);
   if (!group) {
-    return all.map((s) => ({
-      key: s.key,
-      name: s.name,
-      api: s.api,
-      detail: s.detail,
-    }));
+    return all.map(toApiSite);
   }
   const allowed = new Set(group.sourceKeys);
   const filtered = all.filter((s) => allowed.has(s.key));
-  return filtered.map((s) => ({
-    key: s.key,
-    name: s.name,
-    api: s.api,
-    detail: s.detail,
-  }));
+  return filtered.map(toApiSite);
 }
 
 export async function setCachedConfig(config: AdminConfig) {

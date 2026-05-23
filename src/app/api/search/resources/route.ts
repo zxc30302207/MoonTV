@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
-import { getAvailableApiSites, getCacheTime } from '@/lib/config';
+import { getAvailableApiSites } from '@/lib/config';
 
 export const runtime = 'nodejs';
 
@@ -11,14 +11,11 @@ export async function GET(request: NextRequest) {
     const auth = getAuthInfoFromCookie(request);
     const username = auth?.username;
     const apiSites = await getAvailableApiSites(username);
-    const cacheTime = await getCacheTime();
 
     return NextResponse.json(apiSites, {
       headers: {
-        'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,
-        'CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-        'Vercel-CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-        'Netlify-Vary': 'query',
+        'Cache-Control': 'private, no-store',
+        Vary: 'Cookie',
       },
     });
   } catch (error) {

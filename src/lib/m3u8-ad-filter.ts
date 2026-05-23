@@ -7,6 +7,14 @@ type PlaylistEntry = {
   cueAd: boolean;
 };
 
+type PlaylistGroupInfo = {
+  groupNumber: number;
+  entries: PlaylistEntry[];
+  duration: number;
+  segmentCount: number;
+  signature: string;
+};
+
 export type M3U8AdFilterResult = {
   content: string;
   droppedSegments: number;
@@ -22,6 +30,9 @@ const NON_MEDIA_SEGMENT_PATTERN = /\.(?:gif|jpe?g|png|webp)(?:[?#].*)?$/i;
 
 const MAX_PREROLL_SECONDS = 90;
 const MAX_PREROLL_SEGMENTS = 60;
+const MAX_INSERTED_AD_SECONDS = 45;
+const MAX_INSERTED_AD_SEGMENTS = 20;
+const MIN_RECURRING_AD_GROUPS = 2;
 
 export function filterAdsFromM3U8(content: string): string {
   return filterAdsFromM3U8WithStats(content).content;
@@ -44,9 +55,13 @@ export function filterAdsFromM3U8WithStats(
   }
 
   const dropGroups = getPrerollGroupsToDrop(entries);
+  for (const group of Array.from(getRecurringInsertedAdGroupsToDrop(entries))) {
+    dropGroups.add(group);
+  }
   const result: string[] = [...header];
   let droppedBeforeNextEntry = false;
   let droppedSegments = 0;
+  let hasKeptSegment = false;
 
   for (const entry of entries) {
     const shouldDrop =
@@ -58,13 +73,16 @@ export function filterAdsFromM3U8WithStats(
       continue;
     }
 
-    const tags = droppedBeforeNextEntry
+    const shouldRemoveLeadingDiscontinuity =
+      droppedBeforeNextEntry && !hasKeptSegment;
+    const tags = shouldRemoveLeadingDiscontinuity
       ? entry.tags.filter((tag) => !isDiscontinuityTag(tag))
       : entry.tags;
 
     result.push(...tags.filter((tag) => !isAdControlTag(tag)));
     result.push(entry.uri);
     droppedBeforeNextEntry = false;
+    hasKeptSegment = true;
   }
 
   result.push(...tail.filter((line) => !isAdControlTag(line)));
@@ -161,12 +179,7 @@ function parseMediaPlaylist(content: string): {
 }
 
 function getPrerollGroupsToDrop(entries: PlaylistEntry[]): Set<number> {
-  const groups = new Map<number, PlaylistEntry[]>();
-  for (const entry of entries) {
-    const group = groups.get(entry.group) || [];
-    group.push(entry);
-    groups.set(entry.group, group);
-  }
+  const groups = groupEntriesByDiscontinuity(entries);
 
   const groupNumbers = Array.from(groups.keys()).sort((a, b) => a - b);
   if (groupNumbers.length < 2 || groupNumbers[0] !== 0) {
@@ -183,16 +196,103 @@ function getPrerollGroupsToDrop(entries: PlaylistEntry[]): Set<number> {
   const hasExplicitAd = firstGroup.some(
     (entry) => entry.explicitAd || entry.cueAd
   );
+  const firstSignature = getDominantPathSignature(firstGroup);
+  const restSignature = getDominantPathSignature(restGroups);
 
   const looksLikeShortPreroll =
     firstGroup.length > 0 &&
     firstGroup.length <= MAX_PREROLL_SEGMENTS &&
     firstDuration > 0 &&
     firstDuration <= MAX_PREROLL_SECONDS &&
+    firstSignature !== '' &&
+    restSignature !== '' &&
+    firstSignature !== restSignature &&
     restGroups.length >= firstGroup.length * 3 &&
     restDuration >= firstDuration * 3;
 
   return hasExplicitAd || looksLikeShortPreroll ? new Set([0]) : new Set();
+}
+
+function getRecurringInsertedAdGroupsToDrop(
+  entries: PlaylistEntry[]
+): Set<number> {
+  const groups = groupEntriesByDiscontinuity(entries);
+  const groupInfos: PlaylistGroupInfo[] = Array.from(groups.entries())
+    .map(([groupNumber, groupEntries]) => ({
+      groupNumber,
+      entries: groupEntries,
+      duration: sumDurations(groupEntries),
+      segmentCount: groupEntries.length,
+      signature: getDominantPathSignature(groupEntries),
+    }))
+    .filter((info) => info.entries.length > 0 && info.signature);
+
+  if (groupInfos.length < 3) {
+    return new Set();
+  }
+
+  const signatureDurations = new Map<string, number>();
+  for (const info of groupInfos) {
+    signatureDurations.set(
+      info.signature,
+      (signatureDurations.get(info.signature) || 0) + info.duration
+    );
+  }
+
+  const primarySignature = Array.from(signatureDurations.entries()).sort(
+    (a, b) => b[1] - a[1]
+  )[0]?.[0];
+  if (!primarySignature) {
+    return new Set();
+  }
+  const primaryDuration = signatureDurations.get(primarySignature) || 0;
+
+  const infosBySignature = new Map<string, PlaylistGroupInfo[]>();
+  for (const info of groupInfos) {
+    const list = infosBySignature.get(info.signature) || [];
+    list.push(info);
+    infosBySignature.set(info.signature, list);
+  }
+
+  const dropGroups = new Set<number>();
+  for (const [signature, infos] of Array.from(infosBySignature.entries())) {
+    if (signature === primarySignature) continue;
+
+    const signatureDuration = signatureDurations.get(signature) || 0;
+    const isMinorInsertedTrack =
+      primaryDuration > 0 && signatureDuration <= primaryDuration * 0.35;
+    const allGroupsAreShort = infos.every(
+      (info) =>
+        info.segmentCount <= MAX_INSERTED_AD_SEGMENTS &&
+        info.duration > 0 &&
+        info.duration <= MAX_INSERTED_AD_SECONDS
+    );
+    if (
+      !isMinorInsertedTrack ||
+      !allGroupsAreShort ||
+      infos.length < MIN_RECURRING_AD_GROUPS
+    ) {
+      continue;
+    }
+
+    for (const info of infos) {
+      dropGroups.add(info.groupNumber);
+    }
+  }
+
+  return dropGroups;
+}
+
+function groupEntriesByDiscontinuity(
+  entries: PlaylistEntry[]
+): Map<number, PlaylistEntry[]> {
+  const groups = new Map<number, PlaylistEntry[]>();
+  for (const entry of entries) {
+    const group = groups.get(entry.group) || [];
+    group.push(entry);
+    groups.set(entry.group, group);
+  }
+  return groups;
 }
 
 function isMasterPlaylist(content: string): boolean {
@@ -261,6 +361,24 @@ function getPendingDuration(tags: string[]): number {
 
 function sumDurations(entries: PlaylistEntry[]): number {
   return entries.reduce((total, entry) => total + entry.duration, 0);
+}
+
+function getDominantPathSignature(entries: PlaylistEntry[]): string {
+  const counts = new Map<string, number>();
+  for (const entry of entries) {
+    const signature = getPathSignature(entry.uri);
+    if (!signature) continue;
+    counts.set(signature, (counts.get(signature) || 0) + 1);
+  }
+
+  return Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+}
+
+function getPathSignature(uri: string): string {
+  const normalized = normalizeUrlLikeValue(uri.trim()).split(/[?#]/)[0];
+  const slashIndex = normalized.lastIndexOf('/');
+  if (slashIndex < 0) return '';
+  return normalized.slice(0, slashIndex + 1);
 }
 
 function normalizeUrlLikeValue(value: string): string {
