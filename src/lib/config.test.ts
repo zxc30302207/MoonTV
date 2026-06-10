@@ -83,14 +83,14 @@ describe('config runtime defaults', () => {
     const dyttzy = refined.SourceConfig.find(
       (source) => source.key === 'dyttzy'
     );
-    const ckzy = refined.SourceConfig.find((source) => source.key === 'ckzy');
+    const yutu = refined.SourceConfig.find((source) => source.key === 'yutu');
     const configFile = JSON.parse(refined.ConfigFile) as ConfigFileStruct;
 
     expect(dyttzy?.disabled).toBe(true);
     expect(dyttzy?.api).toBe('https://custom.example/api.php/provide/vod');
-    expect(ckzy).toEqual(
+    expect(yutu).toEqual(
       expect.objectContaining({
-        key: 'ckzy',
+        key: 'yutu',
         from: 'config',
         disabled: false,
       })
@@ -111,18 +111,18 @@ describe('config runtime defaults', () => {
   it('marks audited failing sources as disabled when found in saved config', () => {
     const adminConfig = createAdminConfig({
       api_site: {
-        dbzy: {
-          key: 'dbzy',
-          name: 'Retired Source',
-          api: 'https://dbzy.tv/api.php/provide/vod',
+        wwzy: {
+          key: 'wwzy',
+          name: 'Audited Failing Source',
+          api: 'https://wwzy.tv/api.php/provide/vod',
         },
       },
     });
     adminConfig.SourceConfig = [
       {
-        key: 'dbzy',
-        name: 'Retired Source',
-        api: 'https://dbzy.tv/api.php/provide/vod',
+        key: 'wwzy',
+        name: 'Audited Failing Source',
+        api: 'https://wwzy.tv/api.php/provide/vod',
         from: 'custom',
         disabled: false,
       },
@@ -131,7 +131,7 @@ describe('config runtime defaults', () => {
     const refined = refineConfig(adminConfig);
 
     expect(
-      refined.SourceConfig.find((source) => source.key === 'dbzy')
+      refined.SourceConfig.find((source) => source.key === 'wwzy')
     ).toEqual(
       expect.objectContaining({
         disabled: true,
@@ -196,10 +196,10 @@ describe('adult source visibility', () => {
     await setCachedConfig(createSourceVisibilityConfig(true));
 
     await expect(getAvailableApiSites('owner')).resolves.toEqual(
-      expect.arrayContaining([expect.objectContaining({ key: 'ckzy' })])
+      expect.arrayContaining([expect.objectContaining({ key: 'yutu' })])
     );
     await expect(getAvailableApiSites('admin')).resolves.toEqual(
-      expect.arrayContaining([expect.objectContaining({ key: 'ckzy' })])
+      expect.arrayContaining([expect.objectContaining({ key: 'yutu' })])
     );
   });
 
@@ -221,11 +221,27 @@ describe('adult source visibility', () => {
 
     const sources = await getAvailableApiSites('alice');
 
-    expect(sources.map((source) => source.key)).toEqual(['normal', 'ckzy']);
+    expect(sources.map((source) => source.key)).toEqual(['normal', 'yutu']);
   });
 
   it('keeps adult sources hidden when adult mode is disabled', async () => {
     await setCachedConfig(createSourceVisibilityConfig(false));
+
+    const sources = await getAvailableApiSites('owner');
+
+    expect(sources.map((source) => source.key)).toEqual(['normal']);
+  });
+
+  it('hides audit-disabled sources from available sites', async () => {
+    const config = createSourceVisibilityConfig(false);
+    config.SourceConfig.push({
+      key: 'wwzy',
+      name: 'Audited Failing Source',
+      api: 'https://wwzy.tv/api.php/provide/vod',
+      from: 'config',
+      disabled: false,
+    });
+    await setCachedConfig(config);
 
     const sources = await getAvailableApiSites('owner');
 
@@ -250,7 +266,7 @@ function createSourceVisibilityConfig(adultModeEnabled: boolean): AdminConfig {
       disabled: false,
     },
     {
-      key: 'ckzy',
+      key: 'yutu',
       name: 'Adult Source',
       api: 'https://adult.example/api.php/provide/vod',
       from: 'config',

@@ -16,7 +16,38 @@ interface ApiSearchItem {
 }
 
 // 匹配 m3u8 連結
-const M3U8_PATTERN = /(https?:\/\/[^"'\s]+?\.m3u8)/g;
+const M3U8_PATTERN = /https?:\/\/[^"'\s<>]+?\.m3u8(?:[?#][^"'\s<>]*)?/gi;
+const M3U8_URL_PATTERN = /^https?:\/\/.+\.m3u8(?:$|[?#])/i;
+
+function cleanM3U8Url(url: string): string {
+  return url.trim().replace(/[),.;]+$/g, '');
+}
+
+export function isPlayableM3U8Url(url?: string): url is string {
+  return Boolean(url && M3U8_URL_PATTERN.test(cleanM3U8Url(url)));
+}
+
+function parseEpisodeEntry(entry: string): { title: string; url: string } {
+  const separatorIndex = entry.indexOf('$');
+  if (separatorIndex === -1) {
+    return { title: '', url: cleanM3U8Url(entry) };
+  }
+
+  return {
+    title: entry.slice(0, separatorIndex).trim(),
+    url: cleanM3U8Url(entry.slice(separatorIndex + 1)),
+  };
+}
+
+function splitEpisodeEntries(source: string): string[] {
+  return source.split(/#(?=[^#$]*\$https?:\/\/)/i);
+}
+
+function extractM3U8Urls(content: string): string[] {
+  return Array.from(content.matchAll(M3U8_PATTERN), ([url]) =>
+    cleanM3U8Url(url)
+  ).filter(isPlayableM3U8Url);
+}
 
 /** 包裝 fetch：加入逾時與網路錯誤分類 */
 async function fetchWithTimeout(
@@ -53,7 +84,7 @@ async function fetchWithTimeout(
  *  1. vod_play_url (通過 $$$、#、$ 分割)
  *  2. 內容中的 m3u8 鏈接（正則提取）
  */
-function parseEpisodes(
+export function parseEpisodes(
   vod_play_url?: string,
   fallbackContent?: string
 ): { episodes: string[]; titles: string[] } {
@@ -67,9 +98,9 @@ function parseEpisodes(
       const currentEpisodes: string[] = [];
       const currentTitles: string[] = [];
 
-      source.split('#').forEach((entry) => {
-        const [title, url] = entry.split('$');
-        if (url?.endsWith('.m3u8')) {
+      splitEpisodeEntries(source).forEach((entry) => {
+        const { title, url } = parseEpisodeEntry(entry);
+        if (isPlayableM3U8Url(url)) {
           currentTitles.push(title);
           currentEpisodes.push(url);
         }
@@ -85,9 +116,7 @@ function parseEpisodes(
 
   // 2. 若無可解析連結，則以內容備援擷取
   if (episodes.length === 0 && fallbackContent) {
-    episodes = (fallbackContent.match(M3U8_PATTERN) ?? []).map((link: string) =>
-      link.replace(/^\$/, '')
-    );
+    episodes = extractM3U8Urls(fallbackContent);
     titles = episodes.map((_, i) => (i + 1).toString()); // 默認用序號作為標題
   }
 
@@ -282,15 +311,16 @@ async function handleSpecialSourceDetail(
   // 特定站點規則（優先）
   let matches: string[] = [];
   if (apiSite.key === 'ffzy') {
-    matches =
-      html.match(
-        /\$(https?:\/\/[^"'\s]+?\/\d{8}\/\d+_[a-f0-9]+\/index\.m3u8)/g
-      ) || [];
+    matches = extractM3U8Urls(html)
+      .filter((url) =>
+        /\/\d{8}\/\d+_[a-f0-9]+\/index\.m3u8(?:$|[?#])/i.test(url)
+      )
+      .map((url) => `$${url}`);
   }
 
   // 通用正則
   if (matches.length === 0) {
-    matches = html.match(/\$(https?:\/\/[^"'\s]+?\.m3u8)/g) || [];
+    matches = extractM3U8Urls(html).map((url) => `$${url}`);
   }
 
   // 去重並清理

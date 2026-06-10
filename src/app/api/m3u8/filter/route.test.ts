@@ -26,6 +26,7 @@ describe('/api/m3u8/filter', () => {
       '#EXT-X-VERSION:6',
       '#EXT-X-KEY:METHOD=AES-128,URI="../keys/main.key"',
       '#EXT-X-MAP:URI="init.mp4"',
+      '#EXT-X-PART:DURATION=0.333,URI="parts/part0.m4s"',
       ...segmentLines(30, 3.753, 'seg/main', 0),
       ...segmentLines(10, 2.0235, '../ad/ad', 0),
       ...segmentLines(30, 3.753, 'seg/main', 30),
@@ -52,13 +53,18 @@ describe('/api/m3u8/filter', () => {
     expect(text).toContain(
       'URI="https://media.example.com/movie/hls/init.mp4"'
     );
+    expect(text).toContain(
+      'URI="https://media.example.com/movie/hls/parts/part0.m4s"'
+    );
     expect(text).toContain('https://media.example.com/movie/hls/seg/main0.ts');
     expect(text).not.toContain('/ad/ad0.ts');
   });
 
-  it('rewrites master playlist child entries through the filter route', async () => {
+  it('rewrites master playlist child entries and URI attributes through the filter route', async () => {
     const playlist = [
       '#EXTM3U',
+      '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="main",URI="audio/playlist.m3u8"',
+      '#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=100000,URI="iframe/playlist"',
       '#EXT-X-STREAM-INF:BANDWIDTH=1000000',
       '720p/playlist',
     ].join('\n');
@@ -75,6 +81,12 @@ describe('/api/m3u8/filter', () => {
 
     expect(text).toContain(
       '/api/m3u8/filter?url=https%3A%2F%2Fmedia.example.com%2F720p%2Fplaylist'
+    );
+    expect(text).toContain(
+      'URI="/api/m3u8/filter?url=https%3A%2F%2Fmedia.example.com%2Faudio%2Fplaylist.m3u8"'
+    );
+    expect(text).toContain(
+      'URI="/api/m3u8/filter?url=https%3A%2F%2Fmedia.example.com%2Fiframe%2Fplaylist"'
     );
   });
 });

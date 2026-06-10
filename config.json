@@ -40,6 +40,10 @@
       "api": "https://api.zuidapi.com/api.php/provide/vod",
       "name": "最大資源"
     },
+    "dbzy": {
+      "api": "https://dbzy.tv/api.php/provide/vod",
+      "name": "豆瓣資源"
+    },
     "yinghua": {
       "api": "https://m3u8.apiyhzy.com/api.php/provide/vod",
       "name": "櫻花資源"

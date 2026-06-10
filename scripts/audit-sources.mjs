@@ -1,15 +1,21 @@
 #!/usr/bin/env node
 
 import fs from 'fs';
-import path from 'path';
 
-const DEFAULT_QUERIES = ['愛', '家', '2026'];
+const DEFAULT_QUERIES = [
+  '\u8ff7\u5899',
+  '\u5e86\u4f59\u5e74',
+  '\u51e1\u4eba\u4fee\u4ed9\u4f20',
+  '2026',
+];
 const DEFAULT_TIMEOUT_MS = 8000;
+const MAX_PLAYLIST_DEPTH = 4;
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 const AD_MARKER_PATTERN =
-  /(^|[/?#&._=-])(ad|ads|adv|adver|advert|advertise|advertisement|adbreak|adinsert|adseg|commercial|doubleclick|googleads|promo|preroll|pre-roll|sponsor|vast|vmap|gg|hdgg)([/?#&._=-]|$)|廣告|广告/i;
+  /(^|[/?#&._=-])(ad|ads|adv|adver|advert|advertise|advertisement|adbreak|adinsert|adseg|commercial|doubleclick|googleads|promo|preroll|pre-roll|sponsor|vast|vmap|gg|hdgg)([/?#&._=-]|$)|\u5ee3\u544a|\u5e7f\u544a/i;
 const NON_MEDIA_SEGMENT_PATTERN = /\.(?:gif|jpe?g|png|webp)(?:[?#].*)?$/i;
+const M3U8_URL_PATTERN = /^https?:\/\/.+\.m3u8(?:$|[?#])/i;
 
 const args = parseArgs(process.argv.slice(2));
 const env = loadEnvFile('.env.local');
@@ -71,42 +77,31 @@ async function auditSource(source, queries) {
     detail.searchOk = true;
     detail.sampleTitle = searchResult.item.vod_name || '';
 
-    const vod = await fetchJson(buildApiUrl(source.api, 'ids', searchResult.item.vod_id));
+    const vod = await fetchJson(
+      buildApiUrl(source.api, 'ids', searchResult.item.vod_id)
+    );
     const detailItem = Array.isArray(vod.list) ? vod.list[0] : null;
     if (!detailItem) {
       return { ...detail, reason: 'detail list empty' };
     }
     detail.detailOk = true;
 
-    const playUrl = firstPlayableUrl(detailItem.vod_play_url);
+    const directUrl = firstDirectUrl(detailItem.vod_play_url);
+    const playUrl = firstPlayableM3U8Url(detailItem.vod_play_url);
     if (!playUrl) {
-      return { ...detail, reason: 'no playable url' };
-    }
-
-    if (!/\.m3u8(?:$|[?#])/i.test(playUrl)) {
       return {
         ...detail,
-        playableOk: true,
-        status: 'pass',
-        sampleUrlType: 'non-m3u8',
-        reason: 'non-m3u8 playable url',
+        reason: directUrl ? 'no direct m3u8 url' : 'no playable url',
+        sampleUrlType: directUrl ? 'non-m3u8' : '',
       };
     }
 
-    const playlist = await fetchText(playUrl);
-    if (!playlist.trimStart().startsWith('#EXTM3U')) {
-      return { ...detail, reason: 'm3u8 response is not a playlist' };
-    }
-
-    const segmentUrl = firstSegmentUrl(playlist, playUrl);
-    if (segmentUrl) {
-      await fetchReachable(segmentUrl);
-    }
+    const validation = await validateM3U8(playUrl);
 
     return {
       ...detail,
       playableOk: true,
-      adMarkers: AD_MARKER_PATTERN.test(playlist),
+      adMarkers: AD_MARKER_PATTERN.test(validation.content),
       sampleUrlType: 'm3u8',
       status: 'pass',
       reason: 'ok',
@@ -141,7 +136,9 @@ async function firstSuccessfulSearch(source, queries) {
 function buildApiUrl(api, mode, value) {
   const separator = api.includes('?') ? '&' : '?';
   if (mode === 'search') {
-    return `${api}${separator}ac=videolist&wd=${encodeURIComponent(value)}&pg=1`;
+    return `${api}${separator}ac=videolist&wd=${encodeURIComponent(
+      value
+    )}&pg=1`;
   }
   if (mode === 'list') {
     return `${api}${separator}ac=videolist&pg=1`;
@@ -155,12 +152,105 @@ function firstVodItem(data) {
     : null;
 }
 
-function firstPlayableUrl(vodPlayUrl) {
+function firstDirectUrl(vodPlayUrl) {
   if (typeof vodPlayUrl !== 'string') return '';
   return vodPlayUrl
-    .split('#')
-    .map((part) => part.split('$').pop()?.trim() || '')
+    .split('$$$')
+    .flatMap(splitEpisodeEntries)
+    .map((part) => episodeUrlFromEntry(part))
     .find((url) => /^https?:\/\//i.test(url));
+}
+
+function firstPlayableM3U8Url(vodPlayUrl) {
+  if (typeof vodPlayUrl !== 'string') return '';
+  return vodPlayUrl
+    .split('$$$')
+    .flatMap(splitEpisodeEntries)
+    .map((part) => episodeUrlFromEntry(part))
+    .find(isPlayableM3U8Url);
+}
+
+function splitEpisodeEntries(source) {
+  return source.split(/#(?=[^#$]*\$https?:\/\/)/i);
+}
+
+function episodeUrlFromEntry(entry) {
+  const separatorIndex = entry.indexOf('$');
+  const url =
+    separatorIndex === -1 ? entry : entry.slice(separatorIndex + 1).trim();
+  return cleanM3U8Url(url);
+}
+
+function cleanM3U8Url(url) {
+  return String(url || '')
+    .trim()
+    .replace(/[),.;]+$/g, '');
+}
+
+function isPlayableM3U8Url(url) {
+  return M3U8_URL_PATTERN.test(cleanM3U8Url(url));
+}
+
+async function validateM3U8(playlistUrl, depth = 0, visited = new Set()) {
+  if (depth > MAX_PLAYLIST_DEPTH) {
+    throw new Error('m3u8 playlist nesting too deep');
+  }
+  if (visited.has(playlistUrl)) {
+    throw new Error('m3u8 playlist loop detected');
+  }
+  visited.add(playlistUrl);
+
+  const content = await fetchText(playlistUrl);
+  if (!content.trimStart().startsWith('#EXTM3U')) {
+    throw new Error('m3u8 response is not a playlist');
+  }
+
+  const childPlaylistUrl = firstChildPlaylistUrl(content, playlistUrl);
+  if (childPlaylistUrl) {
+    const child = await validateM3U8(childPlaylistUrl, depth + 1, visited);
+    return {
+      content: `${content}\n${child.content}`,
+      segmentUrl: child.segmentUrl,
+    };
+  }
+
+  const segmentUrl = firstSegmentUrl(content, playlistUrl);
+  if (!segmentUrl) {
+    throw new Error('m3u8 playlist has no media segment');
+  }
+
+  await fetchReachable(segmentUrl, {
+    headers: {
+      Accept: '*/*',
+      Range: 'bytes=0-255',
+      'User-Agent': USER_AGENT,
+    },
+  });
+
+  return { content, segmentUrl };
+}
+
+function firstChildPlaylistUrl(playlist, playlistUrl) {
+  const lines = playlist.split(/\r?\n/).map((item) => item.trim());
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    if (/^#EXT-X-STREAM-INF:/i.test(line)) {
+      const child = lines
+        .slice(index + 1)
+        .find((item) => item && !item.startsWith('#'));
+      if (child) return new URL(child, playlistUrl).toString();
+    }
+  }
+
+  const child = lines.find(
+    (item) => item && !item.startsWith('#') && isM3U8LikePath(item)
+  );
+  return child ? new URL(child, playlistUrl).toString() : '';
+}
+
+function isM3U8LikePath(value) {
+  return /\.m3u8(?:[?#].*)?$/i.test(value);
 }
 
 function firstSegmentUrl(playlist, playlistUrl) {
@@ -171,11 +261,11 @@ function firstSegmentUrl(playlist, playlistUrl) {
       (item) =>
         item &&
         !item.startsWith('#') &&
+        !isM3U8LikePath(item) &&
         !AD_MARKER_PATTERN.test(decodeURIComponentSafe(item)) &&
         !NON_MEDIA_SEGMENT_PATTERN.test(item)
     );
-  if (!line || /\.m3u8(?:$|[?#])/i.test(line)) return '';
-  return new URL(line, playlistUrl).toString();
+  return line ? new URL(line, playlistUrl).toString() : '';
 }
 
 function decodeURIComponentSafe(value) {

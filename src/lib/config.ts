@@ -66,7 +66,6 @@ export const ADULT_SOURCE_KEYS = new Set([
 ]);
 
 export const RETIRED_SOURCE_KEYS = new Set([
-  'dbzy',
   'guangsu',
   'heimuer',
   'hongniu',
@@ -78,9 +77,25 @@ export const RETIRED_SOURCE_KEYS = new Set([
   'xiaomaomi',
 ]);
 
-function disableRetiredSources(adminSources: AdminConfig['SourceConfig']) {
+export const AUDIT_DISABLED_SOURCE_KEYS = new Set([
+  'bdzy',
+  'ckzy',
+  'dnzzy',
+  'jisu',
+  'wwzy',
+  'wwzyapi',
+  'yinghua',
+]);
+
+function isDefaultDisabledSourceKey(key: string): boolean {
+  return RETIRED_SOURCE_KEYS.has(key) || AUDIT_DISABLED_SOURCE_KEYS.has(key);
+}
+
+function disableDefaultDisabledSources(
+  adminSources: AdminConfig['SourceConfig']
+) {
   adminSources.forEach((source) => {
-    if (RETIRED_SOURCE_KEYS.has(source.key)) {
+    if (isDefaultDisabledSourceKey(source.key)) {
       source.disabled = true;
     }
   });
@@ -201,7 +216,7 @@ export function refineConfig(adminConfig: AdminConfig): AdminConfig {
         api: site.api,
         detail: site.detail,
         from: 'config',
-        disabled: false,
+        disabled: isDefaultDisabledSourceKey(key),
       });
     }
   });
@@ -216,7 +231,7 @@ export function refineConfig(adminConfig: AdminConfig): AdminConfig {
 
   // 將 Map 轉換回數組
   adminConfig.SourceConfig = Array.from(sourceConfigMap.values());
-  disableRetiredSources(adminConfig.SourceConfig);
+  disableDefaultDisabledSources(adminConfig.SourceConfig);
 
   // 覆蓋 CustomCategories
   const customCategories = fileConfig.custom_category || [];
@@ -334,13 +349,14 @@ async function initConfig() {
             api: site.api,
             detail: site.detail,
             from: 'config',
-            disabled: existingSource?.disabled ?? false,
+            disabled:
+              existingSource?.disabled ?? isDefaultDisabledSourceKey(key),
           });
         });
 
         // 將 Map 轉換回數組
         adminConfig.SourceConfig = Array.from(sourceConfigMap.values());
-        disableRetiredSources(adminConfig.SourceConfig);
+        disableDefaultDisabledSources(adminConfig.SourceConfig);
 
         // 檢查現有源是否在 fileConfig.api_site 中，如果不在則標記為 custom
         const apiSiteKeys = new Set(apiSiteEntries.map(([key]) => key));
@@ -484,7 +500,7 @@ async function initConfig() {
               api: site.api,
               detail: site.detail,
               from: 'config',
-              disabled: false,
+              disabled: isDefaultDisabledSourceKey(key),
             })
           ),
           CustomCategories: (fileConfig.custom_category || []).map(
@@ -550,7 +566,7 @@ async function initConfig() {
         api: site.api,
         detail: site.detail,
         from: 'config',
-        disabled: false,
+        disabled: isDefaultDisabledSourceKey(key),
       })),
       CustomCategories:
         fileConfig.custom_category?.map((category) => ({
@@ -679,7 +695,7 @@ export async function getConfig(): Promise<AdminConfig> {
           api: site.api,
           detail: site.detail,
           from: 'config',
-          disabled: false,
+          disabled: isDefaultDisabledSourceKey(key),
         });
       }
     });
@@ -694,7 +710,7 @@ export async function getConfig(): Promise<AdminConfig> {
 
     // 將 Map 轉換回數組
     adminConfig.SourceConfig = Array.from(sourceConfigMap.values());
-    disableRetiredSources(adminConfig.SourceConfig);
+    disableDefaultDisabledSources(adminConfig.SourceConfig);
 
     // 覆蓋 CustomCategories - 只覆蓋 from 為 config 的項
     const customCategories = fileConfig.custom_category || [];
@@ -948,7 +964,7 @@ export async function resetConfig() {
       api: site.api,
       detail: site.detail,
       from: 'config',
-      disabled: false,
+      disabled: isDefaultDisabledSourceKey(key),
     })),
     CustomCategories:
       customCategories?.map((category) => ({
@@ -992,7 +1008,7 @@ export async function getAvailableApiSites(
   const config = await getConfig();
   const all = filterAdultSourcesForUser(
     config.SourceConfig.filter(
-      (s) => !s.disabled && !RETIRED_SOURCE_KEYS.has(s.key)
+      (s) => !s.disabled && !isDefaultDisabledSourceKey(s.key)
     ),
     config,
     username

@@ -124,6 +124,27 @@ describe('filterAdsFromM3U8', () => {
     expect(result.content).toContain('/videos/main/index1.ts');
   });
 
+  it('removes ad metadata without deleting the following real segment', () => {
+    const playlist = [
+      '#EXTM3U',
+      '#EXT-X-VERSION:6',
+      '#EXT-X-TARGETDURATION:6',
+      '#EXTINF:6.000000,',
+      '/videos/main/index0.ts',
+      '#EXT-X-DATERANGE:ID="ad-1",CLASS="com.apple.hls.interstitial",START-DATE="2026-05-21T00:00:00Z",DURATION=6',
+      '#EXTINF:6.000000,',
+      '/videos/main/index1.ts',
+      '#EXT-X-ENDLIST',
+    ].join('\n');
+
+    const result = filterAdsFromM3U8WithStats(playlist);
+
+    expect(result.droppedSegments).toBe(0);
+    expect(result.content).not.toContain('DATERANGE');
+    expect(result.content).toContain('/videos/main/index0.ts');
+    expect(result.content).toContain('/videos/main/index1.ts');
+  });
+
   it('removes image placeholders that appear as media entries', () => {
     const playlist = [
       '#EXTM3U',
@@ -299,6 +320,79 @@ describe('filterAdsFromM3U8', () => {
       content: playlist,
       droppedSegments: 0,
     });
+  });
+
+  it('keeps normal media when ad-like text only appears in a query string', () => {
+    const playlist = [
+      '#EXTM3U',
+      '#EXT-X-VERSION:3',
+      '#EXTINF:6.000000,',
+      'https://cdn.example.com/video/main/index0.ts?token=ad-preroll',
+      '#EXTINF:6.000000,',
+      'https://cdn.example.com/video/main/index1.ts?ad=1',
+      '#EXT-X-ENDLIST',
+    ].join('\n');
+
+    expect(filterAdsFromM3U8WithStats(playlist)).toEqual({
+      content: playlist,
+      droppedSegments: 0,
+    });
+  });
+
+  it('keeps ordinary paths that merely contain ad as part of a word', () => {
+    const playlist = [
+      '#EXTM3U',
+      '#EXT-X-VERSION:3',
+      '#EXTINF:6.000000,',
+      'https://cdn.example.com/video/adventure/index0.ts',
+      '#EXTINF:6.000000,',
+      'https://cdn.example.com/video/shadow/index1.ts',
+      '#EXT-X-ENDLIST',
+    ].join('\n');
+
+    expect(filterAdsFromM3U8WithStats(playlist)).toEqual({
+      content: playlist,
+      droppedSegments: 0,
+    });
+  });
+
+  it('keeps a playlist when the main content itself lives under an AD-like directory', () => {
+    const playlist = [
+      '#EXTM3U',
+      '#EXT-X-VERSION:3',
+      '#EXT-X-TARGETDURATION:6',
+      '#EXT-X-PLAYLIST-TYPE:VOD',
+      ...segmentLines(20, 2, 'https://cdn.example.com/mov/AD/', 'main'),
+      '#EXT-X-ENDLIST',
+    ].join('\n');
+
+    expect(filterAdsFromM3U8WithStats(playlist)).toEqual({
+      content: playlist,
+      droppedSegments: 0,
+    });
+  });
+
+  it('keeps dominant jpg media segments while removing a small AD preroll', () => {
+    const mainSegments = Array.from({ length: 30 }, (_, index) => [
+      '#EXTINF:4.000000,',
+      `https://cdn.example.com/mov/uphls/title/main${index}.jpg`,
+    ]).flat();
+    const playlist = [
+      '#EXTM3U',
+      '#EXT-X-VERSION:3',
+      '#EXT-X-TARGETDURATION:6',
+      '#EXT-X-PLAYLIST-TYPE:VOD',
+      ...segmentLines(8, 2, 'https://cdn.example.com/mov/AD/', 'pre'),
+      ...mainSegments,
+      '#EXT-X-ENDLIST',
+    ].join('\n');
+
+    const result = filterAdsFromM3U8WithStats(playlist);
+
+    expect(result.droppedSegments).toBe(8);
+    expect(result.content).not.toContain('/mov/AD/');
+    expect(result.content).toContain('/mov/uphls/title/main0.jpg');
+    expect(result.content).toContain('/mov/uphls/title/main29.jpg');
   });
 
   it('keeps playlists with many discontinuities when all groups share the same path', () => {

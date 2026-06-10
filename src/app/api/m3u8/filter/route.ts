@@ -159,12 +159,16 @@ function rewritePlaylistLine(
     return rewriteUri(trimmed, playlistUrl, options);
   }
 
-  if (trimmed.startsWith('#EXT-X-KEY') || trimmed.startsWith('#EXT-X-MAP')) {
+  if (hasUriAttribute(trimmed)) {
+    const uriOptions = isPlaylistUriAttributeTag(trimmed)
+      ? options
+      : {
+          ...options,
+          forcePlaylistUris: false,
+          playlistUrisUseFilter: false,
+        };
     return line.replace(/URI="([^"]+)"/g, (_match, uri: string) => {
-      return `URI="${rewriteUri(uri, playlistUrl, {
-        ...options,
-        playlistUrisUseFilter: false,
-      })}"`;
+      return `URI="${rewriteUri(uri, playlistUrl, uriOptions)}"`;
     });
   }
 
@@ -204,5 +208,18 @@ function isMasterPlaylist(content: string): boolean {
 function isM3U8Uri(uri: string): boolean {
   return /\.m3u8(?:[?#].*)?$/i.test(
     new URL(uri).pathname + new URL(uri).search
+  );
+}
+
+function hasUriAttribute(line: string): boolean {
+  return /\bURI="/.test(line);
+}
+
+function isPlaylistUriAttributeTag(line: string): boolean {
+  const upper = line.toUpperCase();
+  return (
+    upper.startsWith('#EXT-X-MEDIA') ||
+    upper.startsWith('#EXT-X-I-FRAME-STREAM-INF') ||
+    upper.startsWith('#EXT-X-RENDITION-REPORT')
   );
 }
