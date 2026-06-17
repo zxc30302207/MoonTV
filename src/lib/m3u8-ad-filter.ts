@@ -587,14 +587,17 @@ function getRecurringInlineAdSegmentsToDrop(
       (run) =>
         run.segmentCount <= MAX_INSERTED_AD_SEGMENTS &&
         run.duration > 0 &&
-        run.duration <= MAX_INSERTED_AD_SECONDS &&
-        isRunBetweenPrimaryContent(run, signatures, primarySignature)
+        run.duration <= MAX_INSERTED_AD_SECONDS
     );
+    const insertedRunCount = signatureRuns.filter((run) =>
+      isRunBetweenPrimaryContent(run, signatures, primarySignature)
+    ).length;
     const isMinorTrack =
       primaryDuration > 0 && signatureDuration <= primaryDuration * 0.25;
 
     if (
       signatureRuns.length < MIN_RECURRING_AD_GROUPS ||
+      insertedRunCount < MIN_RECURRING_AD_GROUPS ||
       !isMinorTrack ||
       !allRunsAreShort
     ) {

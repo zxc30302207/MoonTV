@@ -305,6 +305,35 @@ describe('filterAdsFromM3U8', () => {
     expect(result.content).toContain('main89.ts');
   });
 
+  it('removes repeated inline Modu gambling runs even when the same ad signature also appears at the tail', () => {
+    const mainBase = 'https://bf.modujx11.com/20260605/35q3P9pc/3623kb/hls/';
+    const adBase = 'https://bf.modujx15.com/20260604/LNKyEzPq/10048kb/hls/';
+    const playlist = [
+      '#EXTM3U',
+      '#EXT-X-VERSION:3',
+      '#EXT-X-TARGETDURATION:4',
+      ...segmentLines(87, 2.002, mainBase, 'main'),
+      ...segmentLines(10, 2.0235, adBase, 'gambling'),
+      ...segmentLines(337, 2.002, mainBase, 'main', 87),
+      ...segmentLines(10, 2.0235, adBase, 'gambling', 10),
+      ...segmentLines(400, 2.002, mainBase, 'main', 424),
+      ...segmentLines(10, 2.0235, adBase, 'gambling', 20),
+      ...segmentLines(400, 2.002, mainBase, 'main', 824),
+      ...segmentLines(10, 2.0235, adBase, 'gambling', 30),
+      ...segmentLines(327, 2.002, mainBase, 'main', 1224),
+      ...segmentLines(10, 2.0235, adBase, 'gambling', 40),
+      '#EXT-X-ENDLIST',
+    ].join('\n');
+
+    const result = filterAdsFromM3U8WithStats(playlist);
+
+    expect(result.droppedSegments).toBe(50);
+    expect(countMediaSegments(result.content)).toBe(1551);
+    expect(result.content).not.toContain('/LNKyEzPq/10048kb/hls/');
+    expect(result.content).toContain(`${mainBase}main0.ts`);
+    expect(result.content).toContain(`${mainBase}main1550.ts`);
+  });
+
   it('keeps a single inline alternate run because recurrence is required', () => {
     const playlist = [
       '#EXTM3U',
