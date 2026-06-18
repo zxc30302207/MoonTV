@@ -10,7 +10,7 @@ import { SearchResult } from './types';
 function makeSource(
   source: string,
   id: string,
-  episodes: string[] = ['episode-1.m3u8']
+  episodes: string[] = ['https://media.example.com/episode-1.m3u8']
 ): SearchResult {
   return {
     id,
@@ -27,18 +27,37 @@ function makeSource(
 describe('source preference helpers', () => {
   it('selects the current episode url instead of always probing episode two', () => {
     const source = makeSource('fast', '1', [
-      'current-episode.m3u8',
-      'second-episode.m3u8',
+      'https://media.example.com/current-episode.m3u8',
+      'https://media.example.com/second-episode.m3u8',
     ]);
 
-    expect(selectEpisodeUrlForSource(source, 0)).toBe('current-episode.m3u8');
-    expect(selectEpisodeUrlForSource(source, 1)).toBe('second-episode.m3u8');
+    expect(selectEpisodeUrlForSource(source, 0)).toBe(
+      'https://media.example.com/current-episode.m3u8'
+    );
+    expect(selectEpisodeUrlForSource(source, 1)).toBe(
+      'https://media.example.com/second-episode.m3u8'
+    );
   });
 
   it('falls back to the first episode when the requested episode is missing', () => {
-    const source = makeSource('partial', '1', ['fallback.m3u8']);
+    const source = makeSource('partial', '1', [
+      'https://media.example.com/fallback.m3u8',
+    ]);
 
-    expect(selectEpisodeUrlForSource(source, 99)).toBe('fallback.m3u8');
+    expect(selectEpisodeUrlForSource(source, 99)).toBe(
+      'https://media.example.com/fallback.m3u8'
+    );
+  });
+
+  it('falls back to the first direct m3u8 when the requested url is a web page', () => {
+    const source = makeSource('ffzynew', '97846', [
+      'https://vip.ffzy-online3.com/share/023f6fecc6b88ffa0b732dd682093b80',
+      'https://vip.ffzy-online3.com/20260605/45062_023f6fec/index.m3u8',
+    ]);
+
+    expect(selectEpisodeUrlForSource(source, 0)).toBe(
+      'https://vip.ffzy-online3.com/20260605/45062_023f6fec/index.m3u8'
+    );
   });
 
   it('keys source probe cache by source id and episode index', () => {

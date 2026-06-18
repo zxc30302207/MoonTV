@@ -30,6 +30,7 @@ import {
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 import { filterAdsFromM3U8WithStats } from '@/lib/m3u8-ad-filter';
+import { isDirectM3U8Url, sanitizePlaybackResult } from '@/lib/playback-url';
 import {
   type SourceProbeResult,
   type VideoProbeInfo,
@@ -462,7 +463,22 @@ function PlayPageClient() {
       return;
     }
     const newUrl = detailData?.episodes[episodeIndex] || '';
+    if (!isDirectM3U8Url(newUrl)) {
+      console.warn('Rejected non-m3u8 playback URL', {
+        source: detailData.source,
+        id: detailData.id,
+        episodeIndex,
+        url: newUrl,
+      });
+      setVideoUrl('');
+      setIsVideoLoading(false);
+      setError(
+        '播放地址不是有效的 m3u8，已阻止网页播放页进入播放器，请切换其他片源。'
+      );
+      return;
+    }
     if (newUrl !== videoUrl) {
+      setError(null);
       setVideoUrl(newUrl);
     }
   };
@@ -487,10 +503,8 @@ function PlayPageClient() {
     }
   };
 
-  const isM3U8Url = (url: string) => /\.m3u8(?:$|[?#])/i.test(url);
-
   const getPlaybackUrl = (url: string, enableBlockAd: boolean) => {
-    if (!enableBlockAd || !isM3U8Url(url)) return url;
+    if (!enableBlockAd || !isDirectM3U8Url(url)) return url;
     return `/api/m3u8/filter?url=${encodeURIComponent(url)}`;
   };
 
@@ -771,7 +785,15 @@ function PlayPageClient() {
     /**
      * 初始化播放數據
      */
-    function initDetail(detailData: SearchResult) {
+    function initDetail(rawDetailData: SearchResult) {
+      const detailData = sanitizePlaybackResult(rawDetailData);
+      if (detailData.episodes.length === 0) {
+        setError('此片源没有可播放的 m3u8 地址，请切换其他片源。');
+        setLoading(false);
+        setIsVideoLoading(false);
+        return;
+      }
+
       setCurrentSource(detailData.source);
       setCurrentId(detailData.id);
       setVideoYear(detailData.year);
@@ -1183,15 +1205,23 @@ function PlayPageClient() {
         }
       }
 
-      const newDetail = availableSources.find(
+      const rawNewDetail = availableSources.find(
         (source) => source.source === newSource && source.id === newId
       );
-      if (!newDetail) {
+      if (!rawNewDetail) {
         setError('未找到匹配結果');
         return;
       }
 
       // 嘗試跳轉到當前正在播放的集數
+      const newDetail = sanitizePlaybackResult(rawNewDetail);
+      if (newDetail.episodes.length === 0) {
+        setVideoUrl('');
+        setIsVideoLoading(false);
+        setError('此片源没有可播放的 m3u8 地址，请切换其他片源。');
+        return;
+      }
+
       let targetIndex = currentEpisodeIndex;
 
       // 如果當前集數超出新源的範圍，則跳轉到第一集
@@ -1623,6 +1653,19 @@ function PlayPageClient() {
 
     if (!videoUrl) {
       setError('視頻地址無效');
+      return;
+    }
+    if (!isDirectM3U8Url(videoUrl)) {
+      console.warn('Blocked non-m3u8 URL before player init', {
+        source: detail.source,
+        id: detail.id,
+        episodeIndex: currentEpisodeIndex,
+        url: videoUrl,
+      });
+      setError(
+        '播放地址不是有效的 m3u8，已阻止网页播放页进入播放器，请切换其他片源。'
+      );
+      setIsVideoLoading(false);
       return;
     }
     const playbackUrl = getPlaybackUrl(videoUrl, blockAdEnabledRef.current);

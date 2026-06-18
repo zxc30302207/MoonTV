@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { getAvailableApiSites } from '@/lib/config';
 import { getDetailFromApi } from '@/lib/downstream';
+import { sanitizePlaybackResult } from '@/lib/playback-url';
 
 export const runtime = 'nodejs';
 
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const result = await getDetailFromApi(apiSite, id);
+    const result = sanitizePlaybackResult(await getDetailFromApi(apiSite, id));
 
     return NextResponse.json(result, {
       headers: {

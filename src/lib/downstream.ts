@@ -1,4 +1,5 @@
 import { API_CONFIG, ApiSite, getConfig } from '@/lib/config';
+import { cleanM3U8Url, isDirectM3U8Url } from '@/lib/playback-url';
 import { SearchResult } from '@/lib/types';
 import { cleanHtmlTags } from '@/lib/utils';
 
@@ -17,14 +18,9 @@ interface ApiSearchItem {
 
 // 匹配 m3u8 連結
 const M3U8_PATTERN = /https?:\/\/[^"'\s<>]+?\.m3u8(?:[?#][^"'\s<>]*)?/gi;
-const M3U8_URL_PATTERN = /^https?:\/\/.+\.m3u8(?:$|[?#])/i;
-
-function cleanM3U8Url(url: string): string {
-  return url.trim().replace(/[),.;]+$/g, '');
-}
 
 export function isPlayableM3U8Url(url?: string): url is string {
-  return Boolean(url && M3U8_URL_PATTERN.test(cleanM3U8Url(url)));
+  return isDirectM3U8Url(url);
 }
 
 function parseEpisodeEntry(entry: string): { title: string; url: string } {

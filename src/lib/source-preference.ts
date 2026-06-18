@@ -1,3 +1,4 @@
+import { isDirectM3U8Url } from './playback-url';
 import { SearchResult } from './types';
 
 export interface VideoProbeInfo {
@@ -46,7 +47,10 @@ export function selectEpisodeUrlForSource(
       ? Math.floor(episodeIndex)
       : 0;
 
-  return episodes[safeEpisodeIndex] || episodes[0] || '';
+  const requestedEpisode = episodes[safeEpisodeIndex];
+  if (isDirectM3U8Url(requestedEpisode)) return requestedEpisode;
+
+  return episodes.find(isDirectM3U8Url) || '';
 }
 
 export function parseLoadSpeedKBps(loadSpeed: string) {

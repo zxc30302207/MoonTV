@@ -49,6 +49,37 @@ describe('parseEpisodes', () => {
     });
   });
 
+  it('chooses the ffzynew direct m3u8 group over the share page group', () => {
+    const shareGroup = Array.from({ length: 10 }, (_, index) => {
+      const episode = String(index + 1).padStart(2, '0');
+      return `第${episode}集$https://vip.ffzy-online3.com/share/${episode}3f6fecc6b88ffa0b732dd682093b80`;
+    }).join('#');
+    const m3u8Group = Array.from({ length: 10 }, (_, index) => {
+      const episode = String(index + 1).padStart(2, '0');
+      return `第${episode}集$https://vip.ffzy-online3.com/20260605/45062_${episode}3f6fec/index.m3u8`;
+    }).join('#');
+
+    const result = parseEpisodes(`${shareGroup}$$$${m3u8Group}`);
+
+    expect(result.episodes).toHaveLength(10);
+    expect(result.episodes.every((url) => url.endsWith('/index.m3u8'))).toBe(
+      true
+    );
+    expect(result.episodes.some((url) => url.includes('/share/'))).toBe(false);
+    expect(result.titles).toEqual([
+      '第01集',
+      '第02集',
+      '第03集',
+      '第04集',
+      '第05集',
+      '第06集',
+      '第07集',
+      '第08集',
+      '第09集',
+      '第10集',
+    ]);
+  });
+
   it('extracts direct m3u8 URLs from fallback content only', () => {
     const result = parseEpisodes(
       undefined,
