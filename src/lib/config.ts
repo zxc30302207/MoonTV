@@ -54,7 +54,6 @@ let fileConfig: ConfigFileStruct;
 let cachedConfig: AdminConfig;
 
 export const ADULT_SOURCE_KEYS = new Set([
-  'ckzy',
   'aivin',
   'dnzzy',
   'xiaojizy',
@@ -65,44 +64,39 @@ export const ADULT_SOURCE_KEYS = new Set([
   'souav',
 ]);
 
-export const RETIRED_SOURCE_KEYS = new Set([
+export const REMOVED_SOURCE_KEYS = new Set([
+  'bdzy',
+  'ckzy',
+  'dbzy',
   'guangsu',
   'heimuer',
   'hongniu',
   'huya',
+  'jisu',
   'jinying',
   'maotaizy',
   'mozhua',
-  'wolong',
-  'xiaomaomi',
-]);
-
-export const AUDIT_DISABLED_SOURCE_KEYS = new Set([
-  'bdzy',
-  'ckzy',
-  'dbzy',
-  'dnzzy',
-  'jisu',
   'p2100',
   'wujin',
   'wujincom',
+  'wolong',
   'wwzy',
   'wwzyapi',
-  'yinghua',
+  'xiaomaomi',
 ]);
 
-function isDefaultDisabledSourceKey(key: string): boolean {
-  return RETIRED_SOURCE_KEYS.has(key) || AUDIT_DISABLED_SOURCE_KEYS.has(key);
+function isRemovedSourceKey(key: string): boolean {
+  return REMOVED_SOURCE_KEYS.has(key);
 }
 
-function disableDefaultDisabledSources(
-  adminSources: AdminConfig['SourceConfig']
-) {
-  adminSources.forEach((source) => {
-    if (isDefaultDisabledSourceKey(source.key)) {
-      source.disabled = true;
-    }
-  });
+function removeRemovedSources(adminSources: AdminConfig['SourceConfig']) {
+  return adminSources.filter((source) => !isRemovedSourceKey(source.key));
+}
+
+function getActiveApiSiteEntries(apiSite: ConfigFileStruct['api_site']) {
+  return Object.entries(apiSite || {}).filter(
+    ([key]) => !isRemovedSourceKey(key)
+  );
 }
 
 export function canAccessAdultContent(
@@ -150,6 +144,13 @@ export function mergeRuntimeDefaultApiSites(config: ConfigFileStruct): {
   };
   let changed = false;
 
+  Object.keys(nextConfig.api_site).forEach((key) => {
+    if (isRemovedSourceKey(key)) {
+      delete nextConfig.api_site[key];
+      changed = true;
+    }
+  });
+
   if (
     nextConfig.cache_time === undefined &&
     defaults.cache_time !== undefined
@@ -159,6 +160,7 @@ export function mergeRuntimeDefaultApiSites(config: ConfigFileStruct): {
   }
 
   Object.entries(defaults.api_site || {}).forEach(([key, site]) => {
+    if (isRemovedSourceKey(key)) return;
     if (!nextConfig.api_site[key]) {
       nextConfig.api_site[key] = site;
       changed = true;
@@ -199,7 +201,7 @@ export function refineConfig(adminConfig: AdminConfig): AdminConfig {
     adminConfig.ConfigFile = JSON.stringify(fileConfig);
   }
   // 合並文件中的源信息
-  const apiSiteEntries = Object.entries(fileConfig.api_site || []);
+  const apiSiteEntries = getActiveApiSiteEntries(fileConfig.api_site);
   const sourceConfigMap = new Map(
     (adminConfig.SourceConfig || []).map((s) => [s.key, s])
   );
@@ -220,7 +222,7 @@ export function refineConfig(adminConfig: AdminConfig): AdminConfig {
         api: site.api,
         detail: site.detail,
         from: 'config',
-        disabled: isDefaultDisabledSourceKey(key),
+        disabled: false,
       });
     }
   });
@@ -234,8 +236,9 @@ export function refineConfig(adminConfig: AdminConfig): AdminConfig {
   });
 
   // 將 Map 轉換回數組
-  adminConfig.SourceConfig = Array.from(sourceConfigMap.values());
-  disableDefaultDisabledSources(adminConfig.SourceConfig);
+  adminConfig.SourceConfig = removeRemovedSources(
+    Array.from(sourceConfigMap.values())
+  );
 
   // 覆蓋 CustomCategories
   const customCategories = fileConfig.custom_category || [];
@@ -337,7 +340,7 @@ async function initConfig() {
         if (mergedConfig.changed) {
           adminConfig.ConfigFile = JSON.stringify(fileConfig);
         }
-        const apiSiteEntries = Object.entries(fileConfig.api_site || []);
+        const apiSiteEntries = getActiveApiSiteEntries(fileConfig.api_site);
         const customCategories = fileConfig.custom_category || [];
 
         // 補全 SourceConfig
@@ -353,14 +356,14 @@ async function initConfig() {
             api: site.api,
             detail: site.detail,
             from: 'config',
-            disabled:
-              existingSource?.disabled ?? isDefaultDisabledSourceKey(key),
+            disabled: existingSource?.disabled ?? false,
           });
         });
 
         // 將 Map 轉換回數組
-        adminConfig.SourceConfig = Array.from(sourceConfigMap.values());
-        disableDefaultDisabledSources(adminConfig.SourceConfig);
+        adminConfig.SourceConfig = removeRemovedSources(
+          Array.from(sourceConfigMap.values())
+        );
 
         // 檢查現有源是否在 fileConfig.api_site 中，如果不在則標記為 custom
         const apiSiteKeys = new Set(apiSiteEntries.map(([key]) => key));
@@ -497,14 +500,14 @@ async function initConfig() {
             Users: allUsers as any,
             Groups: [],
           },
-          SourceConfig: Object.entries(fileConfig.api_site || {}).map(
+          SourceConfig: getActiveApiSiteEntries(fileConfig.api_site).map(
             ([key, site]) => ({
               key,
               name: site.name,
               api: site.api,
               detail: site.detail,
               from: 'config',
-              disabled: isDefaultDisabledSourceKey(key),
+              disabled: false,
             })
           ),
           CustomCategories: (fileConfig.custom_category || []).map(
@@ -564,14 +567,16 @@ async function initConfig() {
         Users: [],
         Groups: [],
       },
-      SourceConfig: Object.entries(fileConfig.api_site).map(([key, site]) => ({
-        key,
-        name: site.name,
-        api: site.api,
-        detail: site.detail,
-        from: 'config',
-        disabled: isDefaultDisabledSourceKey(key),
-      })),
+      SourceConfig: getActiveApiSiteEntries(fileConfig.api_site).map(
+        ([key, site]) => ({
+          key,
+          name: site.name,
+          api: site.api,
+          detail: site.detail,
+          from: 'config',
+          disabled: false,
+        })
+      ),
       CustomCategories:
         fileConfig.custom_category?.map((category) => ({
           name: category.name,
@@ -677,7 +682,7 @@ export async function getConfig(): Promise<AdminConfig> {
     }
 
     // 合並文件中的源信息
-    const apiSiteEntries = Object.entries(fileConfig.api_site || []);
+    const apiSiteEntries = getActiveApiSiteEntries(fileConfig.api_site);
     const sourceConfigMap = new Map(
       (adminConfig.SourceConfig || []).map((s) => [s.key, s])
     );
@@ -699,7 +704,7 @@ export async function getConfig(): Promise<AdminConfig> {
           api: site.api,
           detail: site.detail,
           from: 'config',
-          disabled: isDefaultDisabledSourceKey(key),
+          disabled: false,
         });
       }
     });
@@ -713,8 +718,11 @@ export async function getConfig(): Promise<AdminConfig> {
     });
 
     // 將 Map 轉換回數組
-    adminConfig.SourceConfig = Array.from(sourceConfigMap.values());
-    disableDefaultDisabledSources(adminConfig.SourceConfig);
+    const sourceConfigWithRemoved = Array.from(sourceConfigMap.values());
+    adminConfig.SourceConfig = removeRemovedSources(sourceConfigWithRemoved);
+    if (adminConfig.SourceConfig.length !== sourceConfigWithRemoved.length) {
+      shouldPersistAdminConfig = true;
+    }
 
     // 覆蓋 CustomCategories - 只覆蓋 from 為 config 的項
     const customCategories = fileConfig.custom_category || [];
@@ -872,6 +880,9 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
   // 採集源去重
   const seenSourceKeys = new Set<string>();
   adminConfig.SourceConfig = adminConfig.SourceConfig.filter((source) => {
+    if (isRemovedSourceKey(source.key)) {
+      return false;
+    }
     if (seenSourceKeys.has(source.key)) {
       return false;
     }
@@ -921,7 +932,7 @@ export async function resetConfig() {
     fileConfig = runtimeConfig as unknown as ConfigFileStruct;
   }
 
-  const apiSiteEntries = Object.entries(fileConfig.api_site);
+  const apiSiteEntries = getActiveApiSiteEntries(fileConfig.api_site);
   const customCategories = fileConfig.custom_category || [];
   let allUsers = userNames.map((uname) => ({
     username: uname,
@@ -962,14 +973,16 @@ export async function resetConfig() {
       AllowRegister: process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true',
       Users: allUsers as any,
     },
-    SourceConfig: apiSiteEntries.map(([key, site]) => ({
-      key,
-      name: site.name,
-      api: site.api,
-      detail: site.detail,
-      from: 'config',
-      disabled: isDefaultDisabledSourceKey(key),
-    })),
+    SourceConfig: apiSiteEntries
+      .filter(([key]) => !isRemovedSourceKey(key))
+      .map(([key, site]) => ({
+        key,
+        name: site.name,
+        api: site.api,
+        detail: site.detail,
+        from: 'config',
+        disabled: false,
+      })),
     CustomCategories:
       customCategories?.map((category) => ({
         name: category.name,
@@ -1012,7 +1025,7 @@ export async function getAvailableApiSites(
   const config = await getConfig();
   const all = filterAdultSourcesForUser(
     config.SourceConfig.filter(
-      (s) => !s.disabled && !isDefaultDisabledSourceKey(s.key)
+      (s) => !s.disabled && !isRemovedSourceKey(s.key)
     ),
     config,
     username

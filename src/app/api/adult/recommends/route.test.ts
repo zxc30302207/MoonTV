@@ -7,7 +7,7 @@ const mockGetAvailableApiSites = jest.fn();
 const mockGetVerifiedAuthInfo = jest.fn();
 
 jest.mock('@/lib/config', () => ({
-  ADULT_SOURCE_KEYS: new Set(['dnzzy', 'ckzy']),
+  ADULT_SOURCE_KEYS: new Set(['dnzzy', 'yutu']),
   API_CONFIG: {
     search: {
       headers: {
@@ -46,9 +46,9 @@ describe('/api/adult/recommends', () => {
         api: 'https://dnz.example/api',
       },
       {
-        key: 'ckzy',
-        name: 'CK資源',
-        api: 'https://ck.example/api',
+        key: 'yutu',
+        name: '玉兔資源',
+        api: 'https://yutu.example/api',
       },
       {
         key: 'normal',
@@ -198,9 +198,9 @@ describe('/api/adult/recommends', () => {
           api: 'https://dnz.example/api',
         },
         {
-          key: 'ckzy',
-          name: 'CK資源',
-          api: 'https://ck.example/api',
+          key: 'yutu',
+          name: '玉兔資源',
+          api: 'https://yutu.example/api',
         },
       ],
       { page: 1, limit: 3 },
@@ -209,7 +209,7 @@ describe('/api/adult/recommends', () => {
 
     expect(result.list.map((item) => `${item.source}:${item.id}`)).toEqual([
       'dnzzy:1',
-      'ckzy:1',
+      'yutu:1',
       'dnzzy:2',
     ]);
     expect(result.hasMore).toBe(false);
@@ -226,9 +226,9 @@ describe('/api/adult/recommends', () => {
         api: 'https://dnz.example/api',
       },
       {
-        key: 'ckzy',
-        name: 'CK璩囨簮',
-        api: 'https://ck.example/api',
+        key: 'yutu',
+        name: '玉兔資源',
+        api: 'https://yutu.example/api',
       },
     ];
     const createFetcher = () =>

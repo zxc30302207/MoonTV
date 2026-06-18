@@ -65,7 +65,7 @@ describe('config runtime defaults', () => {
       'https://custom.example/api.php/provide/vod'
     );
     expect(result.config.api_site.ffzynew).toBeDefined();
-    expect(result.config.api_site.ckzy).toBeDefined();
+    expect(result.config.api_site.ckzy).toBeUndefined();
   });
 
   it('refines old DB config with missing sources and preserves saved switches', () => {
@@ -95,7 +95,7 @@ describe('config runtime defaults', () => {
         disabled: false,
       })
     );
-    expect(configFile.api_site.ckzy).toBeDefined();
+    expect(configFile.api_site.ckzy).toBeUndefined();
     expect(refined.SiteConfig.DisableYellowFilter).toBe(false);
   });
 
@@ -108,7 +108,7 @@ describe('config runtime defaults', () => {
     expect(refined.SiteConfig.DisableYellowFilter).toBe(true);
   });
 
-  it('marks audited failing sources as disabled when found in saved config', () => {
+  it('removes confirmed dead sources when found in saved config', () => {
     const adminConfig = createAdminConfig({
       api_site: {
         wwzy: {
@@ -130,13 +130,12 @@ describe('config runtime defaults', () => {
 
     const refined = refineConfig(adminConfig);
 
-    expect(
-      refined.SourceConfig.find((source) => source.key === 'wwzy')
-    ).toEqual(
-      expect.objectContaining({
-        disabled: true,
-      })
+    const configFile = JSON.parse(refined.ConfigFile) as ConfigFileStruct;
+
+    expect(refined.SourceConfig.some((source) => source.key === 'wwzy')).toBe(
+      false
     );
+    expect(configFile.api_site.wwzy).toBeUndefined();
   });
 
   it('repairs empty DB config files by seeding runtime sources', () => {
@@ -146,10 +145,13 @@ describe('config runtime defaults', () => {
     const refined = refineConfig(adminConfig);
     const configFile = JSON.parse(refined.ConfigFile) as ConfigFileStruct;
 
-    expect(Object.keys(configFile.api_site).length).toBeGreaterThanOrEqual(31);
+    expect(Object.keys(configFile.api_site).length).toBeGreaterThanOrEqual(23);
     expect(refined.SourceConfig.some((source) => source.key === 'ckzy')).toBe(
-      true
+      false
     );
+    expect(
+      refined.SourceConfig.some((source) => source.key === 'yinghua')
+    ).toBe(true);
     expect(refined.SiteConfig.DisableYellowFilter).toBe(false);
   });
 });
@@ -232,7 +234,7 @@ describe('adult source visibility', () => {
     expect(sources.map((source) => source.key)).toEqual(['normal']);
   });
 
-  it('hides audit-disabled sources from available sites', async () => {
+  it('hides removed sources from available sites', async () => {
     const config = createSourceVisibilityConfig(false);
     config.SourceConfig.push({
       key: 'wwzy',

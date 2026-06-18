@@ -72,12 +72,12 @@ describe('/api/search', () => {
     }
   });
 
-  it('does not call a requested adult source when it is unavailable to the user', async () => {
+  it('does not call a requested source when it is unavailable to the user', async () => {
     const { GET } = await import('./route');
 
     const response = await GET(
       new Request(
-        'http://localhost/api/search?q=NBA&sources=ckzy&stream=0'
+        'http://localhost/api/search?q=NBA&sources=yutu&stream=0'
       ) as unknown as NextRequest
     );
     const json = await response.json();

@@ -16,18 +16,25 @@ const AD_MARKER_PATTERN =
   /(^|[/?#&._=-])(ad|ads|adv|adver|advert|advertise|advertisement|adbreak|adinsert|adseg|commercial|doubleclick|googleads|promo|preroll|pre-roll|sponsor|vast|vmap|gg|hdgg)([/?#&._=-]|$)|\u5ee3\u544a|\u5e7f\u544a/i;
 const NON_MEDIA_SEGMENT_PATTERN = /\.(?:gif|jpe?g|png|webp)(?:[?#].*)?$/i;
 const M3U8_URL_PATTERN = /^https?:\/\/.+\.m3u8(?:$|[?#])/i;
-const DEFAULT_DISABLED_SOURCE_KEYS = new Set([
+const REMOVED_SOURCE_KEYS = new Set([
   'bdzy',
   'ckzy',
   'dbzy',
-  'dnzzy',
+  'guangsu',
+  'heimuer',
+  'hongniu',
+  'huya',
   'jisu',
+  'jinying',
+  'maotaizy',
+  'mozhua',
   'p2100',
   'wujin',
   'wujincom',
+  'wolong',
   'wwzy',
   'wwzyapi',
-  'yinghua',
+  'xiaomaomi',
 ]);
 
 const args = parseArgs(process.argv.slice(2));
@@ -39,12 +46,14 @@ const configSources = Object.entries(config.api_site || {}).map(
     name: source.name,
     api: source.api,
     detail: source.detail,
-    disabled: DEFAULT_DISABLED_SOURCE_KEYS.has(key),
+    disabled: false,
     from: 'config',
   })
 );
 const supabaseSources = await loadSupabaseSources(env).catch(() => []);
-const sources = mergeSources(configSources, supabaseSources);
+const sources = mergeSources(configSources, supabaseSources).filter(
+  (source) => args.source || !REMOVED_SOURCE_KEYS.has(source.key)
+);
 const filteredSources = args.source
   ? sources.filter((source) => source.key === args.source)
   : sources;
@@ -339,8 +348,7 @@ async function loadSupabaseSources(env) {
     name: source.name,
     api: source.api,
     detail: source.detail,
-    disabled:
-      Boolean(source.disabled) || DEFAULT_DISABLED_SOURCE_KEYS.has(source.key),
+    disabled: Boolean(source.disabled),
     from: source.from || 'db',
   }));
 }
