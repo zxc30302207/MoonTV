@@ -9,16 +9,16 @@ import React, {
   useState,
 } from 'react';
 
+import {
+  type VideoProbeInfo,
+  getSourceProbeKey,
+  selectEpisodeUrlForSource,
+} from '@/lib/source-preference';
 import { SearchResult } from '@/lib/types';
 import { getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
 
 // 定義視頻信息類型
-interface VideoInfo {
-  quality: string;
-  loadSpeed: string;
-  pingTime: number;
-  hasError?: boolean; // 添加錯誤狀態標識
-}
+type VideoInfo = VideoProbeInfo;
 
 interface EpisodeSelectorProps {
   /** 總集數 */
@@ -43,7 +43,10 @@ interface EpisodeSelectorProps {
   /** 預計算的測速結果，避免重復測速 */
   precomputedVideoInfo?: Map<string, VideoInfo>;
   /** 優選播放源相關 */
-  preferBestSource?: (sources: SearchResult[], isCancelled?: () => boolean) => Promise<SearchResult>;
+  preferBestSource?: (
+    sources: SearchResult[],
+    isCancelled?: () => boolean
+  ) => Promise<SearchResult>;
   setLoading: (loading: boolean) => void;
   /** 設置視頻是否正在加載中的狀態 */
   setIsVideoLoading: (loading: boolean) => void;
@@ -125,39 +128,40 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   }, [currentPage, descending, pageCount]);
 
   // 獲取視頻信息的函數 - 移除 attemptedSources 依賴避免不必要的重新創建
-  const getVideoInfo = useCallback(async (source: SearchResult) => {
-    const sourceKey = `${source.source}-${source.id}`;
+  const currentEpisodeIndex = Math.max(0, value - 1);
 
-    // 使用 ref 獲取最新的狀態，避免閉包問題
-    if (attemptedSourcesRef.current.has(sourceKey)) {
-      return;
-    }
+  const getVideoInfo = useCallback(
+    async (source: SearchResult) => {
+      const sourceKey = getSourceProbeKey(source, currentEpisodeIndex);
 
-    // 獲取第一集的URL
-    if (!source.episodes || source.episodes.length === 0) {
-      return;
-    }
-    const episodeUrl =
-      source.episodes.length > 1 ? source.episodes[1] : source.episodes[0];
+      // 使用 ref 獲取最新的狀態，避免閉包問題
+      if (attemptedSourcesRef.current.has(sourceKey)) {
+        return;
+      }
 
-    // 標記為已嘗試
-    setAttemptedSources((prev) => new Set(prev).add(sourceKey));
+      const episodeUrl = selectEpisodeUrlForSource(source, currentEpisodeIndex);
+      if (!episodeUrl) return;
 
-    try {
-      const info = await getVideoResolutionFromM3u8(episodeUrl);
-      setVideoInfoMap((prev) => new Map(prev).set(sourceKey, info));
-    } catch (error) {
-      // 失敗時保存錯誤狀態
-      setVideoInfoMap((prev) =>
-        new Map(prev).set(sourceKey, {
-          quality: '錯誤',
-          loadSpeed: '未知',
-          pingTime: 0,
-          hasError: true,
-        })
-      );
-    }
-  }, []);
+      // 標記為已嘗試
+      setAttemptedSources((prev) => new Set(prev).add(sourceKey));
+
+      try {
+        const info = await getVideoResolutionFromM3u8(episodeUrl);
+        setVideoInfoMap((prev) => new Map(prev).set(sourceKey, info));
+      } catch (error) {
+        // 失敗時保存錯誤狀態
+        setVideoInfoMap((prev) =>
+          new Map(prev).set(sourceKey, {
+            quality: '錯誤',
+            loadSpeed: '未知',
+            pingTime: 0,
+            hasError: true,
+          })
+        );
+      }
+    },
+    [currentEpisodeIndex]
+  );
 
   // 當有預計算結果時，先合並到videoInfoMap中
   useEffect(() => {
@@ -173,19 +177,15 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
 
       setAttemptedSources((prev) => {
         const newSet = new Set(prev);
-        precomputedVideoInfo.forEach((info, key) => {
-          if (!info.hasError) {
-            newSet.add(key);
-          }
+        precomputedVideoInfo.forEach((_info, key) => {
+          newSet.add(key);
         });
         return newSet;
       });
 
       // 同步更新 ref，確保 getVideoInfo 能立即看到更新
-      precomputedVideoInfo.forEach((info, key) => {
-        if (!info.hasError) {
-          attemptedSourcesRef.current.add(key);
-        }
+      precomputedVideoInfo.forEach((_info, key) => {
+        attemptedSourcesRef.current.add(key);
       });
     }
   }, [precomputedVideoInfo]);
@@ -217,7 +217,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
 
       // 篩選出尚未測速的播放源
       const pendingSources = availableSources.filter((source) => {
-        const sourceKey = `${source.source}-${source.id}`;
+        const sourceKey = getSourceProbeKey(source, currentEpisodeIndex);
         return !attemptedSourcesRef.current.has(sourceKey);
       });
 
@@ -233,7 +233,13 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
 
     fetchVideoInfosInBatches();
     // 依賴項保持與之前一致
-  }, [activeTab, availableSources, getVideoInfo, optimizationEnabled]);
+  }, [
+    activeTab,
+    availableSources,
+    currentEpisodeIndex,
+    getVideoInfo,
+    optimizationEnabled,
+  ]);
 
   // 升序分頁標簽
   const categoriesAsc = useMemo(() => {
@@ -356,69 +362,72 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
           `.trim()}
         >
           <span>換源</span>
-          {preferBestSource && availableSources && availableSources.length > 0 && (
-            <div
-              onClick={(e) => {
-                e.stopPropagation();
-                if (isOptimizing) return; // 防止重復點擊
-                if (!availableSources || availableSources.length === 0) return;
-                // 重置取消標志
-                cancelOptimizationRef.current = false;
-                setIsOptimizing(true);
-                setVideoLoadingStage('optimizing');
-                setIsVideoLoading(true);
-                preferBestSource(
-                  availableSources,
-                  () => cancelOptimizationRef.current
-                )
-                  .then((bestSource) => {
-                    // 如果已取消，則忽略結果
-                    if (cancelOptimizationRef.current) return;
-                    // 確保bestSource有效
-                    if (
-                      bestSource &&
-                      (bestSource.source !== currentSource ||
-                        bestSource.id !== currentId)
-                    ) {
-                      // 切換到最佳播放源
-                      handleSourceClick(bestSource);
-                    } else {
-                      setIsVideoLoading(false);
-                    }
-                  })
-                  .catch((_err: Error) => {
-                    // 靜默處理錯誤，因為已經有UI提示
-                  })
-                  .finally(() => {
-                    if (!cancelOptimizationRef.current) {
-                      setIsOptimizing(false);
-                      setIsVideoLoading(false);
-                      if (setLoading) setLoading(false);
-                    }
-                    // 重置取消標志
-                    cancelOptimizationRef.current = false;
-                  });
-              }}
-              className={`ml-2 bg-blue-500 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center shadow-md transition-all duration-300 ease-out ${
-                isOptimizing
-                  ? 'opacity-50 cursor-not-allowed'
-                  : 'hover:bg-blue-600 hover:scale-110 cursor-pointer'
-              }`}
-              title={isOptimizing ? '優選進行中...' : '優選播放源'}
-            >
-              <svg
-                className='w-3.5 h-3.5'
-                viewBox='0 0 24 24'
-                fill='none'
-                stroke='currentColor'
-                strokeWidth='2'
-                strokeLinecap='round'
-                strokeLinejoin='round'
+          {preferBestSource &&
+            availableSources &&
+            availableSources.length > 0 && (
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isOptimizing) return; // 防止重復點擊
+                  if (!availableSources || availableSources.length === 0)
+                    return;
+                  // 重置取消標志
+                  cancelOptimizationRef.current = false;
+                  setIsOptimizing(true);
+                  setVideoLoadingStage('optimizing');
+                  setIsVideoLoading(true);
+                  preferBestSource(
+                    availableSources,
+                    () => cancelOptimizationRef.current
+                  )
+                    .then((bestSource) => {
+                      // 如果已取消，則忽略結果
+                      if (cancelOptimizationRef.current) return;
+                      // 確保bestSource有效
+                      if (
+                        bestSource &&
+                        (bestSource.source !== currentSource ||
+                          bestSource.id !== currentId)
+                      ) {
+                        // 切換到最佳播放源
+                        handleSourceClick(bestSource);
+                      } else {
+                        setIsVideoLoading(false);
+                      }
+                    })
+                    .catch((_err: Error) => {
+                      // 靜默處理錯誤，因為已經有UI提示
+                    })
+                    .finally(() => {
+                      if (!cancelOptimizationRef.current) {
+                        setIsOptimizing(false);
+                        setIsVideoLoading(false);
+                        if (setLoading) setLoading(false);
+                      }
+                      // 重置取消標志
+                      cancelOptimizationRef.current = false;
+                    });
+                }}
+                className={`ml-2 bg-blue-500 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center shadow-md transition-all duration-300 ease-out ${
+                  isOptimizing
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'hover:bg-blue-600 hover:scale-110 cursor-pointer'
+                }`}
+                title={isOptimizing ? '優選進行中...' : '優選播放源'}
               >
-                <path d='M13 2L3 14h9l-1 8 10-12h-9l1-8z' />
-              </svg>
-            </div>
-          )}
+                <svg
+                  className='w-3.5 h-3.5'
+                  viewBox='0 0 24 24'
+                  fill='none'
+                  stroke='currentColor'
+                  strokeWidth='2'
+                  strokeLinecap='round'
+                  strokeLinejoin='round'
+                >
+                  <path d='M13 2L3 14h9l-1 8 10-12h-9l1-8z' />
+                </svg>
+              </div>
+            )}
         </div>
       </div>
 
@@ -585,7 +594,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
             !sourceSearchError &&
             availableSources.length > 0 && (
               <div className='flex-1 overflow-y-auto space-y-2 pb-20 scrollbar-hide'>
-                {availableSources
+                {[...availableSources]
                   .sort((a, b) => {
                     const aIsCurrent =
                       a.source?.toString() === currentSource?.toString() &&
@@ -646,7 +655,10 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                               )}
                             </div>
                             {(() => {
-                              const sourceKey = `${source.source}-${source.id}`;
+                              const sourceKey = getSourceProbeKey(
+                                source,
+                                currentEpisodeIndex
+                              );
                               const videoInfo = videoInfoMap.get(sourceKey);
 
                               if (videoInfo && videoInfo.quality !== '未知') {
@@ -699,7 +711,10 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                           {/* 網絡信息 - 底部 */}
                           <div className='flex items-end h-6'>
                             {(() => {
-                              const sourceKey = `${source.source}-${source.id}`;
+                              const sourceKey = getSourceProbeKey(
+                                source,
+                                currentEpisodeIndex
+                              );
                               const videoInfo = videoInfoMap.get(sourceKey);
                               if (videoInfo) {
                                 if (!videoInfo.hasError) {

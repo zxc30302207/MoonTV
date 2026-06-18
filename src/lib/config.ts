@@ -80,8 +80,12 @@ export const RETIRED_SOURCE_KEYS = new Set([
 export const AUDIT_DISABLED_SOURCE_KEYS = new Set([
   'bdzy',
   'ckzy',
+  'dbzy',
   'dnzzy',
   'jisu',
+  'p2100',
+  'wujin',
+  'wujincom',
   'wwzy',
   'wwzyapi',
   'yinghua',

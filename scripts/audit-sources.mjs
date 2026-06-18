@@ -16,6 +16,19 @@ const AD_MARKER_PATTERN =
   /(^|[/?#&._=-])(ad|ads|adv|adver|advert|advertise|advertisement|adbreak|adinsert|adseg|commercial|doubleclick|googleads|promo|preroll|pre-roll|sponsor|vast|vmap|gg|hdgg)([/?#&._=-]|$)|\u5ee3\u544a|\u5e7f\u544a/i;
 const NON_MEDIA_SEGMENT_PATTERN = /\.(?:gif|jpe?g|png|webp)(?:[?#].*)?$/i;
 const M3U8_URL_PATTERN = /^https?:\/\/.+\.m3u8(?:$|[?#])/i;
+const DEFAULT_DISABLED_SOURCE_KEYS = new Set([
+  'bdzy',
+  'ckzy',
+  'dbzy',
+  'dnzzy',
+  'jisu',
+  'p2100',
+  'wujin',
+  'wujincom',
+  'wwzy',
+  'wwzyapi',
+  'yinghua',
+]);
 
 const args = parseArgs(process.argv.slice(2));
 const env = loadEnvFile('.env.local');
@@ -26,7 +39,7 @@ const configSources = Object.entries(config.api_site || {}).map(
     name: source.name,
     api: source.api,
     detail: source.detail,
-    disabled: false,
+    disabled: DEFAULT_DISABLED_SOURCE_KEYS.has(key),
     from: 'config',
   })
 );
@@ -42,7 +55,7 @@ const queries = args.queries || DEFAULT_QUERIES;
 const results = [];
 
 for (const source of selectedSources) {
-  if (source.disabled && !args.includeDisabled) {
+  if (source.disabled && !args.includeDisabled && !args.source) {
     results.push(resultFor(source, 'skipped', 'disabled'));
     continue;
   }
@@ -326,7 +339,8 @@ async function loadSupabaseSources(env) {
     name: source.name,
     api: source.api,
     detail: source.detail,
-    disabled: Boolean(source.disabled),
+    disabled:
+      Boolean(source.disabled) || DEFAULT_DISABLED_SOURCE_KEYS.has(source.key),
     from: source.from || 'db',
   }));
 }
