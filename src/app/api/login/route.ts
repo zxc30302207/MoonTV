@@ -5,6 +5,7 @@ import { getAuthSignaturePayload } from '@/lib/auth-server';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 import { getClientIp, getRateLimitHeaders, rateLimit } from '@/lib/rate-limit';
+import { normalizeUsername } from '@/lib/username';
 
 export const runtime = 'nodejs';
 
@@ -120,13 +121,15 @@ export async function POST(req: NextRequest) {
     }
 
     // 數據庫模式——校驗用戶名並嘗試連接數據庫
-    const { username, password } = await req.json();
+    const body = await req.json();
+    const username = normalizeUsername(body.username);
+    const { password } = body;
 
-    if (!username || typeof username !== 'string') {
-      return NextResponse.json({ error: '用戶名不能為空' }, { status: 400 });
+    if (!username) {
+      return NextResponse.json({ error: '用戶名格式無效' }, { status: 400 });
     }
-    if (!password || typeof password !== 'string') {
-      return NextResponse.json({ error: '密碼不能為空' }, { status: 400 });
+    if (!password || typeof password !== 'string' || password.length > 256) {
+      return NextResponse.json({ error: '密碼格式無效' }, { status: 400 });
     }
 
     // 可能是站長，直接讀環境變量

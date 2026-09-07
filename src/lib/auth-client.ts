@@ -4,6 +4,8 @@ export type AuthInfo = {
   mode?: 'localstorage';
 };
 
+const USER_CACHE_PREFIX = 'moontv_cache_';
+
 const AUTH_CACHE_KEY = 'moontv_auth_cache';
 let cachedAuthInfo: AuthInfo | null = null;
 let inflight: Promise<AuthInfo | null> | null = null;
@@ -67,4 +69,21 @@ export async function refreshAuthInfo(): Promise<AuthInfo | null> {
 export function clearAuthInfoCache(): void {
   cachedAuthInfo = null;
   writeCachedAuthInfo(null);
+}
+
+export function clearPrivateClientState(): void {
+  cachedAuthInfo = null;
+  if (typeof window === 'undefined') return;
+
+  try {
+    Object.keys(localStorage).forEach((key) => {
+      if (key.startsWith(USER_CACHE_PREFIX)) {
+        localStorage.removeItem(key);
+      }
+    });
+    sessionStorage.removeItem(AUTH_CACHE_KEY);
+    sessionStorage.removeItem('userOnlineUpdatedAt');
+  } catch {
+    // Storage may be unavailable in private browsing modes.
+  }
 }

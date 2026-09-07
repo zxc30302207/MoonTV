@@ -18,7 +18,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import {
-  clearAuthInfoCache,
+  clearPrivateClientState,
   getCachedAuthInfo,
   refreshAuthInfo,
 } from '@/lib/auth-client';
@@ -314,7 +314,7 @@ export const UserMenu: React.FC = () => {
     } catch (error) {
       console.error('注銷請求失敗:', error);
     }
-    clearAuthInfoCache();
+    clearPrivateClientState();
     window.location.href = '/';
   };
 

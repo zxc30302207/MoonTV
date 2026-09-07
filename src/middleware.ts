@@ -7,15 +7,29 @@ import { getVerifiedAuthCookie } from '@/lib/auth-cookie';
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  const withSecurityHeaders = (response: NextResponse) => {
+    if (pathname.startsWith('/api')) {
+      response.headers.set(
+        'Cache-Control',
+        'private, no-store, max-age=0, must-revalidate'
+      );
+      response.headers.set('Pragma', 'no-cache');
+      response.headers.set('Expires', '0');
+    }
+    return response;
+  };
+
   if (pathname.startsWith('/api') && !isSafeMethod(request.method)) {
     if (!isSameOrigin(request)) {
-      return new NextResponse('Forbidden', { status: 403 });
+      return withSecurityHeaders(
+        new NextResponse('Forbidden', { status: 403 })
+      );
     }
   }
 
   // 跳過不需要認證的路徑
   if (shouldSkipAuth(pathname)) {
-    return NextResponse.next();
+    return withSecurityHeaders(NextResponse.next());
   }
 
   if (!process.env.PASSWORD) {
@@ -26,10 +40,10 @@ export async function middleware(request: NextRequest) {
 
   const authInfo = await getVerifiedAuthCookie(request);
   if (!authInfo) {
-    return handleAuthFailure(request, pathname);
+    return withSecurityHeaders(handleAuthFailure(request, pathname));
   }
 
-  return NextResponse.next();
+  return withSecurityHeaders(NextResponse.next());
 }
 
 // 處理認證失敗的情況
