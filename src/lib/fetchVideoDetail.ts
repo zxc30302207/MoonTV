@@ -1,4 +1,5 @@
 import { getAvailableApiSites } from '@/lib/config';
+import { sanitizePlaybackResult } from '@/lib/playback-url';
 import { SearchResult } from '@/lib/types';
 
 import { getDetailFromApi, searchFromApiStream } from './downstream';
@@ -7,26 +8,23 @@ interface FetchVideoDetailOptions {
   source: string;
   id: string;
   fallbackTitle?: string;
-  timeout?: number; // 超時時間（毫秒）
+  timeout?: number;
+  username?: string;
 }
 
-/**
- * 根據 source 與 id 獲取視頻詳情（支持流式搜索）。
- */
+/** 優先使用搜索中 source + id 精確命中的可播放集數，再回退到詳情接口。 */
 export async function fetchVideoDetail({
   source,
   id,
   fallbackTitle = '',
   timeout,
+  username,
 }: FetchVideoDetailOptions): Promise<SearchResult> {
-  const apiSites = await getAvailableApiSites();
+  const apiSites = await getAvailableApiSites(username);
   const apiSite = apiSites.find((site) => site.key === source);
-  if (!apiSite) {
-    throw new Error('無效的API來源');
-  }
+  if (!apiSite) throw new Error('無效的API來源');
 
-  // 使用流式搜索嘗試精確匹配
-  if (fallbackTitle) {
+  if (fallbackTitle.trim()) {
     try {
       for await (const results of searchFromApiStream(
         apiSite,
@@ -34,25 +32,23 @@ export async function fetchVideoDetail({
         true,
         timeout
       )) {
-        const exactMatch = results.find(
-          (item: SearchResult) =>
-            item.source.toString() === source.toString() &&
-            item.id.toString() === id.toString()
-        );
-        if (exactMatch) {
-          return exactMatch; // 找到就立即返回
+        for (const item of results) {
+          if (
+            String(item.source) === String(source) &&
+            String(item.id) === String(id) &&
+            item.episodes?.length
+          ) {
+            const playable = sanitizePlaybackResult(item);
+            if (playable.episodes.length) return playable;
+          }
         }
       }
-    } catch (error) {
-      // 流式搜索失敗時忽略
+    } catch {
+      // 搜索不可用時繼續使用相同來源的詳情接口。
     }
   }
 
-  // 流式搜索未命中或未提供 fallbackTitle，則調用 /api/detail
   const detail = await getDetailFromApi(apiSite, id);
-  if (!detail) {
-    throw new Error('獲取視頻詳情失敗');
-  }
-
-  return detail;
+  if (!detail) throw new Error('獲取視頻詳情失敗');
+  return sanitizePlaybackResult(detail);
 }

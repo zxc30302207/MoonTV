@@ -90,13 +90,13 @@ function generateTypeScript(changelogData) {
   const entries = changelogData.versions
     .map((version) => {
       const addedEntries = version.added
-        .map((entry) => `    "${entry}"`)
+        .map((entry) => `    ${JSON.stringify(entry)}`)
         .join(',\n');
       const changedEntries = version.changed
-        .map((entry) => `    "${entry}"`)
+        .map((entry) => `    ${JSON.stringify(entry)}`)
         .join(',\n');
       const fixedEntries = version.fixed
-        .map((entry) => `    "${entry}"`)
+        .map((entry) => `    ${JSON.stringify(entry)}`)
         .join(',\n');
 
       return `  {

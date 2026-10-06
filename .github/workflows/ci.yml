@@ -3,6 +3,9 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:
@@ -26,12 +29,21 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.pnpm-store
-          key: pnpm-store-node18-${{ hashFiles('**/pnpm-lock.yaml') }}
+          key: pnpm-store-node22-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
-            pnpm-store-node18-
+            pnpm-store-node22-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --store-dir ~/.pnpm-store
+
+      - name: Generate runtime files
+        run: pnpm gen:manifest && pnpm gen:runtime
+
+      - name: Run type check
+        run: pnpm typecheck
+
+      - name: Run unit tests
+        run: pnpm test --runInBand
 
       - name: Run linting
         run: pnpm run lint

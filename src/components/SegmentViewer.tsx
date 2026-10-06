@@ -27,7 +27,7 @@ const SegmentViewer = ({
   onClose,
   onSegmentRetry,
   taskExists,
-  concurrency = 6,
+  concurrency = 16,
   streamMode = 'disabled',
 }: SegmentViewerProps) => {
   const [retryingSegments, setRetryingSegments] = useState<Set<number>>(

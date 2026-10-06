@@ -25,7 +25,21 @@ export interface Favorite {
   search_title: string; // 搜索時使用的標題
 }
 
-// 存儲接口
+// 追更数据结构
+export interface Following {
+  source_name: string;
+  total_episodes: number;
+  watched_episodes: number;
+  title: string;
+  year: string;
+  cover: string;
+  save_time: number;
+  search_title: string;
+  source?: string;
+  id?: string;
+}
+
+// 存储接口
 export interface IStorage {
   // 播放記錄相關
   getPlayRecord(userName: string, key: string): Promise<PlayRecord | null>;
@@ -43,7 +57,23 @@ export interface IStorage {
   getAllFavorites(userName: string): Promise<{ [key: string]: Favorite }>;
   deleteFavorite(userName: string, key: string): Promise<void>;
 
-  // 用戶相關
+  // 追更相关
+  getFollowing(userName: string, key: string): Promise<Following | null>;
+  setFollowing(
+    userName: string,
+    key: string,
+    following: Following
+  ): Promise<void>;
+  updateFollowingIfUnchanged(
+    userName: string,
+    key: string,
+    previous: Following,
+    following: Following
+  ): Promise<boolean>;
+  getAllFollowings(userName: string): Promise<{ [key: string]: Following }>;
+  deleteFollowing(userName: string, key: string): Promise<void>;
+
+  // 用户相关
   registerUser(userName: string, password: string): Promise<void>;
   verifyUser(userName: string, password: string): Promise<boolean>;
   getUserPassword(userName: string): Promise<string | null>;
@@ -81,7 +111,11 @@ export interface IStorage {
   deleteSkipConfig(userName: string, source: string, id: string): Promise<void>;
   getAllSkipConfigs(userName: string): Promise<{ [key: string]: SkipConfig }>;
 
-  // 數據清理
+  // “今日新更”相关（保留一天、跟随账号跨设备）
+  getTodayUpdated(userName: string): Promise<TodayUpdatedRecord | null>;
+  setTodayUpdated(userName: string, record: TodayUpdatedRecord): Promise<void>;
+
+  // 数据清理
   clearAllData(): Promise<void>;
 }
 
@@ -123,7 +157,29 @@ export interface SkipConfig {
   outro_time: number; // 片尾時間（秒）
 }
 
-// 彈幕數據結構
+// “今日新更”条目数据结构（追更页当天检测到有新集数更新的影片）
+export interface TodayUpdatedItem {
+  source: string;
+  id: string;
+  title: string;
+  poster: string;
+  episodes: number;
+  watchedEpisodes: number;
+  unwatchedEpisodes: number;
+  source_name: string;
+  year: string;
+  save_time: number;
+  oldEpisodes: number;
+  newEpisodes: number;
+}
+
+// “今日新更”记录：按日期（YYYY-MM-DD）保存当天条目，跨天自动清空
+export interface TodayUpdatedRecord {
+  date: string; // YYYY-MM-DD
+  items: TodayUpdatedItem[];
+}
+
+// 弹幕数据结构
 export interface DanmakuItem {
   time: number; // 彈幕出現時間（秒）
   type: number; // 彈幕類型：1-滾動，2-頂部，3-底部

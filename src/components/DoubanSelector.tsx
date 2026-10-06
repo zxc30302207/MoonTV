@@ -13,7 +13,7 @@ interface SelectorOption {
 }
 
 interface DoubanSelectorProps {
-  type: 'movie' | 'tv' | 'show' | 'anime';
+  type: 'movie' | 'tv' | 'show' | 'anime' | 'short' | 'doc';
   primarySelection?: string;
   secondarySelection?: string;
   onPrimaryChange: (value: string) => void;
@@ -101,6 +101,14 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
     { label: '劇場版', value: '劇場版' },
   ];
 
+  // 標簽頁（短劇/紀錄片）一級選擇器：value 統一為 熱門/高分/最新（映射排序 T/S/R），
+  // 標簽隨類型變化；篩選行由 MultiLevelSelector 的 contentType='short'|'doc' 提供
+  const tagPagePrimaryOptions: SelectorOption[] = [
+    { label: type === 'doc' ? '熱門紀錄片' : '熱門短劇', value: '熱門' },
+    { label: type === 'doc' ? '高分紀錄片' : '高分短劇', value: '高分' },
+    { label: type === 'doc' ? '最新紀錄片' : '最新短劇', value: '最新' },
+  ];
+
   // 處理多級選擇器變化
   const handleMultiLevelChange = (values: Record<string, string>) => {
     onMultiLevelChange?.(values);
@@ -184,6 +192,17 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
         primaryButtonRefs,
         setPrimaryIndicatorStyle
       );
+    } else if (type === 'short' || type === 'doc') {
+      const activeIndex = tagPagePrimaryOptions.findIndex(
+        (opt) =>
+          opt.value === (primarySelection || tagPagePrimaryOptions[0].value)
+      );
+      updateIndicatorPosition(
+        activeIndex,
+        primaryContainerRef,
+        primaryButtonRefs,
+        setPrimaryIndicatorStyle
+      );
     }
 
     // 副選擇器初始位置
@@ -252,6 +271,17 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
       return cleanup;
     } else if (type === 'show') {
       const activeIndex = showPrimaryOptions.findIndex(
+        (opt) => opt.value === primarySelection
+      );
+      const cleanup = updateIndicatorPosition(
+        activeIndex,
+        primaryContainerRef,
+        primaryButtonRefs,
+        setPrimaryIndicatorStyle
+      );
+      return cleanup;
+    } else if (type === 'short' || type === 'doc') {
+      const activeIndex = tagPagePrimaryOptions.findIndex(
         (opt) => opt.value === primarySelection
       );
       const cleanup = updateIndicatorPosition(
@@ -558,6 +588,38 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
               </div>
             </div>
           ) : null}
+        </div>
+      )}
+
+      {/* 標簽頁類型（短劇/紀錄片）- 分類(排序) + 篩選(地區/年代/平台) */}
+      {(type === 'short' || type === 'doc') && (
+        <div className='space-y-3 sm:space-y-4'>
+          <div className='flex flex-col sm:flex-row sm:items-center gap-2'>
+            <span className='text-xs sm:text-sm font-medium text-gray-600 dark:text-gray-400 min-w-[48px]'>
+              分類
+            </span>
+            <div className='overflow-x-auto'>
+              {renderCapsuleSelector(
+                tagPagePrimaryOptions,
+                primarySelection || tagPagePrimaryOptions[0].value,
+                onPrimaryChange,
+                true
+              )}
+            </div>
+          </div>
+
+          <div className='flex flex-col sm:flex-row sm:items-center gap-2'>
+            <span className='text-xs sm:text-sm font-medium text-gray-600 dark:text-gray-400 min-w-[48px]'>
+              篩選
+            </span>
+            <div className='overflow-x-auto'>
+              <MultiLevelSelector
+                key={`${type}-${primarySelection}`}
+                onChange={handleMultiLevelChange}
+                contentType={type as 'short' | 'doc'}
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>

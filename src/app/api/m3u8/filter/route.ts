@@ -69,7 +69,15 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const content = await response.text();
+    // Relative children, keys and media must resolve against the FINAL redirect URL.
+    const resolvedPlaylistUrl = assertSafeUrl(response.url || playlistUrl, {
+      allowPrivateNetworks,
+      allowedHosts,
+    }).toString();
+    const content = (await response.text()).replace(
+      /^#MOONTV-AD-FILTER:.*(?:\r?\n|$)/gm,
+      ''
+    );
     if (!content.trimStart().startsWith('#EXTM3U')) {
       return NextResponse.json(
         { error: 'Target is not an m3u8 playlist' },
@@ -77,26 +85,55 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Separate audio/subtitle tracks may identify breaks differently. Preserve
+    // every rendition's timeline until a shared removal map is available.
+    const preserveTimeline =
+      request.nextUrl.searchParams.get('preserve') === '1' ||
+      (content.match(/^#EXT-X-STREAM-INF:/gm)?.length || 0) > 1 ||
+      content
+        .split(/\r?\n/)
+        .some(
+          (line) =>
+            line.startsWith('#EXT-X-MEDIA:') &&
+            /(?:[:,])TYPE=(?:AUDIO|SUBTITLES)(?:,|$)/.test(line) &&
+            /(?:[:,])URI="/.test(line)
+        );
     const rewritten = isMasterPlaylist(content)
       ? {
-          content: rewritePlaylistUris(content, playlistUrl, {
+          content: rewritePlaylistUris(content, resolvedPlaylistUrl, {
             allowPrivateNetworks,
             allowedHosts,
             forcePlaylistUris: true,
             playlistUrisUseFilter: true,
+            preserveTimeline,
           }),
           droppedSegments: 0,
+          droppedDuration: 0,
         }
-      : rewriteFilteredMediaPlaylist(content, playlistUrl, {
+      : rewriteFilteredMediaPlaylist(content, resolvedPlaylistUrl, {
           allowPrivateNetworks,
           allowedHosts,
+          preserveTimeline,
         });
 
-    return new NextResponse(rewritten.content, {
+    const report = JSON.stringify({
+      removedSegments: rewritten.droppedSegments,
+      removedSeconds: rewritten.droppedDuration || 0,
+      ...(preserveTimeline ? { preservedReason: 'multiple-renditions' } : {}),
+    });
+    const body = rewritten.content.replace(
+      /(#EXTM3U[^\r\n]*)(\r?\n|$)/,
+      `$1\n#MOONTV-AD-FILTER:${report}\n`
+    );
+    return new NextResponse(body, {
       headers: {
         'Cache-Control': 'private, no-store',
         'Content-Type': M3U8_CONTENT_TYPE,
         'X-MoonTV-Dropped-Segments': String(rewritten.droppedSegments),
+        'X-MoonTV-Dropped-Duration': String(rewritten.droppedDuration || 0),
+        'X-MoonTV-Filter-Mode': preserveTimeline
+          ? 'preserve-timeline'
+          : 'conservative',
       },
     });
   } catch (_) {
@@ -113,9 +150,12 @@ function rewriteFilteredMediaPlaylist(
   options: {
     allowPrivateNetworks: boolean;
     allowedHosts?: string[];
+    preserveTimeline?: boolean;
   }
-): { content: string; droppedSegments: number } {
-  const filtered = filterAdsFromM3U8WithStats(content);
+): { content: string; droppedSegments: number; droppedDuration: number } {
+  const filtered = options.preserveTimeline
+    ? { content, droppedSegments: 0, droppedDuration: 0 }
+    : filterAdsFromM3U8WithStats(content);
   return {
     content: rewritePlaylistUris(filtered.content, playlistUrl, {
       ...options,
@@ -123,6 +163,7 @@ function rewriteFilteredMediaPlaylist(
       playlistUrisUseFilter: true,
     }),
     droppedSegments: filtered.droppedSegments,
+    droppedDuration: filtered.droppedDuration || 0,
   };
 }
 
@@ -132,6 +173,7 @@ function rewritePlaylistUris(
   options: {
     allowPrivateNetworks: boolean;
     allowedHosts?: string[];
+    preserveTimeline?: boolean;
     forcePlaylistUris: boolean;
     playlistUrisUseFilter: boolean;
   }
@@ -148,6 +190,7 @@ function rewritePlaylistLine(
   options: {
     allowPrivateNetworks: boolean;
     allowedHosts?: string[];
+    preserveTimeline?: boolean;
     forcePlaylistUris: boolean;
     playlistUrisUseFilter: boolean;
   }
@@ -161,7 +204,7 @@ function rewritePlaylistLine(
 
   if (hasUriAttribute(trimmed)) {
     const uriOptions = isPlaylistUriAttributeTag(trimmed)
-      ? options
+      ? { ...options, forcePlaylistUris: true, playlistUrisUseFilter: true }
       : {
           ...options,
           forcePlaylistUris: false,
@@ -181,6 +224,7 @@ function rewriteUri(
   options: {
     allowPrivateNetworks: boolean;
     allowedHosts?: string[];
+    preserveTimeline?: boolean;
     forcePlaylistUris: boolean;
     playlistUrisUseFilter: boolean;
   }
@@ -195,7 +239,9 @@ function rewriteUri(
     options.playlistUrisUseFilter &&
     (options.forcePlaylistUris || isM3U8Uri(absoluteUrl))
   ) {
-    return `/api/m3u8/filter?url=${encodeURIComponent(absoluteUrl)}`;
+    return `/api/m3u8/filter?url=${encodeURIComponent(absoluteUrl)}${
+      options.preserveTimeline ? '&preserve=1' : ''
+    }`;
   }
 
   return absoluteUrl;

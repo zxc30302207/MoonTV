@@ -8,7 +8,15 @@ import { getStorage } from '@/lib/db';
 
 import { AdminConfig } from './admin.types';
 import { DEFAULT_DANMAKU_API_BASE_URL } from './danmaku.constants';
+import { getDefaultPlaybackSaveInterval } from './playback-settings';
 import runtimeConfig from './runtime';
+
+function defaultPlaybackSaveInterval(storageType: string): number {
+  const value = Number(process.env.NEXT_PUBLIC_PLAYBACK_SAVE_INTERVAL);
+  return Number.isFinite(value) && value >= 1 && value <= 3600
+    ? value
+    : getDefaultPlaybackSaveInterval(storageType);
+}
 
 export interface ApiSite {
   key: string;
@@ -494,6 +502,7 @@ async function initConfig() {
               DEFAULT_DANMAKU_API_BASE_URL,
             TVBoxEnabled: false,
             TVBoxPassword: '',
+            PlaybackSaveInterval: defaultPlaybackSaveInterval(storageType),
           },
           UserConfig: {
             AllowRegister: process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true',
@@ -561,6 +570,7 @@ async function initConfig() {
           DEFAULT_DANMAKU_API_BASE_URL,
         TVBoxEnabled: false,
         TVBoxPassword: '',
+        PlaybackSaveInterval: defaultPlaybackSaveInterval(storageType),
       },
       UserConfig: {
         AllowRegister: process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true',
@@ -655,7 +665,17 @@ export async function getConfig(): Promise<AdminConfig> {
       adminConfig.SiteConfig.DanmakuApiBaseUrl ||
       process.env.NEXT_PUBLIC_DANMU_API_BASE_URL ||
       DEFAULT_DANMAKU_API_BASE_URL;
-    // TVBox 開關與密碼默認值
+    // 播放进度自动保存间隔（秒）：数据库优先，其次环境变量，最后按存储类型取默认值
+    adminConfig.SiteConfig.PlaybackSaveInterval =
+      typeof adminConfig.SiteConfig.PlaybackSaveInterval === 'number' &&
+      Number.isFinite(adminConfig.SiteConfig.PlaybackSaveInterval) &&
+      adminConfig.SiteConfig.PlaybackSaveInterval >= 1 &&
+      adminConfig.SiteConfig.PlaybackSaveInterval <= 3600
+        ? adminConfig.SiteConfig.PlaybackSaveInterval
+        : defaultPlaybackSaveInterval(
+            process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage'
+          );
+    // TVBox 开关与密码默认值
     const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
     if (storageType === 'localstorage') {
       const raw = process.env.TVBOX_ENABLED;
@@ -906,6 +926,7 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
 }
 
 export async function resetConfig() {
+  const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
   const storage = getStorage();
   // 獲取所有用戶名，用於補全 Users
   let userNames: string[] = [];
@@ -968,6 +989,7 @@ export async function resetConfig() {
         DEFAULT_DANMAKU_API_BASE_URL,
       TVBoxEnabled: false,
       TVBoxPassword: '',
+      PlaybackSaveInterval: defaultPlaybackSaveInterval(storageType),
     },
     UserConfig: {
       AllowRegister: process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true',

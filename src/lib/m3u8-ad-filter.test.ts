@@ -28,10 +28,12 @@ describe('filterAdsFromM3U8', () => {
       '#EXTM3U',
       '#EXT-X-VERSION:3',
       '#EXT-X-TARGETDURATION:4',
+      '#EXT-X-CUE-OUT:4',
       '#EXTINF:2.000000,',
       'https://cdn.example.com/mov/AD/preroll0.ts',
       '#EXTINF:2.000000,',
       'https://cdn.example.com/mov/AD/preroll1.ts',
+      '#EXT-X-CUE-IN',
       '#EXT-X-DISCONTINUITY',
       '#EXT-X-KEY:METHOD=AES-128,URI="https://cdn.example.com/key.bin"',
       '#EXTINF:4.000000,',
@@ -42,12 +44,12 @@ describe('filterAdsFromM3U8', () => {
     const filtered = filterAdsFromM3U8(playlist);
 
     expect(filtered).not.toContain('/AD/');
-    expect(filtered).not.toContain('#EXT-X-DISCONTINUITY');
+    expect(filtered.split('\n')).not.toContain('#EXT-X-DISCONTINUITY');
     expect(filtered).toContain('#EXT-X-KEY:METHOD=AES-128');
     expect(filtered).toContain('https://cdn.example.com/movie/part0.ts');
   });
 
-  it('removes short leading preroll blocks before the first discontinuity', () => {
+  it('keeps an unverified cold open despite a different folder and discontinuity', () => {
     const playlist = [
       '#EXTM3U',
       '#EXT-X-VERSION:3',
@@ -67,8 +69,8 @@ describe('filterAdsFromM3U8', () => {
 
     const filtered = filterAdsFromM3U8(playlist);
 
-    expect(filtered).not.toContain('/stream/202604/08/cf1g6f/');
-    expect(filtered).not.toContain('#EXT-X-DISCONTINUITY');
+    expect(filtered).toContain('/stream/202604/08/cf1g6f/');
+    expect(filtered).toContain('#EXT-X-DISCONTINUITY');
     expect(filtered).toContain('/videos/main/index0.ts');
     expect(filtered).toContain('/videos/main/index11.ts');
   });
@@ -100,7 +102,7 @@ describe('filterAdsFromM3U8', () => {
     expect(filtered).toContain('/videos/main/index1.ts');
   });
 
-  it('removes daterange and interstitial ad markers', () => {
+  it('preserves unverified interstitial metadata and its following media', () => {
     const playlist = [
       '#EXTM3U',
       '#EXT-X-VERSION:6',
@@ -117,14 +119,14 @@ describe('filterAdsFromM3U8', () => {
 
     const result = filterAdsFromM3U8WithStats(playlist);
 
-    expect(result.droppedSegments).toBe(1);
-    expect(result.content).not.toContain('DATERANGE');
-    expect(result.content).not.toContain('vast-ad-1');
+    expect(result.droppedSegments).toBe(0);
+    expect(result.content).toContain('DATERANGE');
+    expect(result.content).toContain('vast-ad-1');
     expect(result.content).toContain('/videos/main/index0.ts');
     expect(result.content).toContain('/videos/main/index1.ts');
   });
 
-  it('removes ad metadata without deleting the following real segment', () => {
+  it('does not assume that an interstitial class identifies advertising', () => {
     const playlist = [
       '#EXTM3U',
       '#EXT-X-VERSION:6',
@@ -140,12 +142,12 @@ describe('filterAdsFromM3U8', () => {
     const result = filterAdsFromM3U8WithStats(playlist);
 
     expect(result.droppedSegments).toBe(0);
-    expect(result.content).not.toContain('DATERANGE');
+    expect(result.content).toContain('DATERANGE');
     expect(result.content).toContain('/videos/main/index0.ts');
     expect(result.content).toContain('/videos/main/index1.ts');
   });
 
-  it('removes image placeholders that appear as media entries', () => {
+  it('keeps image-suffixed entries because valid media may be disguised as jpg', () => {
     const playlist = [
       '#EXTM3U',
       '#EXT-X-VERSION:3',
@@ -159,12 +161,11 @@ describe('filterAdsFromM3U8', () => {
 
     const filtered = filterAdsFromM3U8(playlist);
 
-    expect(filtered).not.toContain('banner.jpg');
+    expect(filtered).toContain('banner.jpg');
     expect(filtered).toContain('main0000.ts');
   });
 
-  it('removes recurring short inserted ad groups from Modu-style playlists', () => {
-    const normalSegments = 170;
+  it('preserves unverified URI-only fixture: removes recurring short inserted ad groups from Modu-style playlists', () => {
     const playlist = [
       '#EXTM3U',
       '#EXT-X-VERSION:3',
@@ -185,15 +186,10 @@ describe('filterAdsFromM3U8', () => {
 
     const result = filterAdsFromM3U8WithStats(playlist);
 
-    expect(result.droppedSegments).toBe(20);
-    expect(countMediaSegments(result.content)).toBe(normalSegments);
-    expect(result.content).not.toContain('/20260521/Wjp7h1go/');
-    expect(result.content).toContain('#EXT-X-DISCONTINUITY');
-    expect(result.content).toContain('main0.ts');
-    expect(result.content).toContain('main169.ts');
+    expect(result).toEqual({ content: playlist, droppedSegments: 0 });
   });
 
-  it('removes repeated 360-style short inserted groups', () => {
+  it('preserves unverified URI-only fixture: removes repeated 360-style short inserted groups', () => {
     const playlist = [
       '#EXTM3U',
       '#EXT-X-VERSION:3',
@@ -240,13 +236,10 @@ describe('filterAdsFromM3U8', () => {
 
     const result = filterAdsFromM3U8WithStats(playlist);
 
-    expect(result.droppedSegments).toBe(10);
-    expect(countMediaSegments(result.content)).toBe(240);
-    expect(result.content).not.toContain('vod.360zyx.vip');
-    expect(result.content).toContain('#EXT-X-DISCONTINUITY');
+    expect(result).toEqual({ content: playlist, droppedSegments: 0 });
   });
 
-  it('removes sparse iKun-style recurring inserted groups', () => {
+  it('preserves unverified URI-only fixture: removes sparse iKun-style recurring inserted groups', () => {
     const playlist = [
       '#EXTM3U',
       '#EXT-X-VERSION:3',
@@ -277,13 +270,10 @@ describe('filterAdsFromM3U8', () => {
 
     const result = filterAdsFromM3U8WithStats(playlist);
 
-    expect(result.droppedSegments).toBe(20);
-    expect(countMediaSegments(result.content)).toBe(620);
-    expect(result.content).not.toContain('/20260423/i4zx6o1y/');
-    expect(result.content).toContain('main619.ts');
+    expect(result).toEqual({ content: playlist, droppedSegments: 0 });
   });
 
-  it('removes repeated inline Modu-style ad runs without discontinuity tags', () => {
+  it('preserves unverified URI-only fixture: removes repeated inline Modu-style ad runs without discontinuity tags', () => {
     const playlist = [
       '#EXTM3U',
       '#EXT-X-VERSION:3',
@@ -298,14 +288,10 @@ describe('filterAdsFromM3U8', () => {
 
     const result = filterAdsFromM3U8WithStats(playlist);
 
-    expect(result.droppedSegments).toBe(20);
-    expect(countMediaSegments(result.content)).toBe(90);
-    expect(result.content).not.toContain('/20260521/iMvWvkWK/');
-    expect(result.content).toContain('main0.ts');
-    expect(result.content).toContain('main89.ts');
+    expect(result).toEqual({ content: playlist, droppedSegments: 0 });
   });
 
-  it('removes repeated inline Modu gambling runs even when the same ad signature also appears at the tail', () => {
+  it('keeps unverified repeated alternate scenes even when their filenames sound suspicious', () => {
     const mainBase = 'https://bf.modujx11.com/20260605/35q3P9pc/3623kb/hls/';
     const adBase = 'https://bf.modujx15.com/20260604/LNKyEzPq/10048kb/hls/';
     const playlist = [
@@ -327,9 +313,9 @@ describe('filterAdsFromM3U8', () => {
 
     const result = filterAdsFromM3U8WithStats(playlist);
 
-    expect(result.droppedSegments).toBe(50);
-    expect(countMediaSegments(result.content)).toBe(1551);
-    expect(result.content).not.toContain('/LNKyEzPq/10048kb/hls/');
+    expect(result.droppedSegments).toBe(0);
+    expect(countMediaSegments(result.content)).toBe(1601);
+    expect(result.content).toContain('/LNKyEzPq/10048kb/hls/');
     expect(result.content).toContain(`${mainBase}main0.ts`);
     expect(result.content).toContain(`${mainBase}main1550.ts`);
   });
@@ -401,7 +387,7 @@ describe('filterAdsFromM3U8', () => {
     });
   });
 
-  it('keeps dominant jpg media segments while removing a small AD preroll', () => {
+  it('preserves unverified URI-only fixture: keeps dominant jpg media segments while removing a small AD preroll', () => {
     const mainSegments = Array.from({ length: 30 }, (_, index) => [
       '#EXTINF:4.000000,',
       `https://cdn.example.com/mov/uphls/title/main${index}.jpg`,
@@ -418,10 +404,7 @@ describe('filterAdsFromM3U8', () => {
 
     const result = filterAdsFromM3U8WithStats(playlist);
 
-    expect(result.droppedSegments).toBe(8);
-    expect(result.content).not.toContain('/mov/AD/');
-    expect(result.content).toContain('/mov/uphls/title/main0.jpg');
-    expect(result.content).toContain('/mov/uphls/title/main29.jpg');
+    expect(result).toEqual({ content: playlist, droppedSegments: 0 });
   });
 
   it('keeps playlists with many discontinuities when all groups share the same path', () => {
@@ -522,7 +505,9 @@ describe('filterAdsFromM3U8', () => {
       ...segmentLines(30, 4, '/video/main/hls/', 'main'),
       '#EXT-X-DISCONTINUITY',
       '#EXT-X-KEY:METHOD=NONE',
+      '#EXT-X-CUE-OUT:20',
       ...segmentLines(5, 4, '/video/ad/hls/', 'ad'),
+      '#EXT-X-CUE-IN',
       '#EXT-X-DISCONTINUITY',
       '#EXT-X-KEY:METHOD=AES-128,URI="/video/main/key.bin"',
       '#EXT-X-BYTERANGE:75232@0',
@@ -530,7 +515,9 @@ describe('filterAdsFromM3U8', () => {
       ...segmentLines(30, 4, '/video/main/hls/', 'main', 30),
       '#EXT-X-DISCONTINUITY',
       '#EXT-X-KEY:METHOD=NONE',
+      '#EXT-X-CUE-OUT:20',
       ...segmentLines(5, 4, '/video/ad/hls/', 'ad', 5),
+      '#EXT-X-CUE-IN',
       '#EXT-X-DISCONTINUITY',
       ...segmentLines(30, 4, '/video/main/hls/', 'main', 60),
       '#EXT-X-ENDLIST',
@@ -592,5 +579,286 @@ describe('filterAdsFromM3U8', () => {
 
     expect(filtered).toContain('index0.ts');
     expect(filtered).toContain('index1.ts');
+  });
+});
+
+// Bounded manifest excerpts from public configured sources, captured 2026-10-06.
+// Main programme URLs are replaced with example.com. Verified ad paths are exact.
+// Modu: 你好湖南 20261005 + 掌門低調點2026 ep34, both repeat this 17.64s clip.
+// Decoded first-segment SHA-256: 360b0c5f3838807fd6e10120eab143f7c49ca9b7a3a22b5335a202ecef668964.
+// 360: 听见繁星 + Doraemon, same 17.567s sequence across two CDN hosts.
+// Decoded first-segment SHA-256: c50a42f22eca4fb2c871f704c227c9387fdf68de5e3e5164c20f89f7152f68c8.
+// Sampled frames show gambling/VPN advertising; no frames or media are committed.
+const verifiedModu = [
+  ['ziiI7NqG.ts', 3],
+  ['6A9DtRjZ.ts', 3],
+  ['yDBttVea.ts', 5],
+  ['375tEjhm.ts', 3],
+  ['8MtYWTXy.ts', 3],
+  ['ZSaJTnmE.ts', 0.64],
+] as const;
+const verified360 = [
+  ['6DX5yaZ1.ts', 5],
+  ['Q22Q6Lti.ts', 5],
+  ['Qailk3T1.ts', 5],
+  ['aV53bW81.ts', 2.567],
+] as const;
+const verifiedLines = (
+  prefix: string,
+  entries: ReadonlyArray<readonly [string, number]>
+) =>
+  entries.flatMap(([file, duration]) => [
+    `#EXTINF:${duration},`,
+    `${prefix}${file}`,
+  ]);
+
+it('removes a verified Modu midroll plus identical tail without requiring two interior insertions', () => {
+  const ad = verifiedLines('/20260917/khKm9Z55/10110kb/hls/', verifiedModu);
+  const main = segmentLines(10, 2, 'https://main.example.com/show/', 'scene');
+  const result = filterAdsFromM3U8WithStats(
+    ['#EXTM3U', ...main, ...ad, ...main, ...ad, '#EXT-X-ENDLIST'].join('\n')
+  );
+  expect(result.droppedSegments).toBe(12);
+  expect(result.droppedDuration).toBe(35.28);
+  expect(countMediaSegments(result.content)).toBe(20);
+  expect(result.content).not.toContain('khKm9Z55');
+  expect(result.content).toContain('scene0.ts');
+  expect(result.content).toContain('scene9.ts');
+});
+
+it('matches verified 360 sequences across rotated CDN hosts and preserves normal ad-substring filenames', () => {
+  const relative = verifiedLines('/20260917/oVx7Nl6K/hls/', verified360);
+  const absolute = verifiedLines(
+    'https://new-cdn.example.com/20260917/oVx7Nl6K/hls/',
+    verified360
+  );
+  const result = filterAdsFromM3U8WithStats(
+    [
+      '#EXTM3U',
+      '#EXTINF:8,',
+      '/main/0Adg9umW.ts',
+      ...relative,
+      '#EXTINF:8,',
+      '/main/real.ts',
+      ...absolute,
+      '#EXT-X-ENDLIST',
+    ].join('\n')
+  );
+  expect(result.droppedSegments).toBe(8);
+  expect(result.droppedDuration).toBe(35.134);
+  expect(result.content).toContain('/main/0Adg9umW.ts');
+  expect(result.content).toContain('/main/real.ts');
+});
+
+it('keeps unrecognized assets in the same folder and incomplete/timing-mismatched sequences', () => {
+  const partial = verifiedLines(
+    '/20260917/khKm9Z55/10110kb/hls/',
+    verifiedModu.slice(0, 5)
+  );
+  const result = filterAdsFromM3U8WithStats(
+    [
+      '#EXTM3U',
+      '#EXTINF:8,',
+      '/main/a.ts',
+      ...partial,
+      '#EXTINF:3,',
+      '/20260917/khKm9Z55/10110kb/hls/unknown.ts',
+      '#EXT-X-ENDLIST',
+    ].join('\n')
+  );
+  expect(result.droppedSegments).toBe(0);
+  const changed = verifiedLines('/20260917/oVx7Nl6K/hls/', verified360)
+    .join('\n')
+    .replace('#EXTINF:5,', '#EXTINF:9,');
+  expect(
+    filterAdsFromM3U8WithStats(
+      `#EXTM3U\n#EXTINF:8,\n/main/a.ts\n${changed}\n#EXT-X-ENDLIST`
+    ).droppedSegments
+  ).toBe(0);
+});
+
+it('carries inherited key and map state from a removed segment to the following programme', () => {
+  const result = filterAdsFromM3U8WithStats(
+    [
+      '#EXTM3U',
+      '#EXT-X-MEDIA-SEQUENCE:100',
+      '#EXT-X-KEY:METHOD=AES-128,URI="init.key",IV=0x00000000000000000000000000000001',
+      '#EXT-X-MAP:URI="init.mp4"',
+      '#EXT-X-KEY:METHOD=AES-128,URI="key.bin"',
+      '#EXT-X-CUE-OUT:2',
+      '#EXTINF:2,',
+      '/ads/ad0.ts',
+      '#EXTINF:8,',
+      '/main/real.ts',
+      '#EXT-X-ENDLIST',
+    ].join('\n')
+  );
+  expect(result.droppedSegments).toBe(1);
+  expect(result.content).toContain('#EXT-X-MAP:URI="init.mp4"');
+  expect(result.content).toContain(
+    '#EXT-X-KEY:METHOD=AES-128,URI="key.bin",IV=0x00000000000000000000000000000065'
+  );
+  expect(result.content.indexOf('init.mp4')).toBeLessThan(
+    result.content.indexOf('/main/real.ts')
+  );
+});
+
+it('pins original implicit IVs for kept AES-128 segments after an interior removal', () => {
+  const result = filterAdsFromM3U8WithStats(
+    [
+      '#EXTM3U',
+      '#EXT-X-MEDIA-SEQUENCE:8',
+      '#EXT-X-KEY:METHOD=AES-128,URI="key.bin"',
+      '#EXTINF:8,',
+      '/main/one.ts',
+      '#EXT-X-CUE-OUT:2',
+      '#EXTINF:2,',
+      '/ads/ad.ts',
+      '#EXTINF:8,',
+      '/main/two.ts',
+      '#EXT-X-ENDLIST',
+    ].join('\n')
+  );
+  expect(result.content).toContain('IV=0x00000000000000000000000000000008');
+  expect(result.content).toContain('IV=0x0000000000000000000000000000000a');
+});
+
+it('resolves implicit byte offsets against the original segments, including removed ones', () => {
+  const result = filterAdsFromM3U8WithStats(
+    [
+      '#EXTM3U',
+      '#EXT-X-BYTERANGE:100@0',
+      '#EXTINF:8,',
+      '/main/all.ts',
+      '#EXT-X-CUE-OUT:2',
+      '#EXT-X-BYTERANGE:20',
+      '#EXTINF:2,',
+      '/main/all.ts',
+      '#EXT-X-CUE-IN',
+      '#EXT-X-BYTERANGE:100',
+      '#EXTINF:8,',
+      '/main/all.ts',
+      '#EXT-X-ENDLIST',
+    ].join('\n')
+  );
+  expect(result.droppedSegments).toBe(1);
+  expect(result.content).toContain('#EXT-X-BYTERANGE:100@120');
+});
+
+it('keeps programme content after an unclosed bounded cue and keeps an ambiguous unbounded cue', () => {
+  const bounded =
+    '#EXTM3U\n#EXT-X-CUE-OUT:2\n#EXTINF:2,\n/x/one.ts\n#EXTINF:8,\n/x/two.ts\n#EXT-X-ENDLIST';
+  expect(filterAdsFromM3U8WithStats(bounded).content).toContain('/x/two.ts');
+  expect(filterAdsFromM3U8WithStats(bounded).droppedSegments).toBe(1);
+  expect(
+    filterAdsFromM3U8WithStats(
+      bounded.replace('#EXT-X-CUE-OUT:2', '#EXT-X-CUE-OUT')
+    ).droppedSegments
+  ).toBe(0);
+});
+
+it('leaves unsupported encryption and live media sequences intact instead of corrupting playback', () => {
+  const vod =
+    '#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI="key"\n#EXTINF:2,\n/ads/ad.ts\n#EXTINF:8,\n/main/a.ts\n#EXT-X-ENDLIST';
+  expect(filterAdsFromM3U8WithStats(vod)).toEqual({
+    content: vod,
+    droppedSegments: 0,
+  });
+  const live = vod
+    .replace('#EXT-X-KEY:METHOD=SAMPLE-AES,URI="key"\n', '')
+    .replace('\n#EXT-X-ENDLIST', '');
+  expect(filterAdsFromM3U8WithStats(live)).toEqual({
+    content: live,
+    droppedSegments: 0,
+  });
+});
+
+it('never removes a minority programme scene based on gg/ad123/promo naming alone', () => {
+  for (const uri of [
+    '/movie/gg/scene.ts',
+    '/movie/ad123.ts',
+    '/movie/promo/scene.ts',
+    '/movie/scene.jpg',
+  ]) {
+    const playlist = `#EXTM3U\n#EXTINF:20,\n/movie/main1.ts\n#EXTINF:3,\n${uri}\n#EXTINF:20,\n/movie/main2.ts\n#EXT-X-ENDLIST`;
+    expect(filterAdsFromM3U8WithStats(playlist)).toEqual({
+      content: playlist,
+      droppedSegments: 0,
+    });
+  }
+});
+
+it('preserves globally scoped tags placed after KEY and pins the original sequence with compatible version', () => {
+  const result = filterAdsFromM3U8WithStats(
+    [
+      '#EXTM3U',
+      '#EXT-X-KEY:METHOD=AES-128,URI="key.bin"',
+      '#EXT-X-MEDIA-SEQUENCE:100',
+      '#EXT-X-TARGETDURATION:8',
+      '#EXT-X-PLAYLIST-TYPE:VOD',
+      '#EXT-X-CUE-OUT:2',
+      '#EXTINF:2,',
+      '/x/ad.ts',
+      '#EXTINF:8,',
+      '/x/main.ts',
+      '#EXT-X-ENDLIST',
+    ].join('\n')
+  );
+  expect(result.droppedSegments).toBe(1);
+  expect(result.content).toContain('#EXT-X-MEDIA-SEQUENCE:101');
+  expect(result.content).toContain('#EXT-X-TARGETDURATION:8');
+  expect(result.content).toContain('#EXT-X-PLAYLIST-TYPE:VOD');
+  expect(result.content).toContain('#EXT-X-VERSION:2');
+  expect(result.content).toContain('IV=0x00000000000000000000000000000065');
+});
+
+it('leaves leading discontinuity and sequence metadata byte-for-byte unchanged when nothing is removed', () => {
+  for (const tail of ['', '\n#EXT-X-ENDLIST']) {
+    const playlist =
+      '#EXTM3U\n#EXT-X-DISCONTINUITY-SEQUENCE:10\n#EXT-X-DISCONTINUITY\n#EXTINF:8,\n/main/real.ts' +
+      tail;
+    expect(filterAdsFromM3U8WithStats(playlist)).toEqual({
+      content: playlist,
+      droppedSegments: 0,
+    });
+  }
+});
+
+it('preserves an unknown director introduction interstitial, including beside a verified ad removal', () => {
+  const introduction =
+    '#EXT-X-DATERANGE:ID="director-introduction",CLASS="com.apple.hls.interstitial",X-ASSET-URI="intro.m3u8",START-DATE="2026-10-06T00:00:00Z"';
+  const main = ['#EXTM3U', introduction, '#EXTINF:8,', '/main/one.ts'];
+  const unchanged = [...main, '#EXT-X-ENDLIST'].join('\n');
+  expect(filterAdsFromM3U8WithStats(unchanged)).toEqual({
+    content: unchanged,
+    droppedSegments: 0,
+  });
+  const filtered = filterAdsFromM3U8WithStats(
+    [
+      ...main,
+      ...verifiedLines('/20260917/oVx7Nl6K/hls/', verified360),
+      '#EXT-X-ENDLIST',
+    ].join('\n')
+  );
+  expect(filtered.droppedSegments).toBe(0);
+  expect(filtered.content).toContain('oVx7Nl6K');
+  expect(filtered.content).toContain(introduction);
+  expect(filtered.content).toContain('/main/one.ts');
+});
+
+it('preserves unknown timed metadata attached to a verified ad or final removed block', () => {
+  const metadata =
+    '#EXT-X-DATERANGE:ID="director-introduction",CLASS="com.apple.hls.interstitial",X-ASSET-URI="intro.m3u8",START-DATE="2026-10-06T00:00:00Z"';
+  const playlist = [
+    '#EXTM3U',
+    '#EXTINF:20,',
+    '/main/programme.ts',
+    metadata,
+    ...verifiedLines('/20260917/oVx7Nl6K/hls/', verified360),
+    '#EXT-X-ENDLIST',
+  ].join('\n');
+  expect(filterAdsFromM3U8WithStats(playlist)).toEqual({
+    content: playlist,
+    droppedSegments: 0,
   });
 });

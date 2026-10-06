@@ -1,13 +1,59 @@
-import { ArrowLeft } from 'lucide-react';
+'use client';
 
-export function BackButton() {
+import { ArrowLeft } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+
+interface BackButtonProps {
+  /**
+   * 沒有上一頁歷史時跳轉的兜底地址。
+   *
+   * 直接打開播放頁（新標簽、外部鏈接進來）時 `history.length` 為 1，
+   * 此時 `router.back()` 什麼都不做，必須兜底跳轉。
+   */
+  fallbackHref?: string;
+  /** 是否在圖標旁顯示文字標簽 */
+  showLabel?: boolean;
+  /** 文字標簽內容 */
+  label?: string;
+  /** 追加的樣式類 */
+  className?: string;
+}
+
+/**
+ * 返回上一級按鈕。
+ *
+ * 播放頁此前沒有任何返回入口，退出只能回主頁重新點進來，非常不方便。
+ */
+export function BackButton({
+  fallbackHref = '/',
+  showLabel = false,
+  label = '返回',
+  className = '',
+}: BackButtonProps) {
+  const router = useRouter();
+
+  const handleBack = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.push(fallbackHref);
+  };
+
+  const baseClass = showLabel
+    ? 'inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-sm transition-colors'
+    : 'flex h-10 w-10 items-center justify-center rounded-full p-2 transition-colors';
+
   return (
     <button
-      onClick={() => window.history.back()}
-      className='w-10 h-10 p-2 rounded-full flex items-center justify-center text-gray-600 hover:bg-gray-200/50 dark:text-gray-300 dark:hover:bg-gray-700/50 transition-colors'
-      aria-label='Back'
+      type='button'
+      onClick={handleBack}
+      className={`${baseClass} bg-gray-200/70 text-gray-700 hover:bg-gray-300/80 dark:bg-gray-700/70 dark:text-gray-200 dark:hover:bg-gray-600/80 ${className}`}
+      aria-label={label}
+      title={label}
     >
-      <ArrowLeft className='w-full h-full' />
+      <ArrowLeft className={showLabel ? 'h-4 w-4' : 'h-full w-full'} />
+      {showLabel && <span>{label}</span>}
     </button>
   );
 }

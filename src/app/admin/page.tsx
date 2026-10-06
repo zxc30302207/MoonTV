@@ -50,7 +50,12 @@ import {
   refreshAuthInfo,
 } from '@/lib/auth-client';
 import { DEFAULT_DANMAKU_API_BASE_URL } from '@/lib/danmaku.constants';
+import {
+  getDefaultPlaybackSaveInterval,
+  PLAYBACK_SAVE_DEFAULT_SECONDS,
+} from '@/lib/playback-settings';
 
+import { BackButton } from '@/components/BackButton';
 import DataMigration from '@/components/DataMigration';
 import PageLayout from '@/components/PageLayout';
 
@@ -81,6 +86,7 @@ interface SiteConfig {
   TVBoxEnabled?: boolean;
   TVBoxPassword?: string;
   DanmakuApiBaseUrl?: string;
+  PlaybackSaveInterval?: number;
 }
 
 // 視頻源數據類型
@@ -2753,6 +2759,7 @@ const SiteConfigComponent = ({
     TVBoxEnabled: false,
     TVBoxPassword: '',
     DanmakuApiBaseUrl: DEFAULT_DANMAKU_API_BASE_URL,
+    PlaybackSaveInterval: PLAYBACK_SAVE_DEFAULT_SECONDS,
   });
   // 保存狀態
   const [saving, setSaving] = useState(false);
@@ -2846,6 +2853,15 @@ const SiteConfigComponent = ({
     }
   };
 
+  // 播放進度保存間隔：環境變數優先，否則使用預設值。
+  const defaultSaveInterval =
+    Number(process.env.NEXT_PUBLIC_PLAYBACK_SAVE_INTERVAL) ||
+    getDefaultPlaybackSaveInterval(
+      typeof window !== 'undefined'
+        ? (window as any).RUNTIME_CONFIG?.STORAGE_TYPE
+        : 'localstorage'
+    );
+
   useEffect(() => {
     if (config?.SiteConfig) {
       setSiteSettings({
@@ -2860,9 +2876,11 @@ const SiteConfigComponent = ({
         TVBoxPassword: config.SiteConfig.TVBoxPassword || '',
         DanmakuApiBaseUrl:
           config.SiteConfig.DanmakuApiBaseUrl || DEFAULT_DANMAKU_API_BASE_URL,
+        PlaybackSaveInterval:
+          config.SiteConfig.PlaybackSaveInterval || defaultSaveInterval,
       });
     }
-  }, [config]);
+  }, [config, defaultSaveInterval]);
 
   useEffect(() => {
     refreshTvboxConfigUrl();
@@ -3314,6 +3332,34 @@ const SiteConfigComponent = ({
         />
       </div>
 
+      {/* 播放進度自動保存間隔 */}
+      <div>
+        <div className='flex items-center justify-between'>
+          <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+            播放進度自動保存間隔（秒）
+          </label>
+        </div>
+        <input
+          type='number'
+          min={5}
+          max={300}
+          step={1}
+          value={siteSettings.PlaybackSaveInterval}
+          onChange={(e) =>
+            setSiteSettings((prev) => ({
+              ...prev,
+              PlaybackSaveInterval: Number(e.target.value),
+            }))
+          }
+          className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent'
+        />
+        <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
+          控制播放過程中每隔多少秒自動保存一次播放進度。數值越小進度保存越精確，但會帶來更多
+          API 請求與資料庫寫入；建議範圍為 5 ~ 60 秒，預設為 5
+          秒，可透過環境變數調整。
+        </p>
+      </div>
+
       {/* 禁用黃色過濾器 */}
       <div>
         <div className='flex items-center justify-between'>
@@ -3600,6 +3646,9 @@ function AdminPageClient() {
       <PageLayout activePath='/admin'>
         <div className='px-2 sm:px-10 py-4 sm:py-8'>
           <div className='max-w-[95%] mx-auto'>
+            <div className='mb-6'>
+              <BackButton showLabel />
+            </div>
             <h1 className='text-2xl font-bold text-gray-900 dark:text-gray-100 mb-8'>
               管理員設置
             </h1>
@@ -3626,8 +3675,9 @@ function AdminPageClient() {
     <PageLayout activePath='/admin'>
       <div className='px-2 sm:px-10 py-4 sm:py-8'>
         <div className='max-w-[95%] mx-auto'>
-          {/* 標題 + 重置配置按鈕 */}
+          {/* 返回 + 標題 + 重置配置按鈕 */}
           <div className='flex items-center gap-2 mb-8'>
+            <BackButton showLabel />
             <h1 className='text-2xl font-bold text-gray-900 dark:text-gray-100'>
               管理員設置
             </h1>

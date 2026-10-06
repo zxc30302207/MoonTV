@@ -5,6 +5,15 @@ import { useEffect, useState } from 'react';
 
 import { M3U8Task, parseM3U8, StreamSaverMode } from '@/lib/m3u8-downloader';
 
+/** 批量下載的單集選項（由播放頁傳入全部集數） */
+export interface EpisodeOption {
+  url: string;
+  /** 完整文件名（劇名_第N集） */
+  title: string;
+  /** 集數顯示名（第N集） */
+  label: string;
+}
+
 interface AddDownloadModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -18,10 +27,14 @@ interface AddDownloadModalProps {
     endSegment: number;
     streamMode: StreamSaverMode;
     maxRetries: number; // 最大重試次數
-    parsedTask: M3U8Task;
+    parsedTask?: M3U8Task; // 批量下載時非當前集沒有預解析數據
   }) => void;
   initialUrl?: string;
   initialTitle?: string;
+  /** 全部集數（長度 > 1 時啟用批量選擇） */
+  episodes?: EpisodeOption[];
+  /** 當前播放集的索引（批量模式默認勾選） */
+  currentEpisodeIndex?: number;
   skipConfig?: {
     enable: boolean;
     intro_time: number;
@@ -37,6 +50,8 @@ const AddDownloadModal = ({
   onAddTask,
   initialUrl = '',
   initialTitle = '',
+  episodes,
+  currentEpisodeIndex = 0,
   skipConfig,
 }: AddDownloadModalProps) => {
   const [isLoading, setIsLoading] = useState(false);
@@ -45,12 +60,16 @@ const AddDownloadModal = ({
   const [rangeMode, setRangeMode] = useState(false);
   const [startSegment, setStartSegment] = useState(1);
   const [endSegment, setEndSegment] = useState(0);
-  const [concurrency, setConcurrency] = useState(6);
+  const [concurrency, setConcurrency] = useState(16);
   const [maxRetries, setMaxRetries] = useState(3); // 默認重試3次
   const [streamMode, setStreamMode] = useState<StreamSaverMode>('disabled');
   const [editableUrl, setEditableUrl] = useState('');
   const [editableTitle, setEditableTitle] = useState('');
   const [syncWithSkipConfig, setSyncWithSkipConfig] = useState(false);
+  // 批量下載：勾選的集數索引（默認僅當前集）
+  const [selectedEpisodes, setSelectedEpisodes] = useState<Set<number>>(
+    () => new Set([currentEpisodeIndex])
+  );
 
   // 檢測各種模式的支持情況
   const [modeSupport, setModeSupport] = useState({
@@ -77,12 +96,9 @@ const AddDownloadModal = ({
             blob: true,
           });
         })
-        .catch(() => {
-          setModeSupport({
-            serviceWorker: false,
-            fileSystem: false,
-            blob: true,
-          });
+        .catch((err) => {
+          // eslint-disable-next-line no-console
+          console.error('Failed to detect stream saver support:', err);
         });
     }
   }, []);
@@ -101,7 +117,13 @@ const AddDownloadModal = ({
       ) as StreamSaverMode | null;
 
       if (savedDownloadType) setDownloadType(savedDownloadType);
-      if (savedConcurrency) setConcurrency(parseInt(savedConcurrency, 10));
+      if (savedConcurrency) {
+        // 舊版本默認並發只有 6：歷史存儲的低值升級到新默認，避免舊緩存拖慢下載
+        const saved = parseInt(savedConcurrency, 10);
+        setConcurrency(
+          Number.isFinite(saved) ? Math.min(32, Math.max(16, saved)) : 16
+        );
+      }
       if (savedMaxRetries) setMaxRetries(parseInt(savedMaxRetries, 10));
       if (savedStreamMode) setStreamMode(savedStreamMode);
     }
@@ -125,8 +147,10 @@ const AddDownloadModal = ({
       setTask(null);
       setStartSegment(1);
       setEndSegment(0);
+      // 默認只勾選當前播放集
+      setSelectedEpisodes(new Set([currentEpisodeIndex]));
     }
-  }, [isOpen, initialUrl, initialTitle]);
+  }, [isOpen, initialUrl, initialTitle, currentEpisodeIndex]);
 
   // 監聽 initialTitle 變化（例如切換劇集時）
   useEffect(() => {
@@ -209,21 +233,68 @@ const AddDownloadModal = ({
     }
   };
 
-  // 添加下載任務
+  // 批量選擇輔助
+  const isBatchMode = !!episodes && episodes.length > 1;
+
+  const toggleEpisode = (index: number) => {
+    setSelectedEpisodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
+
+  const selectAllEpisodes = () => {
+    if (!episodes) return;
+    setSelectedEpisodes(new Set(episodes.map((_, i) => i)));
+  };
+
+  const selectCurrentOnly = () => {
+    setSelectedEpisodes(new Set([currentEpisodeIndex]));
+  };
+
+  const invertSelection = () => {
+    if (!episodes) return;
+    setSelectedEpisodes((prev) => {
+      const next = new Set<number>();
+      episodes.forEach((_, i) => {
+        if (!prev.has(i)) next.add(i);
+      });
+      return next;
+    });
+  };
+
+  // 添加下載任務（支持批量：勾選多集時循環添加，當前集復用已解析數據）
   const handleAdd = () => {
     if (!task) return;
 
-    onAddTask({
-      url: editableUrl,
-      title: task.title,
-      downloadType,
-      concurrency,
-      rangeMode,
-      startSegment,
-      endSegment,
-      streamMode,
-      maxRetries,
-      parsedTask: task,
+    let targets: Array<{ url: string; title: string }>;
+    if (isBatchMode && episodes && selectedEpisodes.size > 0) {
+      targets = Array.from(selectedEpisodes)
+        .sort((a, b) => a - b)
+        .map((i) => episodes[i])
+        .filter((ep) => ep && ep.url);
+    } else {
+      targets = [{ url: editableUrl, title: task.title }];
+    }
+    if (targets.length === 0) return;
+
+    targets.forEach((ep) => {
+      // 只有地址與當前播放集一致的任務才帶已解析數據，其他集由下載管理器自行解析
+      const isCurrent = ep.url === editableUrl;
+      onAddTask({
+        url: ep.url,
+        title: ep.title || task.title,
+        downloadType,
+        concurrency,
+        rangeMode: isCurrent ? rangeMode : false,
+        startSegment: isCurrent ? startSegment : 1,
+        endSegment: isCurrent ? endSegment : 0,
+        streamMode,
+        maxRetries,
+        parsedTask: isCurrent ? task : undefined,
+      });
     });
 
     // 關閉彈窗並重置狀態
@@ -231,6 +302,7 @@ const AddDownloadModal = ({
     setTask(null);
     setEditableUrl('');
     setEditableTitle('');
+    setSelectedEpisodes(new Set([currentEpisodeIndex]));
   };
 
   // 處理關閉
@@ -295,6 +367,60 @@ const AddDownloadModal = ({
             />
           </div>
 
+          {/* 批量下載：勾選要下載的集數 */}
+          {isBatchMode && episodes && (
+            <div>
+              <div className='mb-2 flex items-center justify-between'>
+                <label className='block text-sm font-medium text-gray-700 dark:text-gray-300'>
+                  選擇集數（已選 {selectedEpisodes.size}/{episodes.length}）
+                </label>
+                <div className='flex gap-2 text-xs'>
+                  <button
+                    type='button'
+                    onClick={selectAllEpisodes}
+                    className='rounded px-2 py-1 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30'
+                  >
+                    全選
+                  </button>
+                  <button
+                    type='button'
+                    onClick={invertSelection}
+                    className='rounded px-2 py-1 text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
+                  >
+                    反選
+                  </button>
+                  <button
+                    type='button'
+                    onClick={selectCurrentOnly}
+                    className='rounded px-2 py-1 text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
+                  >
+                    僅當前集
+                  </button>
+                </div>
+              </div>
+              <div className='grid max-h-44 grid-cols-8 gap-1 overflow-y-auto rounded-lg bg-gray-50 p-2 dark:bg-gray-700/50 sm:grid-cols-12'>
+                {episodes.map((ep, i) => {
+                  const selected = selectedEpisodes.has(i);
+                  return (
+                    <button
+                      key={i}
+                      type='button'
+                      title={ep.label}
+                      onClick={() => toggleEpisode(i)}
+                      className={`h-7 rounded text-xs font-medium transition-colors ${
+                        selected
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-white text-gray-600 hover:bg-blue-100 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      {i + 1}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* 保存格式 */}
           <div>
             <label className='mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300'>
@@ -338,14 +464,14 @@ const AddDownloadModal = ({
             <input
               type='range'
               min='1'
-              max='16'
+              max='32'
               value={concurrency}
               onChange={(e) => setConcurrency(parseInt(e.target.value, 10))}
               className='w-full'
             />
             <div className='flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1'>
               <span>1 線程</span>
-              <span>16 線程</span>
+              <span>32 線程</span>
             </div>
           </div>
           {/* 重試次數 */}
@@ -509,7 +635,7 @@ const AddDownloadModal = ({
                 )}
               </div>
 
-              {/* 範圍下載 */}
+              {/* 范圍下載 */}
               <div className='mt-4'>
                 <div className='flex items-center justify-between mb-2'>
                   <label className='flex items-center gap-2 cursor-pointer'>
@@ -520,7 +646,7 @@ const AddDownloadModal = ({
                       className='w-4 h-4'
                     />
                     <span className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                      範圍下載
+                      范圍下載
                     </span>
                   </label>
                   {rangeMode && (
@@ -678,10 +804,12 @@ const AddDownloadModal = ({
             </button>
             <button
               onClick={handleAdd}
-              disabled={!task}
+              disabled={!task || (isBatchMode && selectedEpisodes.size === 0)}
               className='flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg transition-colors'
             >
-              添加下載
+              {isBatchMode && selectedEpisodes.size > 1
+                ? `添加 ${selectedEpisodes.size} 個下載任務`
+                : '添加下載'}
             </button>
           </div>
         </div>

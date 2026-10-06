@@ -14,18 +14,19 @@
  * 如後續需要在客戶端讀取收藏等其它數據，可按同樣方式在此文件中補充實現。
  */
 
-import { getCachedAuthInfo } from './auth-client';
-import type { SkipConfig } from './types';
+import { getCachedAuthInfo, refreshAuthInfo } from './auth-client';
+import { Following, SkipConfig, TodayUpdatedRecord } from './types';
 
-// 全局錯誤觸發函數
-function triggerGlobalError(message: string) {
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(
-      new CustomEvent('globalError', {
-        detail: { message },
-      })
-    );
-  }
+/**
+ * 后台静默同步失败的上报。
+ *
+ * 这类失败发生在"缓存优先"的读取路径上：调用方已经拿到本地缓存数据，页面功能
+ * 完全正常，用户也没有可做的动作。此前这里会弹全局红字，而红字提示不会自动消失
+ * ——进入播放页时追更/收藏的后台刷新一旦失败，就会一直挂着一条红色错误条。
+ * 改为只写控制台，避免非致命的后台同步失败干扰观看。
+ */
+function reportBackgroundSyncFailure(label: string, err: unknown) {
+  console.warn(`后台同步${label}失败:`, err);
 }
 
 // ---- 類型 ----
@@ -63,13 +64,63 @@ interface CacheData<T> {
 interface UserCacheStore {
   playRecords?: CacheData<Record<string, PlayRecord>>;
   favorites?: CacheData<Record<string, Favorite>>;
+  followings?: CacheData<Record<string, Following>>;
   searchHistory?: CacheData<string[]>;
   skipConfigs?: CacheData<Record<string, SkipConfig>>;
+  todayUpdated?: CacheData<TodayUpdatedRecord | null>;
 }
 
 // ---- 常量 ----
 const PLAY_RECORDS_KEY = 'moontv_play_records';
 const FAVORITES_KEY = 'moontv_favorites';
+const FOLLOWINGS_KEY = 'moontv_followings';
+
+let followingMutationRevision = 0;
+const followingMutations = new Map<
+  string,
+  Map<
+    string,
+    {
+      revision: number;
+      pending: boolean;
+      value: Following | null;
+    }
+  >
+>();
+
+function recordFollowingMutation(
+  username: string,
+  key: string,
+  value: Following | null
+) {
+  let mutations = followingMutations.get(username);
+  if (!mutations) {
+    mutations = new Map();
+    followingMutations.set(username, mutations);
+  }
+  const mutation = {
+    revision: ++followingMutationRevision,
+    pending: true,
+    value,
+  };
+  mutations.set(key, mutation);
+  return mutation;
+}
+
+function mergeFollowingMutations(
+  data: Record<string, Following>,
+  username: string,
+  sinceRevision: number
+): Record<string, Following> {
+  const merged = { ...data };
+  followingMutations.get(username)?.forEach((mutation, key) => {
+    if (!mutation.pending && mutation.revision <= sinceRevision) return;
+    if (mutation.value) merged[key] = mutation.value;
+    else delete merged[key];
+  });
+  return merged;
+}
+
 const SEARCH_HISTORY_KEY = 'moontv_search_history';
 
 // 緩存相關常量
@@ -278,7 +329,36 @@ class HybridCacheManager {
   }
 
   /**
-   * 獲取緩存的搜索歷史
+   * 获取缓存的追更
+   */
+  getCachedFollowings(): Record<string, Following> | null {
+    const username = this.getCurrentUsername();
+    if (!username) return null;
+
+    const userCache = this.getUserCache(username);
+    const cached = userCache.followings;
+
+    if (cached && this.isCacheValid(cached)) {
+      return cached.data;
+    }
+
+    return null;
+  }
+
+  /**
+   * 缓存追更
+   */
+  cacheFollowings(data: Record<string, Following>): void {
+    const username = this.getCurrentUsername();
+    if (!username) return;
+
+    const userCache = this.getUserCache(username);
+    userCache.followings = this.createCacheData(data);
+    this.saveUserCache(username, userCache);
+  }
+
+  /**
+   * 获取缓存的搜索历史
    */
   getCachedSearchHistory(): string[] | null {
     const username = this.getCurrentUsername();
@@ -336,7 +416,36 @@ class HybridCacheManager {
   }
 
   /**
-   * 清除指定用戶的所有緩存
+   * 获取缓存的“今日新更”记录
+   */
+  getCachedTodayUpdated(): TodayUpdatedRecord | null {
+    const username = this.getCurrentUsername();
+    if (!username) return null;
+
+    const userCache = this.getUserCache(username);
+    const cached = userCache.todayUpdated;
+
+    if (cached && this.isCacheValid(cached)) {
+      return cached.data;
+    }
+
+    return null;
+  }
+
+  /**
+   * 缓存“今日新更”记录
+   */
+  cacheTodayUpdated(data: TodayUpdatedRecord | null): void {
+    const username = this.getCurrentUsername();
+    if (!username) return;
+
+    const userCache = this.getUserCache(username);
+    userCache.todayUpdated = this.createCacheData(data);
+    this.saveUserCache(username, userCache);
+  }
+
+  /**
+   * 清除指定用户的所有缓存
    */
   clearUserCache(username?: string): void {
     const targetUsername = username || this.getCurrentUsername();
@@ -394,52 +503,18 @@ const cacheManager = HybridCacheManager.getInstance();
 
 // ---- 錯誤處理輔助函數 ----
 /**
- * 數據庫操作失敗時的通用錯誤處理
- * 立即從數據庫刷新對應類型的緩存以保持數據一致性
+ * 乐观更新型写操作（先写本地缓存、后同步远端）失败时的降级处理。
+ *
+ * 此时本地缓存已经生效（UI 已经"成功"），远端同步失败不该弹全局红字——
+ * 那会制造"操作失败"的假象（用户看到"能正常添加却提示失败"）。
+ * 也不该再拉取远端数据覆盖本地：远端还是旧数据，拉回来会把刚做的乐观
+ * 更新冲掉。因此这里只记录日志，保留本地乐观结果。
  */
 async function handleDatabaseOperationFailure(
-  dataType: 'playRecords' | 'favorites' | 'searchHistory',
+  dataType: 'playRecords' | 'favorites' | 'followings' | 'searchHistory',
   error: any
 ): Promise<void> {
-  console.error(`數據庫操作失敗 (${dataType}):`, error);
-  triggerGlobalError(`數據庫操作失敗`);
-
-  try {
-    let freshData: any;
-    let eventName: string;
-
-    switch (dataType) {
-      case 'playRecords':
-        freshData = await fetchFromApi<Record<string, PlayRecord>>(
-          `/api/playrecords`
-        );
-        cacheManager.cachePlayRecords(freshData);
-        eventName = 'playRecordsUpdated';
-        break;
-      case 'favorites':
-        freshData = await fetchFromApi<Record<string, Favorite>>(
-          `/api/favorites`
-        );
-        cacheManager.cacheFavorites(freshData);
-        eventName = 'favoritesUpdated';
-        break;
-      case 'searchHistory':
-        freshData = await fetchFromApi<string[]>(`/api/searchhistory`);
-        cacheManager.cacheSearchHistory(freshData);
-        eventName = 'searchHistoryUpdated';
-        break;
-    }
-
-    // 觸發更新事件通知組件
-    window.dispatchEvent(
-      new CustomEvent(eventName, {
-        detail: freshData,
-      })
-    );
-  } catch (refreshErr) {
-    console.error(`刷新${dataType}緩存失敗:`, refreshErr);
-    triggerGlobalError(`刷新${dataType}緩存失敗`);
-  }
+  console.warn(`数据库同步失败 (${dataType})，已保留本地结果:`, error);
 }
 
 // 頁面加載時清理過期緩存
@@ -455,7 +530,14 @@ async function fetchWithAuth(
   url: string,
   options?: RequestInit
 ): Promise<Response> {
-  const res = await fetch(url, options);
+  const username =
+    STORAGE_TYPE !== 'localstorage'
+      ? (getCachedAuthInfo() || (await refreshAuthInfo()))?.username
+      : undefined;
+  const res = await fetch(url, { ...options, cache: 'no-store' });
+  if (getCachedAuthInfo()?.username !== username) {
+    throw new Error('登入狀態已變更');
+  }
   if (!res.ok) {
     // 如果是 401 未授權，跳轉到登錄頁面
     if (res.status === 401) {
@@ -479,9 +561,45 @@ async function fetchWithAuth(
   return res;
 }
 
+/**
+ * 并发去重的 GET 请求。
+ *
+ * 首页每张卡片都会调 isFollowing/isFavorited → 各自触发一次
+ * /api/followings、/api/favorites：20 张卡片就是 40 个相同请求，
+ * 接口一旦失败还会连环弹错。这里按 path 合并并发中的相同请求，
+ * 共享同一个 Promise（连同解析后的 JSON 一起共享，避免 Response 只能读一次）。
+ */
+const inflightGets = new Map<string, Promise<unknown>>();
+
 async function fetchFromApi<T>(path: string): Promise<T> {
-  const res = await fetchWithAuth(path);
-  return (await res.json()) as T;
+  const username = (getCachedAuthInfo() || (await refreshAuthInfo()))?.username;
+  const mutationRevision = followingMutationRevision;
+  const requestKey = JSON.stringify([
+    username || '',
+    path,
+    path === '/api/followings' ? mutationRevision : 0,
+  ]);
+  const existing = inflightGets.get(requestKey) as Promise<T> | undefined;
+  if (existing) return existing;
+
+  const request = fetchWithAuth(path).then(async (res) => {
+    const result = (await res.json()) as T;
+    if (getCachedAuthInfo()?.username !== username)
+      throw new Error('登入狀態已變更');
+    return path === '/api/followings' && username
+      ? (mergeFollowingMutations(
+          result as Record<string, Following>,
+          username,
+          mutationRevision
+        ) as T)
+      : result;
+  });
+  inflightGets.set(requestKey, request);
+  const clear = () => {
+    inflightGets.delete(requestKey);
+  };
+  request.then(clear, clear);
+  return request;
 }
 
 /**
@@ -524,8 +642,7 @@ export async function getAllPlayRecords(): Promise<Record<string, PlayRecord>> {
           }
         })
         .catch((err) => {
-          console.warn('後臺同步播放記錄失敗:', err);
-          triggerGlobalError('後臺同步播放記錄失敗');
+          reportBackgroundSyncFailure('播放记录', err);
         });
 
       return cachedData;
@@ -538,8 +655,10 @@ export async function getAllPlayRecords(): Promise<Record<string, PlayRecord>> {
         cacheManager.cachePlayRecords(freshData);
         return freshData;
       } catch (err) {
-        console.error('獲取播放記錄失敗:', err);
-        triggerGlobalError('獲取播放記錄失敗');
+        console.warn(
+          '获取播放记录失败(使用缓存/空数据继续, 不弹全局提示):',
+          err
+        );
         return {};
       }
     }
@@ -551,8 +670,7 @@ export async function getAllPlayRecords(): Promise<Record<string, PlayRecord>> {
     if (!raw) return {};
     return JSON.parse(raw) as Record<string, PlayRecord>;
   } catch (err) {
-    console.error('讀取播放記錄失敗:', err);
-    triggerGlobalError('讀取播放記錄失敗');
+    console.warn('读取播放记录失败(使用缓存/空数据继续, 不弹全局提示):', err);
     return {};
   }
 }
@@ -606,7 +724,7 @@ export async function savePlayRecord(
       });
     } catch (err) {
       await handleDatabaseOperationFailure('playRecords', err);
-      triggerGlobalError('保存播放記錄失敗');
+      console.warn('保存播放记录失败(已本地处理, 不弹全局提示)');
       throw err;
     }
     return;
@@ -641,8 +759,8 @@ export async function savePlayRecord(
       })
     );
   } catch (err) {
-    console.error('保存播放記錄失敗:', err);
-    triggerGlobalError('保存播放記錄失敗');
+    console.error('保存播放记录失败:', err);
+    console.warn('保存播放记录失败(已本地处理, 不弹全局提示)');
     throw err;
   }
 }
@@ -678,7 +796,7 @@ export async function deletePlayRecord(
       });
     } catch (err) {
       await handleDatabaseOperationFailure('playRecords', err);
-      triggerGlobalError('刪除播放記錄失敗');
+      console.warn('删除播放记录失败(已本地处理, 不弹全局提示)');
       throw err;
     }
     return;
@@ -700,8 +818,8 @@ export async function deletePlayRecord(
       })
     );
   } catch (err) {
-    console.error('刪除播放記錄失敗:', err);
-    triggerGlobalError('刪除播放記錄失敗');
+    console.error('删除播放记录失败:', err);
+    console.warn('删除播放记录失败(已本地处理, 不弹全局提示)');
     throw err;
   }
 }
@@ -739,8 +857,7 @@ export async function getSearchHistory(): Promise<string[]> {
           }
         })
         .catch((err) => {
-          console.warn('後臺同步搜索歷史失敗:', err);
-          triggerGlobalError('後臺同步搜索歷史失敗');
+          reportBackgroundSyncFailure('搜索历史', err);
         });
 
       return cachedData;
@@ -751,8 +868,10 @@ export async function getSearchHistory(): Promise<string[]> {
         cacheManager.cacheSearchHistory(freshData);
         return freshData;
       } catch (err) {
-        console.error('獲取搜索歷史失敗:', err);
-        triggerGlobalError('獲取搜索歷史失敗');
+        console.warn(
+          '获取搜索历史失败(使用缓存/空数据继续, 不弹全局提示):',
+          err
+        );
         return [];
       }
     }
@@ -766,8 +885,7 @@ export async function getSearchHistory(): Promise<string[]> {
     // 僅返回字符串數組
     return Array.isArray(arr) ? arr : [];
   } catch (err) {
-    console.error('讀取搜索歷史失敗:', err);
-    triggerGlobalError('讀取搜索歷史失敗');
+    console.warn('读取搜索历史失败(使用缓存/空数据继续, 不弹全局提示):', err);
     return [];
   }
 }
@@ -830,8 +948,8 @@ export async function addSearchHistory(keyword: string): Promise<void> {
       })
     );
   } catch (err) {
-    console.error('保存搜索歷史失敗:', err);
-    triggerGlobalError('保存搜索歷史失敗');
+    console.error('保存搜索历史失败:', err);
+    console.warn('保存搜索历史失败(已本地处理, 不弹全局提示)');
   }
 }
 
@@ -922,8 +1040,8 @@ export async function deleteSearchHistory(keyword: string): Promise<void> {
       })
     );
   } catch (err) {
-    console.error('刪除搜索歷史失敗:', err);
-    triggerGlobalError('刪除搜索歷史失敗');
+    console.error('删除搜索历史失败:', err);
+    console.warn('删除搜索历史失败(已本地处理, 不弹全局提示)');
   }
 }
 
@@ -960,8 +1078,7 @@ export async function getAllFavorites(): Promise<Record<string, Favorite>> {
           }
         })
         .catch((err) => {
-          console.warn('後臺同步收藏失敗:', err);
-          triggerGlobalError('後臺同步收藏失敗');
+          reportBackgroundSyncFailure('收藏', err);
         });
 
       return cachedData;
@@ -974,8 +1091,7 @@ export async function getAllFavorites(): Promise<Record<string, Favorite>> {
         cacheManager.cacheFavorites(freshData);
         return freshData;
       } catch (err) {
-        console.error('獲取收藏失敗:', err);
-        triggerGlobalError('獲取收藏失敗');
+        console.warn('获取收藏失败(使用缓存/空数据继续, 不弹全局提示):', err);
         return {};
       }
     }
@@ -987,9 +1103,442 @@ export async function getAllFavorites(): Promise<Record<string, Favorite>> {
     if (!raw) return {};
     return JSON.parse(raw) as Record<string, Favorite>;
   } catch (err) {
-    console.error('讀取收藏失敗:', err);
-    triggerGlobalError('讀取收藏失敗');
+    console.warn('读取收藏失败(使用缓存/空数据继续, 不弹全局提示):', err);
     return {};
+  }
+}
+
+/**
+ * 获取全部追更列表。
+ */
+export async function getAllFollowings(
+  forceRemote = false
+): Promise<Record<string, Following>> {
+  if (typeof window === 'undefined') {
+    return {};
+  }
+
+  if (STORAGE_TYPE !== 'localstorage') {
+    const username = (getCachedAuthInfo() || (await refreshAuthInfo()))
+      ?.username;
+    if (!username) return {};
+    const isSameUser = () => getCachedAuthInfo()?.username === username;
+    const cachedData = cacheManager.getCachedFollowings();
+
+    // 强制以远端为准：若有本地缓存则先返回缓存用于立即展示（避免显示加载中），
+    // 同时后台拉取远端数据，若与本地缓存不一致则用远端覆盖本地缓存并触发刷新；
+    // 若无本地缓存则阻塞拉取远端。
+    if (forceRemote) {
+      if (cachedData) {
+        fetchFromApi<Record<string, Following>>(`/api/followings`)
+          .then((freshData) => {
+            if (!isSameUser()) return;
+            if (JSON.stringify(cachedData) !== JSON.stringify(freshData)) {
+              cacheManager.cacheFollowings(freshData);
+              window.dispatchEvent(
+                new CustomEvent('followingsUpdated', {
+                  detail: freshData,
+                })
+              );
+            }
+          })
+          .catch((err) => {
+            reportBackgroundSyncFailure('追更', err);
+          });
+        return cachedData;
+      }
+      try {
+        const freshData = await fetchFromApi<Record<string, Following>>(
+          `/api/followings`
+        );
+        if (!isSameUser()) return {};
+        cacheManager.cacheFollowings(freshData);
+        return freshData;
+      } catch (err) {
+        console.warn('获取追更失败(使用缓存/空数据继续, 不弹全局提示):', err);
+        return {};
+      }
+    }
+
+    if (cachedData) {
+      fetchFromApi<Record<string, Following>>(`/api/followings`)
+        .then((freshData) => {
+          if (!isSameUser()) return;
+          if (JSON.stringify(cachedData) !== JSON.stringify(freshData)) {
+            cacheManager.cacheFollowings(freshData);
+            window.dispatchEvent(
+              new CustomEvent('followingsUpdated', {
+                detail: freshData,
+              })
+            );
+          }
+        })
+        .catch((err) => {
+          reportBackgroundSyncFailure('追更', err);
+        });
+
+      return cachedData;
+    }
+
+    try {
+      const freshData = await fetchFromApi<Record<string, Following>>(
+        `/api/followings`
+      );
+      if (!isSameUser()) return {};
+      cacheManager.cacheFollowings(freshData);
+      return freshData;
+    } catch (err) {
+      console.warn('获取追更失败(使用缓存/空数据继续, 不弹全局提示):', err);
+      return {};
+    }
+  }
+
+  try {
+    const raw = localStorage.getItem(FOLLOWINGS_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as Record<string, Following>;
+  } catch (err) {
+    console.warn('读取追更列表失败(使用缓存/空数据继续, 不弹全局提示):', err);
+    return {};
+  }
+}
+
+/**
+ * 保存追更。
+ */
+export async function saveFollowing(
+  source: string,
+  id: string,
+  following: Following
+): Promise<void> {
+  const key = generateStorageKey(source, id);
+
+  if (STORAGE_TYPE !== 'localstorage') {
+    const username = (getCachedAuthInfo() || (await refreshAuthInfo()))
+      ?.username;
+    if (!username) throw new Error('未登入');
+    const mutation = recordFollowingMutation(username, key, following);
+    const cached = cacheManager.getCachedFollowings() || {};
+    cached[key] = following;
+    cacheManager.cacheFollowings(cached);
+    window.dispatchEvent(
+      new CustomEvent('followingsUpdated', {
+        detail: cached,
+      })
+    );
+
+    try {
+      await fetchWithAuth('/api/followings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ key, following }),
+      });
+    } catch (err) {
+      await handleDatabaseOperationFailure('followings', err);
+      console.warn('保存追更失败(已本地处理, 不弹全局提示)');
+      throw err;
+    } finally {
+      mutation.pending = false;
+    }
+    return;
+  }
+
+  if (typeof window === 'undefined') return;
+
+  try {
+    const allFollowings = await getAllFollowings();
+    allFollowings[key] = following;
+    localStorage.setItem(FOLLOWINGS_KEY, JSON.stringify(allFollowings));
+    window.dispatchEvent(
+      new CustomEvent('followingsUpdated', {
+        detail: allFollowings,
+      })
+    );
+  } catch (err) {
+    console.error('保存追更失败:', err);
+    console.warn('保存追更失败(已本地处理, 不弹全局提示)');
+    throw err;
+  }
+}
+
+/**
+ * 删除追更。
+ */
+export async function deleteFollowing(
+  source: string,
+  id: string
+): Promise<void> {
+  const key = generateStorageKey(source, id);
+
+  if (STORAGE_TYPE !== 'localstorage') {
+    const username = (getCachedAuthInfo() || (await refreshAuthInfo()))
+      ?.username;
+    if (!username) throw new Error('未登入');
+    const mutation = recordFollowingMutation(username, key, null);
+    const cached = cacheManager.getCachedFollowings() || {};
+    delete cached[key];
+    cacheManager.cacheFollowings(cached);
+    window.dispatchEvent(
+      new CustomEvent('followingsUpdated', {
+        detail: cached,
+      })
+    );
+
+    try {
+      await fetchWithAuth(`/api/followings?key=${encodeURIComponent(key)}`, {
+        method: 'DELETE',
+      });
+    } catch (err) {
+      await handleDatabaseOperationFailure('followings', err);
+      console.warn('删除追更失败(已本地处理, 不弹全局提示)');
+      throw err;
+    } finally {
+      mutation.pending = false;
+    }
+    return;
+  }
+
+  if (typeof window === 'undefined') return;
+
+  try {
+    const allFollowings = await getAllFollowings();
+    delete allFollowings[key];
+    localStorage.setItem(FOLLOWINGS_KEY, JSON.stringify(allFollowings));
+    window.dispatchEvent(
+      new CustomEvent('followingsUpdated', {
+        detail: allFollowings,
+      })
+    );
+  } catch (err) {
+    console.error('删除追更失败:', err);
+    console.warn('删除追更失败(已本地处理, 不弹全局提示)');
+    throw err;
+  }
+}
+
+/**
+ * 判断是否已追更。
+ */
+export async function isFollowing(
+  source: string,
+  id: string
+): Promise<boolean> {
+  const key = generateStorageKey(source, id);
+  const allFollowings = await getAllFollowings();
+  return !!allFollowings[key];
+}
+
+/**
+ * 批量刷新追更条目的最新集数。
+ *
+ * 通过一次 POST 调用服务端批量刷新接口，服务端会用搜索方式获取每个追更条目的
+ * 最新集数并一次性写回数据库，避免逐个 POST。
+ *
+ * @param followings 当前用户的追更列表（key 为 source+id）。不传则由服务端从数据库读取。
+ * @returns 刷新后的完整追更列表
+ */
+export interface FollowingRefreshItem {
+  key: string;
+  source: string;
+  id: string;
+  title: string;
+  total_episodes?: number;
+  updated?: boolean;
+  reason?: string;
+}
+
+export interface FollowingRefreshResult {
+  updatedCount: number;
+  failedCount: number;
+  successCount: number;
+  total: number;
+}
+
+export interface FollowingRefreshCallbacks {
+  onStart?: (total: number) => void;
+  onItemResult?: (item: FollowingRefreshItem) => void;
+  onItemFailed?: (item: FollowingRefreshItem) => void;
+  onComplete?: (result: FollowingRefreshResult) => void;
+}
+
+/**
+ * 流式批量刷新追更集数。
+ *
+ * 服务端通过 SSE 逐条推送成功获取的集数结果，本函数实时解析并：
+ *  - 通过 onItemResult / onItemFailed 回调逐条通知调用方（用于实时更新 UI）；
+ *  - 维护本地 refreshed 副本，最终返回刷新后的完整追更列表。
+ *
+ * @param followings 本次要刷新（发送给服务端）的追更子集。首次刷新时为完整列表，
+ *                   重试失败项时仅含失败项。
+ * @param callbacks 流式回调。
+ * @param fullFollowings 完整追更列表（可选）。当 followings 仅为子集（如重试失败项）时，
+ *                       传入完整列表作为本地副本/缓存/广播的基础，避免仅含子集的
+ *                       refreshed 覆盖掉完整追更缓存与 UI。
+ */
+export async function refreshFollowingsStream(
+  followings: Record<string, Following>,
+  callbacks?: FollowingRefreshCallbacks,
+  fullFollowings?: Record<string, Following>
+): Promise<Record<string, Following>> {
+  if (STORAGE_TYPE === 'localstorage') {
+    // localstorage 模式无服务端，直接返回当前数据
+    return followings || {};
+  }
+
+  const username = (getCachedAuthInfo() || (await refreshAuthInfo()))?.username;
+  if (!username) return {};
+  const isSameUser = () => getCachedAuthInfo()?.username === username;
+  const mutationRevision = followingMutationRevision;
+  const changedLocally = (key: string) =>
+    (followingMutations.get(username)?.get(key)?.revision || 0) >
+    mutationRevision;
+
+  // 本地副本：逐条应用服务端返回的最新集数。
+  // 以完整列表为基础（若提供），确保广播/缓存时不会丢失未参与本次刷新的条目。
+  const refreshed: Record<string, Following> = {
+    ...(fullFollowings && Object.keys(fullFollowings).length > 0
+      ? fullFollowings
+      : followings),
+  };
+
+  try {
+    const res = await fetchWithAuth('/api/followings/refresh', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ followings }),
+    });
+
+    if (!res.body) {
+      throw new Error('响应无 body，无法流式读取');
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    const handleEvent = (raw: string) => {
+      if (!isSameUser()) return;
+      const line = raw.trim();
+      if (!line.startsWith('data:')) return;
+      const jsonStr = line.slice(5).trim();
+      if (!jsonStr) return;
+      let payload: Record<string, any>;
+      try {
+        payload = JSON.parse(jsonStr);
+      } catch {
+        return;
+      }
+
+      switch (payload.type) {
+        case 'start': {
+          callbacks?.onStart?.(payload.total || 0);
+          break;
+        }
+        case 'item_result': {
+          if (changedLocally(payload.key)) break;
+          const item: FollowingRefreshItem = {
+            key: payload.key,
+            source: payload.source,
+            id: payload.id,
+            title: payload.title || '',
+            total_episodes: payload.total_episodes,
+            updated: payload.updated,
+          };
+          // 更新本地副本
+          const existing = refreshed[item.key];
+          if (existing && item.total_episodes) {
+            refreshed[item.key] = {
+              ...existing,
+              total_episodes: item.total_episodes,
+              title: item.title || existing.title,
+            };
+          }
+          callbacks?.onItemResult?.(item);
+          break;
+        }
+        case 'item_removed': {
+          if (!changedLocally(payload.key)) delete refreshed[payload.key];
+          break;
+        }
+        case 'item_failed': {
+          if (changedLocally(payload.key)) break;
+          callbacks?.onItemFailed?.({
+            key: payload.key,
+            source: payload.source,
+            id: payload.id,
+            title: payload.title || '',
+            reason: payload.reason || '',
+          });
+          break;
+        }
+        case 'complete': {
+          callbacks?.onComplete?.({
+            updatedCount: payload.updatedCount || 0,
+            failedCount: payload.failedCount || 0,
+            successCount: payload.successCount || 0,
+            total: payload.total || 0,
+          });
+          break;
+        }
+        default:
+          break;
+      }
+    };
+
+    // 读取流并解析 SSE 事件
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (!isSameUser()) {
+        await reader.cancel();
+        return {};
+      }
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      // SSE 事件以空行分隔
+      let sepIndex: number;
+      while ((sepIndex = buffer.indexOf('\n\n')) !== -1) {
+        const eventBlock = buffer.slice(0, sepIndex);
+        buffer = buffer.slice(sepIndex + 2);
+        handleEvent(eventBlock);
+      }
+    }
+    // 处理剩余缓冲
+    if (buffer.trim()) {
+      handleEvent(buffer);
+    }
+
+    if (!isSameUser()) return {};
+
+    // Use a new read, not a GET that was already in flight before refresh.
+    // Overlay mutations made while refreshing, including a pending unfollow,
+    // so a stale server snapshot cannot resurrect a card or reset progress.
+    const latestResponse = await fetchWithAuth('/api/followings');
+    const latest = (await latestResponse.json()) as Record<string, Following>;
+    if (!isSameUser()) return {};
+    const reconciled = mergeFollowingMutations(
+      latest,
+      username,
+      mutationRevision
+    );
+    cacheManager.cacheFollowings(reconciled);
+    window.dispatchEvent(
+      new CustomEvent('followingsUpdated', { detail: reconciled })
+    );
+    return reconciled;
+  } catch (err) {
+    console.error('批量刷新追更失败:', err);
+    console.warn('批量刷新追更失败(已本地处理, 不弹全局提示)');
+    return isSameUser()
+      ? mergeFollowingMutations(
+          cacheManager.getCachedFollowings() || refreshed,
+          username,
+          mutationRevision
+        )
+      : {};
   }
 }
 
@@ -1029,7 +1578,7 @@ export async function saveFavorite(
       });
     } catch (err) {
       await handleDatabaseOperationFailure('favorites', err);
-      triggerGlobalError('保存收藏失敗');
+      console.warn('保存收藏失败(已本地处理, 不弹全局提示)');
       throw err;
     }
     return;
@@ -1051,8 +1600,8 @@ export async function saveFavorite(
       })
     );
   } catch (err) {
-    console.error('保存收藏失敗:', err);
-    triggerGlobalError('保存收藏失敗');
+    console.error('保存收藏失败:', err);
+    console.warn('保存收藏失败(已本地处理, 不弹全局提示)');
     throw err;
   }
 }
@@ -1088,7 +1637,7 @@ export async function deleteFavorite(
       });
     } catch (err) {
       await handleDatabaseOperationFailure('favorites', err);
-      triggerGlobalError('刪除收藏失敗');
+      console.warn('删除收藏失败(已本地处理, 不弹全局提示)');
       throw err;
     }
     return;
@@ -1110,8 +1659,8 @@ export async function deleteFavorite(
       })
     );
   } catch (err) {
-    console.error('刪除收藏失敗:', err);
-    triggerGlobalError('刪除收藏失敗');
+    console.error('删除收藏失败:', err);
+    console.warn('删除收藏失败(已本地处理, 不弹全局提示)');
     throw err;
   }
 }
@@ -1146,8 +1695,7 @@ export async function isFavorited(
           }
         })
         .catch((err) => {
-          console.warn('後臺同步收藏失敗:', err);
-          triggerGlobalError('後臺同步收藏失敗');
+          reportBackgroundSyncFailure('收藏', err);
         });
 
       return !!cachedFavorites[key];
@@ -1160,8 +1708,7 @@ export async function isFavorited(
         cacheManager.cacheFavorites(freshData);
         return !!freshData[key];
       } catch (err) {
-        console.error('檢查收藏狀態失敗:', err);
-        triggerGlobalError('檢查收藏狀態失敗');
+        console.warn('检查收藏状态失败:', err);
         return false;
       }
     }
@@ -1197,7 +1744,7 @@ export async function clearAllPlayRecords(): Promise<void> {
       });
     } catch (err) {
       await handleDatabaseOperationFailure('playRecords', err);
-      triggerGlobalError('清空播放記錄失敗');
+      console.warn('清空播放记录失败(已本地处理, 不弹全局提示)');
       throw err;
     }
     return;
@@ -1238,7 +1785,7 @@ export async function clearAllFavorites(): Promise<void> {
       });
     } catch (err) {
       await handleDatabaseOperationFailure('favorites', err);
-      triggerGlobalError('清空收藏失敗');
+      console.warn('清空收藏失败(已本地处理, 不弹全局提示)');
       throw err;
     }
     return;
@@ -1272,16 +1819,22 @@ export function clearUserCache(): void {
  */
 export async function refreshAllCache(): Promise<void> {
   if (STORAGE_TYPE === 'localstorage') return;
+  const username = (getCachedAuthInfo() || (await refreshAuthInfo()))?.username;
+  if (!username) return;
+  const mutationRevision = followingMutationRevision;
 
   try {
-    // 並行刷新所有數據
-    const [playRecords, favorites, searchHistory, skipConfigs] =
+    // 并行刷新所有数据
+    const [playRecords, favorites, followings, searchHistory, skipConfigs] =
       await Promise.allSettled([
         fetchFromApi<Record<string, PlayRecord>>(`/api/playrecords`),
         fetchFromApi<Record<string, Favorite>>(`/api/favorites`),
+        fetchFromApi<Record<string, Following>>(`/api/followings`),
         fetchFromApi<string[]>(`/api/searchhistory`),
         fetchFromApi<Record<string, SkipConfig>>(`/api/skipconfigs`),
       ]);
+
+    if (getCachedAuthInfo()?.username !== username) return;
 
     if (playRecords.status === 'fulfilled') {
       cacheManager.cachePlayRecords(playRecords.value);
@@ -1297,6 +1850,20 @@ export async function refreshAllCache(): Promise<void> {
       window.dispatchEvent(
         new CustomEvent('favoritesUpdated', {
           detail: favorites.value,
+        })
+      );
+    }
+
+    if (followings.status === 'fulfilled') {
+      const latest = mergeFollowingMutations(
+        followings.value,
+        username,
+        mutationRevision
+      );
+      cacheManager.cacheFollowings(latest);
+      window.dispatchEvent(
+        new CustomEvent('followingsUpdated', {
+          detail: latest,
         })
       );
     }
@@ -1319,8 +1886,7 @@ export async function refreshAllCache(): Promise<void> {
       );
     }
   } catch (err) {
-    console.error('刷新緩存失敗:', err);
-    triggerGlobalError('刷新緩存失敗');
+    console.warn('刷新缓存失败(不影响使用):', err);
   }
 }
 
@@ -1331,6 +1897,7 @@ export async function refreshAllCache(): Promise<void> {
 export function getCacheStatus(): {
   hasPlayRecords: boolean;
   hasFavorites: boolean;
+  hasFollowings: boolean;
   hasSearchHistory: boolean;
   hasSkipConfigs: boolean;
   username: string | null;
@@ -1339,6 +1906,7 @@ export function getCacheStatus(): {
     return {
       hasPlayRecords: false,
       hasFavorites: false,
+      hasFollowings: false,
       hasSearchHistory: false,
       hasSkipConfigs: false,
       username: null,
@@ -1349,6 +1917,7 @@ export function getCacheStatus(): {
   return {
     hasPlayRecords: !!cacheManager.getCachedPlayRecords(),
     hasFavorites: !!cacheManager.getCachedFavorites(),
+    hasFollowings: !!cacheManager.getCachedFollowings(),
     hasSearchHistory: !!cacheManager.getCachedSearchHistory(),
     hasSkipConfigs: !!cacheManager.getCachedSkipConfigs(),
     username: authInfo?.username || null,
@@ -1360,8 +1929,10 @@ export function getCacheStatus(): {
 export type CacheUpdateEvent =
   | 'playRecordsUpdated'
   | 'favoritesUpdated'
+  | 'followingsUpdated'
   | 'searchHistoryUpdated'
-  | 'skipConfigsUpdated';
+  | 'skipConfigsUpdated'
+  | 'todayUpdatedUpdated';
 
 /**
  * 用於 React 組件監聽數據更新的事件監聽器
@@ -1405,6 +1976,7 @@ export async function preloadUserData(): Promise<void> {
   if (
     status.hasPlayRecords &&
     status.hasFavorites &&
+    status.hasFollowings &&
     status.hasSearchHistory &&
     status.hasSkipConfigs
   ) {
@@ -1413,8 +1985,7 @@ export async function preloadUserData(): Promise<void> {
 
   // 後臺靜默預加載，不阻塞界面
   refreshAllCache().catch((err) => {
-    console.warn('預加載用戶數據失敗:', err);
-    triggerGlobalError('預加載用戶數據失敗');
+    console.warn('预加载用户数据失败:', err);
   });
 }
 
@@ -1469,8 +2040,10 @@ export async function getSkipConfig(
         cacheManager.cacheSkipConfigs(freshData);
         return freshData[key] || null;
       } catch (err) {
-        console.error('獲取跳過片頭片尾配置失敗:', err);
-        triggerGlobalError('獲取跳過片頭片尾配置失敗');
+        console.warn(
+          '获取跳过片头片尾配置失败(使用缓存/空数据继续, 不弹全局提示):',
+          err
+        );
         return null;
       }
     }
@@ -1483,8 +2056,10 @@ export async function getSkipConfig(
     const configs = JSON.parse(raw) as Record<string, SkipConfig>;
     return configs[key] || null;
   } catch (err) {
-    console.error('讀取跳過片頭片尾配置失敗:', err);
-    triggerGlobalError('讀取跳過片頭片尾配置失敗');
+    console.warn(
+      '读取跳过片头片尾配置失败(使用缓存/空数据继续, 不弹全局提示):',
+      err
+    );
     return null;
   }
 }
@@ -1524,8 +2099,8 @@ export async function saveSkipConfig(
         body: JSON.stringify({ key, config }),
       });
     } catch (err) {
-      console.error('保存跳過片頭片尾配置失敗:', err);
-      triggerGlobalError('保存跳過片頭片尾配置失敗');
+      console.error('保存跳过片头片尾配置失败:', err);
+      console.warn('保存跳过片头片尾配置失败(已本地处理, 不弹全局提示)');
     }
     return;
   }
@@ -1547,8 +2122,8 @@ export async function saveSkipConfig(
       })
     );
   } catch (err) {
-    console.error('保存跳過片頭片尾配置失敗:', err);
-    triggerGlobalError('保存跳過片頭片尾配置失敗');
+    console.error('保存跳过片头片尾配置失败:', err);
+    console.warn('保存跳过片头片尾配置失败(已本地处理, 不弹全局提示)');
     throw err;
   }
 }
@@ -1584,8 +2159,7 @@ export async function getAllSkipConfigs(): Promise<Record<string, SkipConfig>> {
           }
         })
         .catch((err) => {
-          console.warn('後臺同步跳過片頭片尾配置失敗:', err);
-          triggerGlobalError('後臺同步跳過片頭片尾配置失敗');
+          reportBackgroundSyncFailure('跳过片头片尾配置', err);
         });
 
       return cachedData;
@@ -1598,8 +2172,10 @@ export async function getAllSkipConfigs(): Promise<Record<string, SkipConfig>> {
         cacheManager.cacheSkipConfigs(freshData);
         return freshData;
       } catch (err) {
-        console.error('獲取跳過片頭片尾配置失敗:', err);
-        triggerGlobalError('獲取跳過片頭片尾配置失敗');
+        console.warn(
+          '获取跳过片头片尾配置失败(使用缓存/空数据继续, 不弹全局提示):',
+          err
+        );
         return {};
       }
     }
@@ -1611,8 +2187,10 @@ export async function getAllSkipConfigs(): Promise<Record<string, SkipConfig>> {
     if (!raw) return {};
     return JSON.parse(raw) as Record<string, SkipConfig>;
   } catch (err) {
-    console.error('讀取跳過片頭片尾配置失敗:', err);
-    triggerGlobalError('讀取跳過片頭片尾配置失敗');
+    console.warn(
+      '读取跳过片头片尾配置失败(使用缓存/空数据继续, 不弹全局提示):',
+      err
+    );
     return {};
   }
 }
@@ -1647,8 +2225,8 @@ export async function deleteSkipConfig(
         method: 'DELETE',
       });
     } catch (err) {
-      console.error('刪除跳過片頭片尾配置失敗:', err);
-      triggerGlobalError('刪除跳過片頭片尾配置失敗');
+      console.error('删除跳过片头片尾配置失败:', err);
+      console.warn('删除跳过片头片尾配置失败(已本地处理, 不弹全局提示)');
     }
     return;
   }
@@ -1672,8 +2250,142 @@ export async function deleteSkipConfig(
       );
     }
   } catch (err) {
-    console.error('刪除跳過片頭片尾配置失敗:', err);
-    triggerGlobalError('刪除跳過片頭片尾配置失敗');
+    console.error('删除跳过片头片尾配置失败:', err);
+    console.warn('删除跳过片头片尾配置失败(已本地处理, 不弹全局提示)');
+    throw err;
+  }
+}
+
+// ---------------- “今日新更”相关 API ----------------
+
+// localStorage 模式下“今日新更”记录的存储 key
+const TODAY_UPDATED_KEY = 'moontv_today_updated';
+
+/**
+ * 获取“今日新更”记录。
+ * 数据库存储模式下使用混合缓存策略：优先返回缓存数据，后台异步同步最新数据。
+ * 服务器端渲染阶段返回 null。
+ */
+export async function getTodayUpdated(): Promise<TodayUpdatedRecord | null> {
+  // 服务器端渲染阶段直接返回空
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  // 数据库存储模式：使用混合缓存策略（包括 redis 和 upstash）
+  if (STORAGE_TYPE !== 'localstorage') {
+    const username = (getCachedAuthInfo() || (await refreshAuthInfo()))
+      ?.username;
+    if (!username) return null;
+    const isSameUser = () => getCachedAuthInfo()?.username === username;
+    // 优先从缓存获取数据
+    const cachedData = cacheManager.getCachedTodayUpdated();
+
+    if (cachedData !== null) {
+      // 返回缓存数据，同时后台异步更新
+      fetchFromApi<TodayUpdatedRecord | null>(`/api/today-updated`)
+        .then((freshData) => {
+          if (!isSameUser()) return;
+          // 只有数据真正不同时才更新缓存
+          if (JSON.stringify(cachedData) !== JSON.stringify(freshData)) {
+            cacheManager.cacheTodayUpdated(freshData);
+            // 触发数据更新事件
+            window.dispatchEvent(
+              new CustomEvent('todayUpdatedUpdated', {
+                detail: freshData,
+              })
+            );
+          }
+        })
+        .catch((err) => {
+          console.warn('后台同步“今日新更”记录失败:', err);
+        });
+
+      return cachedData;
+    } else {
+      // 缓存为空，直接从 API 获取并缓存
+      try {
+        const freshData = await fetchFromApi<TodayUpdatedRecord | null>(
+          `/api/today-updated`
+        );
+        if (!isSameUser()) return null;
+        cacheManager.cacheTodayUpdated(freshData);
+        return freshData;
+      } catch (err) {
+        console.warn(
+          '获取“今日新更”记录失败(使用缓存/空数据继续, 不弹全局提示):',
+          err
+        );
+        return null;
+      }
+    }
+  }
+
+  // localStorage 模式
+  try {
+    const raw = localStorage.getItem(TODAY_UPDATED_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as TodayUpdatedRecord;
+  } catch (err) {
+    console.warn(
+      '读取“今日新更”记录失败(使用缓存/空数据继续, 不弹全局提示):',
+      err
+    );
+    return null;
+  }
+}
+
+/**
+ * 保存“今日新更”记录。
+ * 数据库存储模式下使用乐观更新：先更新缓存，再异步同步到数据库。
+ */
+export async function saveTodayUpdated(
+  record: TodayUpdatedRecord
+): Promise<void> {
+  // 数据库存储模式：乐观更新策略（包括 redis 和 upstash）
+  if (STORAGE_TYPE !== 'localstorage') {
+    // 立即更新缓存
+    cacheManager.cacheTodayUpdated(record);
+
+    // 触发立即更新事件
+    window.dispatchEvent(
+      new CustomEvent('todayUpdatedUpdated', {
+        detail: record,
+      })
+    );
+
+    // 异步同步到数据库
+    try {
+      await fetchWithAuth('/api/today-updated', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(record),
+      });
+    } catch (err) {
+      console.error('保存“今日新更”记录失败:', err);
+      console.warn('保存“今日新更”记录失败(已本地处理, 不弹全局提示)');
+    }
+    return;
+  }
+
+  // localStorage 模式
+  if (typeof window === 'undefined') {
+    console.warn('无法在服务端保存“今日新更”记录到 localStorage');
+    return;
+  }
+
+  try {
+    localStorage.setItem(TODAY_UPDATED_KEY, JSON.stringify(record));
+    window.dispatchEvent(
+      new CustomEvent('todayUpdatedUpdated', {
+        detail: record,
+      })
+    );
+  } catch (err) {
+    console.error('保存“今日新更”记录失败:', err);
+    console.warn('保存“今日新更”记录失败(已本地处理, 不弹全局提示)');
     throw err;
   }
 }

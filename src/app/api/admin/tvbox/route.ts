@@ -3,9 +3,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { getConfig } from '@/lib/config';
 import { getStorage } from '@/lib/db';
+import { getRequestOrigin } from '@/lib/request-origin';
 import { createTVBoxToken } from '@/lib/tvbox-auth';
 
 export const runtime = 'nodejs';
+
+function buildTvboxConfigUrl(request: NextRequest) {
+  const origin = getRequestOrigin(request);
+  return `${origin}/api/tvbox/config`;
+}
 
 export async function GET(request: NextRequest) {
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
@@ -13,9 +19,7 @@ export async function GET(request: NextRequest) {
 
   // 本地模式：不強制要求登錄，用環境變量返回只讀信息
   if (storageType === 'localstorage') {
-    const base = new URL(request.url);
-    base.pathname = '/api/tvbox/config';
-    base.search = '';
+    const baseUrl = buildTvboxConfigUrl(request);
     return NextResponse.json({
       enabled:
         process.env.TVBOX_ENABLED == null ||
@@ -23,7 +27,7 @@ export async function GET(request: NextRequest) {
           ? true
           : String(process.env.TVBOX_ENABLED).toLowerCase() === 'true',
       password: process.env.PASSWORD || '',
-      url: base.toString(),
+      url: baseUrl,
       localMode: true,
     });
   }
@@ -35,11 +39,9 @@ export async function GET(request: NextRequest) {
   }
 
   // 生成接口 URL（基於請求 URL 推導）
-  const base = new URL(request.url);
-  base.pathname = '/api/tvbox/config';
-  base.search = '';
+  const baseUrl = buildTvboxConfigUrl(request);
   const token = await createTVBoxToken(authInfo.username);
-  const url = `${base.toString()}?token=${encodeURIComponent(token)}`;
+  const url = `${baseUrl}?token=${encodeURIComponent(token)}`;
 
   const payload = {
     enabled: adminConfig.SiteConfig.TVBoxEnabled === true,
@@ -110,15 +112,13 @@ export async function POST(request: NextRequest) {
     await storage.setAdminConfig(adminConfig);
   }
 
-  const base = new URL(request.url);
-  base.pathname = '/api/tvbox/config';
-  base.search = '';
+  const baseUrl = buildTvboxConfigUrl(request);
 
   const token = await createTVBoxToken(username);
   return NextResponse.json({
     enabled: adminConfig.SiteConfig.TVBoxEnabled === true,
     password: adminConfig.SiteConfig.TVBoxPassword || '',
     token,
-    url: `${base.toString()}?token=${encodeURIComponent(token)}`,
+    url: `${baseUrl}?token=${encodeURIComponent(token)}`,
   });
 }

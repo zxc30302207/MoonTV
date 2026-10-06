@@ -11,6 +11,11 @@ export const runtime = 'nodejs';
 
 // pako 的 gzip 是同步的，不需要 promisify
 
+// 将对象编码为 SSE 事件文本
+function encodeSSE(data: unknown): string {
+  return `data: ${JSON.stringify(data)}\n\n`;
+}
+
 export async function POST(req: NextRequest) {
   try {
     // 檢查存儲類型
@@ -59,73 +64,208 @@ export async function POST(req: NextRequest) {
       },
     };
 
-    // 獲取所有用戶
+    // 站长用户名（用于导出其密码等）
+    const adminUsername = process.env.USERNAME as string;
+
+    // 获取所有用户
     let allUsers = await db.getAllUsers();
-    // 添加站長用戶
-    allUsers.push(process.env.USERNAME);
+    // 添加站长用户
+    allUsers.push(adminUsername);
     allUsers = Array.from(new Set(allUsers));
+    const TOTAL_USERS = allUsers.length;
 
-    // 為每個用戶收集數據
-    for (const username of allUsers) {
-      const userData = {
-        // 播放記錄
-        playRecords: await db.getAllPlayRecords(username),
-        // 收藏夾
-        favorites: await db.getAllFavorites(username),
-        // 搜索歷史
-        searchHistory: await db.getSearchHistory(username),
-        // 跳過片頭片尾配置
-        skipConfigs: await db.getAllSkipConfigs(username),
-        // 用戶密碼（通過驗證空密碼來檢查用戶是否存在，然後獲取密碼）
-        password: await getUserPassword(username),
-      };
+    // 创建 SSE 流
+    const encoder = new TextEncoder();
+    let streamClosed = false;
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        // 推送 SSE 事件
+        const send = (data: unknown) => {
+          if (streamClosed) return;
+          try {
+            controller.enqueue(encoder.encode(encodeSSE(data)));
+          } catch (err) {
+            streamClosed = true; // Client disconnected; do not enqueue again.
+          }
+        };
 
-      exportData.data.userData[username] = userData;
-    }
+        try {
+          // 阶段 1：开始导出
+          send({ type: 'stage', message: '正在导出管理员配置...', percent: 0 });
 
-    // 覆蓋站長密碼
-    const ownerKey = process.env.USERNAME as string;
-    const ownerData = exportData.data.userData[ownerKey] as Record<
-      string,
-      unknown
-    >;
-    if (process.env.PASSWORD) {
-      const ownerPassword = process.env.PASSWORD;
-      (ownerData as { password?: string }).password = isPasswordHash(
-        ownerPassword
-      )
-        ? ownerPassword
-        : await hashPassword(ownerPassword);
-    }
+          // 阶段 2：逐用户收集数据
+          let userIndex = 0;
+          for (const username of allUsers) {
+            userIndex++;
+            // 用户进度：5% ~ 90%
+            const percent = Math.round(5 + (userIndex / TOTAL_USERS) * 85);
 
-    // 將數據轉換為JSON字符串
-    const jsonData = JSON.stringify(exportData);
+            send({
+              type: 'user',
+              message: `正在导出用户 ${userIndex}/${TOTAL_USERS}: ${username}`,
+              username,
+              userIndex,
+              totalUsers: TOTAL_USERS,
+              percent,
+            });
 
-    // 先壓縮數據
-    const compressedData = deflate(jsonData);
+            // 并行读取各类型数据以提升导出速度
+            const [
+              playRecords,
+              favorites,
+              followings,
+              todayUpdated,
+              searchHistory,
+              skipConfigs,
+              userPassword,
+            ] = await Promise.all([
+              db.getAllPlayRecords(username),
+              db.getAllFavorites(username),
+              db.getAllFollowings(username),
+              db.getTodayUpdated(username),
+              db.getSearchHistory(username),
+              db.getAllSkipConfigs(username),
+              getUserPassword(username),
+            ]);
 
-    // 使用提供的密碼加密壓縮後的數據
-    const compressedBase64 = Buffer.from(compressedData).toString('base64');
-    const encryptedData = SimpleCrypto.encrypt(compressedBase64, password);
+            // 记录各类型条数用于日志展示
+            const counts: string[] = [];
+            const playCount = Object.keys(playRecords || {}).length;
+            const favCount = Object.keys(favorites || {}).length;
+            const folCount = Object.keys(followings || {}).length;
+            const searchCount = Array.isArray(searchHistory)
+              ? searchHistory.length
+              : 0;
+            const skipCount = Object.keys(skipConfigs || {}).length;
+            if (playCount) counts.push(`播放记录${playCount}`);
+            if (favCount) counts.push(`收藏${favCount}`);
+            if (folCount) counts.push(`追更${folCount}`);
+            if (todayUpdated) counts.push('今日新更');
+            if (searchCount) counts.push(`搜索历史${searchCount}`);
+            if (skipCount) counts.push(`跳过配置${skipCount}`);
+            send({
+              type: 'detail',
+              message: `用户 ${username}: ${
+                counts.length ? counts.join('、') : '无数据'
+              }`,
+              percent,
+            });
 
-    // 生成文件名
-    const now = new Date();
-    const timestamp = `${now.getFullYear()}${String(
-      now.getMonth() + 1
-    ).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(
-      now.getHours()
-    ).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(
-      now.getSeconds()
-    ).padStart(2, '0')}`;
-    const filename = `moontv-backup-${timestamp}.dat`;
+            exportData.data.userData[username] = {
+              // 播放记录
+              playRecords,
+              // 收藏夹
+              favorites,
+              // 追更
+              followings,
+              // 今日新更
+              todayUpdated,
+              // 搜索历史
+              searchHistory,
+              // 跳过片头片尾配置
+              skipConfigs,
+              // 用户密码
+              password: userPassword,
+            };
+          }
 
-    // 返回加密的數據作為文件下載
-    return new NextResponse(encryptedData, {
+          // 覆盖站长密码
+          const ownerData = exportData.data.userData[adminUsername] as {
+            password?: string | null;
+          };
+          const ownerPassword = process.env.PASSWORD;
+          if (ownerPassword) {
+            ownerData.password = isPasswordHash(ownerPassword)
+              ? ownerPassword
+              : await hashPassword(ownerPassword);
+          }
+
+          // 阶段 3：压缩并加密
+          send({
+            type: 'stage',
+            message: '正在压缩并加密数据...',
+            percent: 92,
+          });
+
+          // 将数据转换为JSON字符串
+          const jsonData = JSON.stringify(exportData);
+
+          // 先压缩数据
+          const compressedData = deflate(jsonData);
+
+          // 使用提供的密码加密压缩后的数据
+          const compressedBase64 =
+            Buffer.from(compressedData).toString('base64');
+          const encryptedData = SimpleCrypto.encrypt(
+            compressedBase64,
+            password
+          );
+
+          // 生成文件名
+          const now = new Date();
+          const timestamp = `${now.getFullYear()}${String(
+            now.getMonth() + 1
+          ).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(
+            now.getHours()
+          ).padStart(2, '0')}${String(now.getMinutes()).padStart(
+            2,
+            '0'
+          )}${String(now.getSeconds()).padStart(2, '0')}`;
+          const filename = `moontv-backup-${timestamp}.dat`;
+
+          // 阶段 4：分块推送加密后的文件数据（base64 字符串）
+          send({ type: 'file_start', filename, percent: 95 });
+
+          // 将加密数据分块推送，避免单条 SSE 事件过大
+          const CHUNK_SIZE = 64 * 1024; // 64KB
+          for (let i = 0; i < encryptedData.length; i += CHUNK_SIZE) {
+            send({
+              type: 'chunk',
+              data: encryptedData.slice(i, i + CHUNK_SIZE),
+            });
+          }
+
+          send({ type: 'file_end', percent: 100 });
+          send({
+            type: 'done',
+            message: '数据导出成功',
+            exportedUsers: TOTAL_USERS,
+            filename,
+            percent: 100,
+          });
+          if (!streamClosed) {
+            streamClosed = true;
+            try {
+              controller.close();
+            } catch {
+              /* already cancelled */
+            }
+          }
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : '导出失败';
+          send({ type: 'error', message: errMsg });
+          if (!streamClosed) {
+            streamClosed = true;
+            try {
+              controller.close();
+            } catch {
+              /* already cancelled */
+            }
+          }
+        }
+      },
+      cancel() {
+        streamClosed = true;
+      },
+    });
+
+    return new NextResponse(stream, {
       status: 200,
       headers: {
-        'Content-Type': 'application/octet-stream',
-        'Content-Disposition': `attachment; filename="${filename}"`,
-        'Content-Length': encryptedData.length.toString(),
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'private, no-store, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
       },
     });
   } catch (error) {

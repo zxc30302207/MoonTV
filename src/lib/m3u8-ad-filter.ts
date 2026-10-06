@@ -1,30 +1,11 @@
-type DropReason =
-  | 'cue'
-  | 'explicit-tag'
-  | 'explicit-uri'
-  | 'non-media'
-  | 'preroll'
-  | 'recurring-group'
-  | 'recurring-run';
+type DropReason = 'verified-asset' | 'cue';
 
 type PlaylistEntry = {
-  cueAd: boolean;
   duration: number;
-  explicitAd: boolean;
-  group: number;
   index: number;
   reasons: Set<DropReason>;
-  signature: string;
   tags: string[];
   uri: string;
-};
-
-type PlaylistGroupInfo = {
-  duration: number;
-  entries: PlaylistEntry[];
-  groupNumber: number;
-  segmentCount: number;
-  signature: string;
 };
 
 type ParsedMediaPlaylist = {
@@ -33,62 +14,38 @@ type ParsedMediaPlaylist = {
   tail: string[];
 };
 
-type SegmentRun = {
-  duration: number;
-  endIndex: number;
-  segmentCount: number;
-  signature: string;
-  startIndex: number;
-};
-
 export type M3U8AdFilterResult = {
   content: string;
   droppedSegments: number;
+  droppedDuration?: number;
 };
 
-const STRONG_AD_TOKENS = new Set([
-  'ad',
-  'ads',
-  'adv',
-  'adver',
-  'advert',
-  'advertise',
-  'advertisement',
-  'adbreak',
-  'adinsert',
-  'adseg',
-  'commercial',
-  'doubleclick',
-  'googleads',
-  'gg',
-  'hdgg',
-  'iqiyiad',
-  'pre-roll',
-  'preroll',
-  'promo',
-  'sponsor',
-  'vast',
-  'vmap',
-  'youkuad',
-]);
-
-const AD_TAG_PATTERN =
-  /(^|[",:=._ -])(AD|ADS|ADV|ADVERT|ADVERTISEMENT|ASSET|COMMERCIAL|CUE|INTERSTITIAL|PREROLL|PRE-ROLL|SCTE35|SCTE-35|SPLICE|VAST|VMAP)([",:=._ -]|$)|\u5e7f\u544a|\u5ee3\u544a/;
-
-const NON_MEDIA_SEGMENT_PATTERN = /\.(?:gif|jpe?g|png|webp|html?)(?:[?#].*)?$/i;
-
-const MAX_PREROLL_SECONDS = 90;
-const MAX_PREROLL_SEGMENTS = 60;
-const MAX_INSERTED_AD_SECONDS = 45;
-const MAX_INSERTED_AD_SEGMENTS = 20;
-const MIN_RECURRING_AD_GROUPS = 2;
-const MAX_STRUCTURAL_DROP_RATIO = 0.35;
-
-const STRUCTURAL_REASONS = new Set<DropReason>([
-  'preroll',
-  'recurring-group',
-  'recurring-run',
-]);
+/**
+ * Verified on 2026-10-06 against decoded public-source samples from unrelated
+ * titles (Hunan programme + animation; 360 short animation + Doraemon).
+ * Match the COMPLETE ordered path/duration sequence, never a host, bitrate,
+ * filename substring or minority folder alone. CDN host rotation is harmless.
+ * Evidence notes and bounded manifest snippets live in the regression tests.
+ */
+const VERIFIED_AD_SEQUENCES = [
+  {
+    prefix: '/20260917/khKm9Z55/10110kb/hls/',
+    files: [
+      'ziiI7NqG.ts',
+      '6A9DtRjZ.ts',
+      'yDBttVea.ts',
+      '375tEjhm.ts',
+      '8MtYWTXy.ts',
+      'ZSaJTnmE.ts',
+    ],
+    durations: [3, 3, 5, 3, 3, 0.64],
+  },
+  {
+    prefix: '/20260917/oVx7Nl6K/hls/',
+    files: ['6DX5yaZ1.ts', 'Q22Q6Lti.ts', 'Qailk3T1.ts', 'aV53bW81.ts'],
+    durations: [5, 5, 5, 2.567],
+  },
+];
 
 export function filterAdsFromM3U8(content: string): string {
   return filterAdsFromM3U8WithStats(content).content;
@@ -105,27 +62,58 @@ export function filterAdsFromM3U8WithStats(
     return { content, droppedSegments: 0 };
   }
 
+  // Live sliding windows must retain their original sequence/discontinuity numbering.
+  if (!/#EXT-X-ENDLIST(?:\s|$)/m.test(content))
+    return { content, droppedSegments: 0 };
+
   const parsed = parseMediaPlaylist(content);
   if (parsed.entries.length === 0) {
     return { content, droppedSegments: 0 };
   }
 
   const dropPlan = buildDropPlan(parsed.entries);
+  // Unknown interstitials may be introductions/bonus content. Preserve them too.
+  if (dropPlan.size === 0) return { content, droppedSegments: 0 };
+  if (
+    hasUnsupportedTimelineState(content) ||
+    parsed.entries.some(
+      (entry) => !Number.isFinite(entry.duration) || entry.duration <= 0
+    )
+  ) {
+    return { content, droppedSegments: 0 };
+  }
+  return rebuildPlaylist(parsed, dropPlan, content);
+}
 
-  return rebuildPlaylist(parsed, dropPlan);
+function hasUnsupportedTimelineState(content: string): boolean {
+  // Date ranges can schedule introductions, bonus material or other external
+  // content. Without a shared timeline map, cutting beside them is ambiguous.
+  if (/^#EXT-X-DATERANGE:/m.test(content)) return true;
+  return content.split(/\r?\n/).some((rawLine) => {
+    const line = rawLine.trim();
+    if (line.startsWith('#EXT-X-KEY:')) {
+      const method = line.match(/METHOD=([^,]+)/)?.[1];
+      const format = line.match(/KEYFORMAT="([^"]+)"/)?.[1];
+      return (
+        !['NONE', 'AES-128'].includes(method || '') ||
+        Boolean(format && format !== 'identity')
+      );
+    }
+    return line.startsWith('#EXT-X-MAP:') && /BYTERANGE="\d+"/.test(line);
+  });
 }
 
 function parseMediaPlaylist(content: string): ParsedMediaPlaylist {
   const lines = content.split(/\r?\n/);
   const entries: PlaylistEntry[] = [];
   const header: string[] = [];
-  let currentGroup = 0;
   let hasSeenSegment = false;
   let inCueAd = false;
-  let nextSegmentCueAd = false;
+  let cueRemaining: number | null = null;
   let pendingTags: string[] = [];
 
-  for (const rawLine of lines) {
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const rawLine = lines[lineIndex];
     const line = rawLine.trim();
 
     if (!line) {
@@ -134,52 +122,56 @@ function parseMediaPlaylist(content: string): ParsedMediaPlaylist {
 
     if (!line.startsWith('#')) {
       const tags = pendingTags;
-      const uriAdReason = getExplicitUriAdReason(line);
-      const tagAdReason = tags.some(isSegmentAdMarkerTag)
-        ? 'explicit-tag'
-        : null;
-      const cueAd = inCueAd || nextSegmentCueAd;
-      const explicitAd = Boolean(uriAdReason || tagAdReason);
+      const duration = getPendingDuration(tags);
+      const cueAd =
+        inCueAd && (cueRemaining === null || duration <= cueRemaining + 0.001);
+      if (inCueAd && cueRemaining !== null) {
+        cueRemaining -= duration;
+        if (cueRemaining <= 0.001) inCueAd = false;
+      }
       const reasons = new Set<DropReason>();
 
       if (cueAd) reasons.add('cue');
-      if (uriAdReason) reasons.add(uriAdReason);
-      if (tagAdReason) reasons.add(tagAdReason);
 
       entries.push({
-        cueAd,
-        duration: getPendingDuration(tags),
-        explicitAd,
-        group: currentGroup,
+        duration,
         index: entries.length,
         reasons,
-        signature: getPathSignature(line),
         tags,
         uri: rawLine,
       });
 
       pendingTags = [];
-      nextSegmentCueAd = false;
       hasSeenSegment = true;
       continue;
     }
 
+    if (
+      /^#(?:EXTM3U$|EXT-X-(?:VERSION|TARGETDURATION|MEDIA-SEQUENCE|DISCONTINUITY-SEQUENCE|PLAYLIST-TYPE|I-FRAMES-ONLY|INDEPENDENT-SEGMENTS|START|PART-INF|SERVER-CONTROL)(?::|$))/i.test(
+        line
+      )
+    ) {
+      header.push(rawLine);
+      continue;
+    }
+
     if (isCueOutTag(line)) {
-      inCueAd = true;
-      nextSegmentCueAd = true;
+      const duration = line.match(/(?:DURATION=|:)([0-9]+(?:\.[0-9]+)?)/i);
+      const boundedDuration = duration ? Number(duration[1]) : 0;
+      cueRemaining = boundedDuration > 0 ? boundedDuration : null;
+      // An unterminated cue without a duration must not consume the programme.
+      inCueAd =
+        cueRemaining !== null || lines.slice(lineIndex + 1).some(isCueInTag);
       continue;
     }
 
     if (isCueInTag(line)) {
       inCueAd = false;
-      nextSegmentCueAd = false;
+      cueRemaining = null;
       continue;
     }
 
     if (isAdControlOrMetadataTag(line)) {
-      if (isSegmentAdMarkerTag(line)) {
-        nextSegmentCueAd = true;
-      }
       continue;
     }
 
@@ -193,9 +185,6 @@ function parseMediaPlaylist(content: string): ParsedMediaPlaylist {
     }
 
     if (isDiscontinuityTag(line)) {
-      if (hasSeenSegment || pendingTags.length > 0) {
-        currentGroup += 1;
-      }
       pendingTags.push(rawLine);
       continue;
     }
@@ -219,24 +208,24 @@ function buildDropPlan(entries: PlaylistEntry[]): Map<number, Set<DropReason>> {
     }
   }
 
-  for (const group of Array.from(getPrerollGroupsToDrop(entries))) {
-    for (const entry of entries) {
-      if (entry.group === group) {
-        addDropReason(candidates, entry.index, 'preroll');
+  for (const sequence of VERIFIED_AD_SEQUENCES) {
+    for (
+      let start = 0;
+      start <= entries.length - sequence.files.length;
+      start += 1
+    ) {
+      const matches = sequence.files.every((file, offset) => {
+        const entry = entries[start + offset];
+        return (
+          getUrlLikePath(entry.uri) === `${sequence.prefix}${file}` &&
+          Math.abs(entry.duration - sequence.durations[offset]) <= 0.01
+        );
+      });
+      if (!matches) continue;
+      for (let offset = 0; offset < sequence.files.length; offset += 1) {
+        addDropReason(candidates, start + offset, 'verified-asset');
       }
     }
-  }
-
-  for (const group of Array.from(getRecurringInsertedAdGroupsToDrop(entries))) {
-    for (const entry of entries) {
-      if (entry.group === group) {
-        addDropReason(candidates, entry.index, 'recurring-group');
-      }
-    }
-  }
-
-  for (const index of Array.from(getRecurringInlineAdSegmentsToDrop(entries))) {
-    addDropReason(candidates, index, 'recurring-run');
   }
 
   return applyDropSafety(entries, candidates);
@@ -256,113 +245,7 @@ function applyDropSafety(
   entries: PlaylistEntry[],
   candidates: Map<number, Set<DropReason>>
 ): Map<number, Set<DropReason>> {
-  candidates = removeDominantUriOnlyCandidates(entries, candidates);
-  if (candidates.size === 0) return candidates;
-
-  const explicitCandidates = new Map<number, Set<DropReason>>();
-  const structuralCandidates = new Map<number, Set<DropReason>>();
-
-  for (const [index, reasons] of Array.from(candidates.entries())) {
-    if (Array.from(reasons).some((reason) => STRUCTURAL_REASONS.has(reason))) {
-      structuralCandidates.set(index, reasons);
-    }
-    if (Array.from(reasons).some((reason) => !STRUCTURAL_REASONS.has(reason))) {
-      explicitCandidates.set(index, reasons);
-    }
-  }
-
-  if (
-    structuralCandidates.size > 0 &&
-    isStructurallySafeDrop(entries, candidates)
-  ) {
-    return isSafeRemainingPlaylist(entries, candidates)
-      ? candidates
-      : explicitCandidates;
-  }
-
-  return isSafeRemainingPlaylist(entries, explicitCandidates)
-    ? explicitCandidates
-    : new Map();
-}
-
-function removeDominantUriOnlyCandidates(
-  entries: PlaylistEntry[],
-  candidates: Map<number, Set<DropReason>>
-): Map<number, Set<DropReason>> {
-  const totalDuration = sumDurations(entries);
-  if (totalDuration <= 0) return candidates;
-
-  const candidateDurationBySignature = new Map<string, number>();
-  for (const [index, reasons] of Array.from(candidates.entries())) {
-    if (!isUriOnlyCandidate(reasons)) continue;
-    const entry = entries[index];
-    if (!entry?.signature) continue;
-    candidateDurationBySignature.set(
-      entry.signature,
-      (candidateDurationBySignature.get(entry.signature) || 0) + entry.duration
-    );
-  }
-
-  const dominantSignatures = new Set(
-    Array.from(candidateDurationBySignature.entries())
-      .filter(([, duration]) => duration / totalDuration > 0.5)
-      .map(([signature]) => signature)
-  );
-  if (dominantSignatures.size === 0) return candidates;
-
-  const pruned = new Map<number, Set<DropReason>>();
-  for (const [index, reasons] of Array.from(candidates.entries())) {
-    const entry = entries[index];
-    const nextReasons = new Set(reasons);
-    if (entry?.signature && dominantSignatures.has(entry.signature)) {
-      nextReasons.delete('explicit-uri');
-      nextReasons.delete('non-media');
-    }
-    if (nextReasons.size > 0) {
-      pruned.set(index, nextReasons);
-    }
-  }
-
-  return pruned;
-}
-
-function isUriOnlyCandidate(reasons: Set<DropReason>): boolean {
-  return (
-    reasons.size > 0 &&
-    Array.from(reasons).every(
-      (reason) => reason === 'explicit-uri' || reason === 'non-media'
-    )
-  );
-}
-
-function isStructurallySafeDrop(
-  entries: PlaylistEntry[],
-  candidates: Map<number, Set<DropReason>>
-): boolean {
-  if (entries.length < 8) return false;
-
-  const totalDuration = sumDurations(entries);
-  let structuralDuration = 0;
-  let structuralSegments = 0;
-
-  for (const [index, reasons] of Array.from(candidates.entries())) {
-    if (!Array.from(reasons).some((reason) => STRUCTURAL_REASONS.has(reason))) {
-      continue;
-    }
-    structuralSegments += 1;
-    structuralDuration += entries[index]?.duration || 0;
-  }
-
-  if (structuralSegments === 0) return true;
-  if (structuralSegments >= entries.length) return false;
-  if (structuralSegments / entries.length > MAX_STRUCTURAL_DROP_RATIO) {
-    return false;
-  }
-
-  return (
-    totalDuration <= 0 ||
-    structuralDuration / totalDuration <= MAX_STRUCTURAL_DROP_RATIO
-  );
+  return isSafeRemainingPlaylist(entries, candidates) ? candidates : new Map();
 }
 
 function isSafeRemainingPlaylist(
@@ -376,34 +259,159 @@ function isSafeRemainingPlaylist(
   return keptEntries.length > 0 && sumDurations(keptEntries) > 0;
 }
 
+/** Rebuild without losing encryption/init state or implicit byte offsets. */
 function rebuildPlaylist(
   parsed: ParsedMediaPlaylist,
-  dropPlan: Map<number, Set<DropReason>>
+  dropPlan: Map<number, Set<DropReason>>,
+  originalContent: string
 ): M3U8AdFilterResult {
   const result: string[] = parsed.header.filter(
     (line) => !isAdControlOrMetadataTag(line.trim())
   );
+  const mediaSequence =
+    parsed.header
+      .find((line) => /^#EXT-X-MEDIA-SEQUENCE:/i.test(line.trim()))
+      ?.split(':')[1]
+      .trim() || '0';
+  let baseSequence: bigint;
+  try {
+    baseSequence = BigInt(mediaSequence);
+  } catch {
+    baseSequence = BigInt(0);
+  }
+  const firstKept = parsed.entries.find((entry) => !dropPlan.has(entry.index));
+  const leadingDiscontinuities = parsed.entries
+    .slice(0, (firstKept?.index ?? 0) + 1)
+    .reduce(
+      (count, entry) => count + entry.tags.filter(isDiscontinuityTag).length,
+      0
+    );
+  const updateSequence = (tag: string, value: string) => {
+    const index = result.findIndex((line) => line.startsWith(`${tag}:`));
+    if (index >= 0) result[index] = `${tag}:${value}`;
+    else result.push(`${tag}:${value}`);
+  };
+  if (firstKept && firstKept.index > 0)
+    updateSequence(
+      '#EXT-X-MEDIA-SEQUENCE',
+      (baseSequence + BigInt(firstKept.index)).toString()
+    );
+  if (leadingDiscontinuities > 0) {
+    const original =
+      result
+        .find((line) => line.startsWith('#EXT-X-DISCONTINUITY-SEQUENCE:'))
+        ?.split(':')[1] || '0';
+    updateSequence(
+      '#EXT-X-DISCONTINUITY-SEQUENCE',
+      (BigInt(original) + BigInt(leadingDiscontinuities)).toString()
+    );
+  }
   let droppedSegments = 0;
+  let droppedDuration = 0;
+  let carriedState: string[] = [];
+  let activeKey: string | null = null;
+  let previousRange: { uri: string; end: number } | null = null;
+  let hasKeptSegment = false;
+  let crossedRemovedSegment = false;
 
   for (const entry of parsed.entries) {
+    const keyTags = entry.tags.filter((tag) =>
+      /^#EXT-X-KEY:/i.test(tag.trim())
+    );
+    for (const key of keyTags) {
+      if (!/KEYFORMAT=/i.test(key) || /KEYFORMAT="identity"/i.test(key))
+        activeKey = key;
+    }
+    const range = entry.tags.find((tag) =>
+      /^#EXT-X-BYTERANGE:/i.test(tag.trim())
+    );
+    let resolvedRange: string | null = null;
+    if (range) {
+      const match = range.trim().match(/^#EXT-X-BYTERANGE:(\d+)(?:@(\d+))?$/i);
+      const size = Number(match?.[1]);
+      const offset: number =
+        match?.[2] !== undefined
+          ? Number(match[2])
+          : previousRange?.uri === entry.uri
+          ? previousRange.end
+          : NaN;
+      if (
+        !Number.isSafeInteger(size) ||
+        size <= 0 ||
+        !Number.isSafeInteger(offset) ||
+        offset < 0
+      ) {
+        // Ambiguous range semantics: keep the original playlist rather than corrupt retained content.
+        return { content: originalContent, droppedSegments: 0 };
+      }
+      previousRange = { uri: entry.uri, end: offset + size };
+      resolvedRange = `#EXT-X-BYTERANGE:${size}@${offset}`;
+    } else {
+      previousRange = null;
+    }
+
     if (dropPlan.has(entry.index)) {
       droppedSegments += 1;
+      droppedDuration += entry.duration;
+      carriedState.push(
+        ...entry.tags.filter((tag) => /^#EXT-X-(?:KEY|MAP):/i.test(tag.trim()))
+      );
+      crossedRemovedSegment = true;
       continue;
     }
 
+    if (
+      crossedRemovedSegment &&
+      hasKeptSegment &&
+      !entry.tags.some(isDiscontinuityTag)
+    ) {
+      result.push('#EXT-X-DISCONTINUITY');
+    }
+    result.push(...carriedState);
+    carriedState = [];
     result.push(
-      ...entry.tags.filter((tag) => !isAdControlOrMetadataTag(tag.trim()))
+      ...entry.tags
+        .filter((tag) => !isAdControlOrMetadataTag(tag.trim()))
+        .map((tag) =>
+          dropPlan.size > 0 &&
+          resolvedRange &&
+          /^#EXT-X-BYTERANGE:/i.test(tag.trim())
+            ? resolvedRange
+            : tag
+        )
     );
+    // AES-128 without IV derives it from the ORIGINAL media sequence. Deleting
+    // earlier segments changes implicit numbering, so pin the original IV.
+    if (
+      dropPlan.size > 0 &&
+      activeKey &&
+      /METHOD=AES-128(?:,|$)/i.test(activeKey) &&
+      !/(?:^|,)IV=/i.test(activeKey)
+    ) {
+      const declaredVersion = Number(
+        result
+          .find((line) => line.startsWith('#EXT-X-VERSION:'))
+          ?.split(':')[1] || 1
+      );
+      if (declaredVersion < 2) updateSequence('#EXT-X-VERSION', '2');
+      const iv = (baseSequence + BigInt(entry.index))
+        .toString(16)
+        .padStart(32, '0');
+      result.push(`${activeKey},IV=0x${iv}`);
+    }
     result.push(entry.uri);
+    hasKeptSegment = true;
+    crossedRemovedSegment = false;
   }
-
   result.push(
     ...parsed.tail.filter((line) => !isAdControlOrMetadataTag(line.trim()))
   );
-
   return {
     content: normalizeDiscontinuities(result).join('\n'),
     droppedSegments,
+    ...(droppedSegments > 0
+      ? { droppedDuration: Math.round(droppedDuration * 1000) / 1000 }
+      : {}),
   };
 }
 
@@ -431,372 +439,8 @@ function normalizeDiscontinuities(lines: string[]): string[] {
   return normalized;
 }
 
-function getPrerollGroupsToDrop(entries: PlaylistEntry[]): Set<number> {
-  const groups = groupEntriesByDiscontinuity(entries);
-  const groupNumbers = Array.from(groups.keys()).sort((a, b) => a - b);
-  if (groupNumbers.length < 2 || groupNumbers[0] !== 0) {
-    return new Set();
-  }
-
-  const firstGroup = groups.get(0) || [];
-  const restGroups = groupNumbers
-    .slice(1)
-    .flatMap((groupNumber) => groups.get(groupNumber) || []);
-
-  if (firstGroup.length === 0 || restGroups.length === 0) {
-    return new Set();
-  }
-
-  const firstDuration = sumDurations(firstGroup);
-  const restDuration = sumDurations(restGroups);
-  const firstSignature = getDominantPathSignature(firstGroup);
-  const restSignature = getDominantPathSignature(restGroups);
-
-  if (
-    firstGroup.every((entry) => entry.explicitAd || entry.cueAd) &&
-    firstGroup.length <= MAX_PREROLL_SEGMENTS &&
-    firstDuration > 0 &&
-    firstDuration <= MAX_PREROLL_SECONDS &&
-    restDuration >= firstDuration * 3
-  ) {
-    return new Set([0]);
-  }
-
-  const looksLikeDetachedPreroll =
-    firstGroup.length <= MAX_PREROLL_SEGMENTS &&
-    firstDuration > 0 &&
-    firstDuration <= MAX_PREROLL_SECONDS &&
-    firstSignature !== '' &&
-    restSignature !== '' &&
-    firstSignature !== restSignature &&
-    restGroups.length >= firstGroup.length * 3 &&
-    restDuration >= firstDuration * 3;
-
-  return looksLikeDetachedPreroll ? new Set([0]) : new Set();
-}
-
-function getRecurringInsertedAdGroupsToDrop(
-  entries: PlaylistEntry[]
-): Set<number> {
-  const groups = groupEntriesByDiscontinuity(entries);
-  const groupInfos = Array.from(groups.entries())
-    .map(([groupNumber, groupEntries]) => ({
-      duration: sumDurations(groupEntries),
-      entries: groupEntries,
-      groupNumber,
-      segmentCount: groupEntries.length,
-      signature: getDominantPathSignature(groupEntries),
-    }))
-    .filter((info) => info.entries.length > 0 && info.signature);
-
-  if (groupInfos.length < 3) {
-    return new Set();
-  }
-
-  const primarySignature = getPrimarySignature(groupInfos);
-  if (!primarySignature) {
-    return new Set();
-  }
-
-  const primaryDuration = sumDurations(
-    groupInfos
-      .filter((info) => info.signature === primarySignature)
-      .flatMap((info) => info.entries)
-  );
-  const infosBySignature = groupInfosBySignature(groupInfos);
-  const dropGroups = new Set<number>();
-
-  for (const [signature, infos] of Array.from(infosBySignature.entries())) {
-    if (signature === primarySignature) continue;
-
-    const signatureDuration = infos.reduce(
-      (total, info) => total + info.duration,
-      0
-    );
-    const allGroupsAreShort = infos.every(
-      (info) =>
-        info.segmentCount <= MAX_INSERTED_AD_SEGMENTS &&
-        info.duration > 0 &&
-        info.duration <= MAX_INSERTED_AD_SECONDS
-    );
-    const allGroupsAreInserted = infos.every((info) =>
-      isGroupBetweenPrimaryContent(groupInfos, info, primarySignature)
-    );
-    const isMinorTrack =
-      primaryDuration > 0 && signatureDuration <= primaryDuration * 0.25;
-
-    if (
-      infos.length < MIN_RECURRING_AD_GROUPS ||
-      !isMinorTrack ||
-      !allGroupsAreShort ||
-      !allGroupsAreInserted
-    ) {
-      continue;
-    }
-
-    for (const info of infos) {
-      dropGroups.add(info.groupNumber);
-    }
-  }
-
-  return dropGroups;
-}
-
-function getRecurringInlineAdSegmentsToDrop(
-  entries: PlaylistEntry[]
-): Set<number> {
-  const signatures = entries.map((entry) => entry.signature);
-  if (signatures.filter(Boolean).length < 3) {
-    return new Set();
-  }
-
-  const signatureDurations = new Map<string, number>();
-  for (let index = 0; index < entries.length; index++) {
-    const signature = signatures[index];
-    if (!signature) continue;
-    signatureDurations.set(
-      signature,
-      (signatureDurations.get(signature) || 0) + entries[index].duration
-    );
-  }
-
-  const primarySignature = Array.from(signatureDurations.entries()).sort(
-    (a, b) => b[1] - a[1]
-  )[0]?.[0];
-  if (!primarySignature) {
-    return new Set();
-  }
-
-  const primaryDuration = signatureDurations.get(primarySignature) || 0;
-  const runs = buildSegmentRuns(entries, signatures);
-  const runsBySignature = new Map<string, SegmentRun[]>();
-
-  for (const run of runs) {
-    if (!run.signature || run.signature === primarySignature) continue;
-    const list = runsBySignature.get(run.signature) || [];
-    list.push(run);
-    runsBySignature.set(run.signature, list);
-  }
-
-  const dropIndexes = new Set<number>();
-  for (const [signature, signatureRuns] of Array.from(
-    runsBySignature.entries()
-  )) {
-    const signatureDuration = signatureDurations.get(signature) || 0;
-    const allRunsAreShort = signatureRuns.every(
-      (run) =>
-        run.segmentCount <= MAX_INSERTED_AD_SEGMENTS &&
-        run.duration > 0 &&
-        run.duration <= MAX_INSERTED_AD_SECONDS
-    );
-    const insertedRunCount = signatureRuns.filter((run) =>
-      isRunBetweenPrimaryContent(run, signatures, primarySignature)
-    ).length;
-    const isMinorTrack =
-      primaryDuration > 0 && signatureDuration <= primaryDuration * 0.25;
-
-    if (
-      signatureRuns.length < MIN_RECURRING_AD_GROUPS ||
-      insertedRunCount < MIN_RECURRING_AD_GROUPS ||
-      !isMinorTrack ||
-      !allRunsAreShort
-    ) {
-      continue;
-    }
-
-    for (const run of signatureRuns) {
-      for (let index = run.startIndex; index <= run.endIndex; index++) {
-        dropIndexes.add(index);
-      }
-    }
-  }
-
-  return dropIndexes;
-}
-
-function buildSegmentRuns(
-  entries: PlaylistEntry[],
-  signatures: string[]
-): SegmentRun[] {
-  const runs: SegmentRun[] = [];
-  let index = 0;
-
-  while (index < entries.length) {
-    const signature = signatures[index];
-    const startIndex = index;
-    let duration = 0;
-
-    while (index < entries.length && signatures[index] === signature) {
-      duration += entries[index].duration;
-      index++;
-    }
-
-    runs.push({
-      duration,
-      endIndex: index - 1,
-      segmentCount: index - startIndex,
-      signature,
-      startIndex,
-    });
-  }
-
-  return runs;
-}
-
-function getPrimarySignature(groupInfos: PlaylistGroupInfo[]): string {
-  const signatureDurations = new Map<string, number>();
-  for (const info of groupInfos) {
-    signatureDurations.set(
-      info.signature,
-      (signatureDurations.get(info.signature) || 0) + info.duration
-    );
-  }
-
-  return (
-    Array.from(signatureDurations.entries()).sort(
-      (a, b) => b[1] - a[1]
-    )[0]?.[0] || ''
-  );
-}
-
-function groupInfosBySignature(
-  groupInfos: PlaylistGroupInfo[]
-): Map<string, PlaylistGroupInfo[]> {
-  const grouped = new Map<string, PlaylistGroupInfo[]>();
-  for (const info of groupInfos) {
-    const list = grouped.get(info.signature) || [];
-    list.push(info);
-    grouped.set(info.signature, list);
-  }
-  return grouped;
-}
-
-function isGroupBetweenPrimaryContent(
-  groupInfos: PlaylistGroupInfo[],
-  target: PlaylistGroupInfo,
-  primarySignature: string
-): boolean {
-  const orderedInfos = [...groupInfos].sort(
-    (a, b) => a.groupNumber - b.groupNumber
-  );
-  const index = orderedInfos.findIndex(
-    (info) => info.groupNumber === target.groupNumber
-  );
-  if (index < 0) return false;
-
-  const previous = findNearestGroupSignature(orderedInfos, index - 1, -1);
-  const next = findNearestGroupSignature(orderedInfos, index + 1, 1);
-  return previous === primarySignature && next === primarySignature;
-}
-
-function findNearestGroupSignature(
-  groupInfos: PlaylistGroupInfo[],
-  startIndex: number,
-  direction: 1 | -1
-): string {
-  for (
-    let index = startIndex;
-    index >= 0 && index < groupInfos.length;
-    index += direction
-  ) {
-    if (groupInfos[index].signature) {
-      return groupInfos[index].signature;
-    }
-  }
-  return '';
-}
-
-function isRunBetweenPrimaryContent(
-  run: SegmentRun,
-  signatures: string[],
-  primarySignature: string
-): boolean {
-  const previousSignature = findNearestSignature(
-    signatures,
-    run.startIndex - 1,
-    -1
-  );
-  const nextSignature = findNearestSignature(signatures, run.endIndex + 1, 1);
-  return (
-    previousSignature === primarySignature && nextSignature === primarySignature
-  );
-}
-
-function findNearestSignature(
-  signatures: string[],
-  startIndex: number,
-  direction: 1 | -1
-): string {
-  for (
-    let index = startIndex;
-    index >= 0 && index < signatures.length;
-    index += direction
-  ) {
-    if (signatures[index]) return signatures[index];
-  }
-  return '';
-}
-
-function groupEntriesByDiscontinuity(
-  entries: PlaylistEntry[]
-): Map<number, PlaylistEntry[]> {
-  const groups = new Map<number, PlaylistEntry[]>();
-  for (const entry of entries) {
-    const group = groups.get(entry.group) || [];
-    group.push(entry);
-    groups.set(entry.group, group);
-  }
-  return groups;
-}
-
 function isMasterPlaylist(content: string): boolean {
   return /^#EXT-X-STREAM-INF:/m.test(content);
-}
-
-function getExplicitUriAdReason(uri: string): DropReason | null {
-  if (NON_MEDIA_SEGMENT_PATTERN.test(uri.trim())) {
-    return 'non-media';
-  }
-
-  return hasStrongAdTokenInUriPath(uri) ? 'explicit-uri' : null;
-}
-
-function hasStrongAdTokenInUriPath(uri: string): boolean {
-  const path = getUrlLikePath(uri);
-  const segments = path.split('/').filter(Boolean);
-
-  for (const segment of segments) {
-    const normalizedSegment = normalizeUrlLikeValue(segment)
-      .replace(/\.[a-z0-9]{1,8}$/i, '')
-      .toLowerCase();
-    const tokens = normalizedSegment
-      .split(/[^a-z0-9\u4e00-\u9fff]+/i)
-      .filter(Boolean);
-
-    for (const token of tokens) {
-      if (isStrongAdToken(token)) {
-        return true;
-      }
-    }
-
-    if (
-      /^(?:ad|ads|adv|gg|hdgg)\d+$/i.test(normalizedSegment) ||
-      /^(?:preroll|promo|vast|vmap|commercial)[-_]?\d*$/i.test(
-        normalizedSegment
-      ) ||
-      /\u5e7f\u544a|\u5ee3\u544a/i.test(normalizedSegment)
-    ) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function isStrongAdToken(token: string): boolean {
-  const normalized = token.toLowerCase();
-  if (STRONG_AD_TOKENS.has(normalized)) return true;
-  return /\u5e7f\u544a|\u5ee3\u544a/i.test(normalized);
 }
 
 function getUrlLikePath(uri: string): string {
@@ -810,35 +454,15 @@ function getUrlLikePath(uri: string): string {
 
 function isCueOutTag(line: string): boolean {
   const upper = line.toUpperCase();
-  return (
-    upper.startsWith('#EXT-X-CUE-OUT') ||
-    upper.startsWith('#EXT-OATCLS-SCTE35') ||
-    upper.startsWith('#EXT-X-SCTE35')
-  );
+  return /^#EXT-X-CUE-OUT(?::|$)/.test(upper);
 }
 
 function isCueInTag(line: string): boolean {
-  return line.toUpperCase().startsWith('#EXT-X-CUE-IN');
-}
-
-function isSegmentAdMarkerTag(line: string): boolean {
-  const upper = line.toUpperCase();
-  return (
-    isCueOutTag(upper) ||
-    upper.startsWith('#EXT-X-ASSET') ||
-    upper.startsWith('#EXT-X-VMAP')
-  );
+  return /^#EXT-X-CUE-IN(?::|$)/.test(line.trim().toUpperCase());
 }
 
 function isAdControlOrMetadataTag(line: string): boolean {
-  const upper = line.toUpperCase();
-  return (
-    isCueOutTag(upper) ||
-    isCueInTag(upper) ||
-    upper.startsWith('#EXT-X-ASSET') ||
-    upper.startsWith('#EXT-X-VMAP') ||
-    (upper.startsWith('#EXT-X-DATERANGE') && AD_TAG_PATTERN.test(upper))
-  );
+  return isCueOutTag(line) || isCueInTag(line);
 }
 
 function isDiscontinuityTag(line: string): boolean {
@@ -871,29 +495,4 @@ function getPendingDuration(tags: string[]): number {
 
 function sumDurations(entries: PlaylistEntry[]): number {
   return entries.reduce((total, entry) => total + entry.duration, 0);
-}
-
-function getDominantPathSignature(entries: PlaylistEntry[]): string {
-  const counts = new Map<string, number>();
-  for (const entry of entries) {
-    if (!entry.signature) continue;
-    counts.set(entry.signature, (counts.get(entry.signature) || 0) + 1);
-  }
-
-  return Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
-}
-
-function getPathSignature(uri: string): string {
-  const path = getUrlLikePath(uri);
-  const slashIndex = path.lastIndexOf('/');
-  if (slashIndex < 0) return '';
-  return normalizeUrlLikeValue(path.slice(0, slashIndex + 1)).toLowerCase();
-}
-
-function normalizeUrlLikeValue(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch (_) {
-    return value;
-  }
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { getAvailableApiSites, getConfig } from '@/lib/config';
+import { getRequestOrigin } from '@/lib/request-origin';
 import { verifyTVBoxToken } from '@/lib/tvbox-auth';
 
 export const runtime = 'nodejs';
@@ -77,7 +78,7 @@ export async function GET(request: Request) {
     }));
 
     // 插入「豆瓣｜自定義」為第一個站點，指向分類接口
-    const origin = new URL(request.url).origin;
+    const origin = getRequestOrigin(request);
     const doubanCustomSiteUrl = new URL(`${origin}/api/tvbox/categories`);
     if (allowQueryPassword && password) {
       doubanCustomSiteUrl.searchParams.set('pwd', password);

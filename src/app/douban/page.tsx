@@ -49,12 +49,19 @@ function DoubanPageClient() {
   const [customCategories, setCustomCategories] = useState<
     Array<{ name: string; type: 'movie' | 'tv'; query: string }>
   >([]);
+  // 標簽頁（短劇/紀錄片）：豆瓣 rexxar「類型=固定標簽」+ 排序，結構與彼此一致
+  const isTagPage = type === 'short' || type === 'doc';
+  const TAG_PAGE_CATEGORY: Record<'short' | 'doc', string> = {
+    short: '短劇',
+    doc: '紀錄片',
+  };
 
   // 選擇器狀態 - 完全獨立，不依賴URL參數
   const [primarySelection, setPrimarySelection] = useState<string>(() => {
     if (type === 'movie') return '熱門';
     if (type === 'tv' || type === 'show') return '最近熱門';
     if (type === 'anime') return '每日放送';
+    if (isTagPage) return '熱門';
     return '';
   });
   const [secondarySelection, setSecondarySelection] = useState<string>(() => {
@@ -160,6 +167,9 @@ function DoubanPageClient() {
       } else if (type === 'anime') {
         setPrimarySelection('每日放送');
         setSecondarySelection('全部');
+      } else if (isTagPage) {
+        setPrimarySelection('熱門');
+        setSecondarySelection('全部');
       } else {
         setPrimarySelection('');
         setSecondarySelection('全部');
@@ -182,7 +192,7 @@ function DoubanPageClient() {
     }, 50);
 
     return () => clearTimeout(timer);
-  }, [type, customCategories]);
+  }, [type, isTagPage, customCategories]);
 
   // 生成骨架屏數據
   const skeletonData = Array.from({ length: 25 }, (_, index) => index);
@@ -246,6 +256,34 @@ function DoubanPageClient() {
     [type, primarySelection, secondarySelection]
   );
 
+  // 標簽頁（短劇/紀錄片）：豆瓣 rexxar「類型=固定標簽」的推薦接口（實測均有 500+ 條目，
+  // 自帶海報/評分/年份）。排序由一級分類決定：熱門=T(綜合)、高分=S、最新=R(首播時間)。
+  const getTagPageData = useCallback(
+    (pageStart: number) =>
+      getDoubanRecommends({
+        kind: 'tv',
+        pageLimit: 25,
+        pageStart,
+        category: TAG_PAGE_CATEGORY[type as 'short' | 'doc'],
+        format: '',
+        region: multiLevelValues.region
+          ? (multiLevelValues.region as string)
+          : '',
+        year: multiLevelValues.year ? (multiLevelValues.year as string) : '',
+        platform: multiLevelValues.platform
+          ? (multiLevelValues.platform as string)
+          : '',
+        sort:
+          primarySelection === '高分'
+            ? 'S'
+            : primarySelection === '最新'
+            ? 'R'
+            : '',
+        label: multiLevelValues.label ? (multiLevelValues.label as string) : '',
+      }),
+    [type, multiLevelValues, primarySelection]
+  );
+
   // 防抖的數據加載函數
   const loadInitialData = useCallback(async () => {
     // 創建當前參數的快照
@@ -285,6 +323,8 @@ function DoubanPageClient() {
         } else {
           throw new Error('沒有找到對應的分類');
         }
+      } else if (isTagPage) {
+        data = await getTagPageData(0);
       } else if (type === 'anime' && primarySelection === '每日放送') {
         const calendarData = await GetBangumiCalendarData();
         const weekdayData = calendarData.find(
@@ -381,7 +421,9 @@ function DoubanPageClient() {
     multiLevelValues,
     selectedWeekday,
     getRequestParams,
+    getTagPageData,
     customCategories,
+    isTagPage,
   ]);
 
   // 只在選擇器準備好後才加載數據
@@ -453,6 +495,8 @@ function DoubanPageClient() {
             } else {
               throw new Error('沒有找到對應的分類');
             }
+          } else if (isTagPage) {
+            data = await getTagPageData(currentPage * 25);
           } else if (type === 'anime' && primarySelection === '每日放送') {
             // 每日放送模式下，不進行數據請求，返回空數據
             data = {
@@ -542,9 +586,11 @@ function DoubanPageClient() {
     type,
     primarySelection,
     secondarySelection,
-    customCategories,
     multiLevelValues,
     selectedWeekday,
+    getTagPageData,
+    customCategories,
+    isTagPage,
   ]);
 
   // 設置滾動監聽
@@ -691,12 +737,22 @@ function DoubanPageClient() {
       ? '動漫'
       : type === 'show'
       ? '綜藝'
+      : type === 'short'
+      ? '短劇'
+      : type === 'doc'
+      ? '紀錄片'
       : '自定義';
   };
 
   const getPageDescription = () => {
     if (type === 'anime' && primarySelection === '每日放送') {
       return '來自 Bangumi 番組計劃的精選內容';
+    }
+    if (type === 'short') {
+      return '來自豆瓣的精選短劇內容';
+    }
+    if (type === 'doc') {
+      return '來自豆瓣的精選紀錄片內容';
     }
     return '來自豆瓣的精選內容';
   };
@@ -729,7 +785,9 @@ function DoubanPageClient() {
           {type !== 'custom' ? (
             <div className='bg-white/60 dark:bg-gray-800/40 rounded-2xl p-4 sm:p-6 border border-gray-200/30 dark:border-gray-700/30 backdrop-blur-sm'>
               <DoubanSelector
-                type={type as 'movie' | 'tv' | 'show' | 'anime'}
+                type={
+                  type as 'movie' | 'tv' | 'show' | 'anime' | 'short' | 'doc'
+                }
                 primarySelection={primarySelection}
                 secondarySelection={secondarySelection}
                 onPrimaryChange={handlePrimaryChange}

@@ -9,6 +9,7 @@ const USER_CACHE_PREFIX = 'moontv_cache_';
 const AUTH_CACHE_KEY = 'moontv_auth_cache';
 let cachedAuthInfo: AuthInfo | null = null;
 let inflight: Promise<AuthInfo | null> | null = null;
+let authGeneration = 0;
 
 function readCachedAuthInfo(): AuthInfo | null {
   if (typeof window === 'undefined') return null;
@@ -44,22 +45,25 @@ export async function refreshAuthInfo(): Promise<AuthInfo | null> {
   if (typeof window === 'undefined') return null;
   if (inflight) return inflight;
 
+  const generation = authGeneration;
   inflight = (async () => {
     try {
       const response = await fetch('/api/auth/me', { cache: 'no-store' });
+      if (generation !== authGeneration) return null;
       if (!response.ok) {
         cachedAuthInfo = null;
         writeCachedAuthInfo(null);
         return null;
       }
       const data = (await response.json()) as { user?: AuthInfo | null };
+      if (generation !== authGeneration) return null;
       cachedAuthInfo = data?.user || null;
       writeCachedAuthInfo(cachedAuthInfo);
       return cachedAuthInfo;
     } catch {
-      return readCachedAuthInfo();
+      return generation === authGeneration ? readCachedAuthInfo() : null;
     } finally {
-      inflight = null;
+      if (generation === authGeneration) inflight = null;
     }
   })();
 
@@ -67,17 +71,26 @@ export async function refreshAuthInfo(): Promise<AuthInfo | null> {
 }
 
 export function clearAuthInfoCache(): void {
+  authGeneration += 1;
+  inflight = null;
   cachedAuthInfo = null;
   writeCachedAuthInfo(null);
 }
 
-export function clearPrivateClientState(): void {
-  cachedAuthInfo = null;
+export async function clearPrivateClientState(): Promise<void> {
+  clearAuthInfoCache();
   if (typeof window === 'undefined') return;
+
+  window.dispatchEvent(new Event('moontv:logout'));
 
   try {
     Object.keys(localStorage).forEach((key) => {
-      if (key.startsWith(USER_CACHE_PREFIX)) {
+      if (
+        key.startsWith(USER_CACHE_PREFIX) ||
+        key.startsWith('danmakuSource:') ||
+        key === 'downloadTasks' ||
+        key === 'downloadTaskStates'
+      ) {
         localStorage.removeItem(key);
       }
     });
@@ -85,5 +98,19 @@ export function clearPrivateClientState(): void {
     sessionStorage.removeItem('userOnlineUpdatedAt');
   } catch {
     // Storage may be unavailable in private browsing modes.
+  }
+
+  try {
+    const { getVideoPrefetcher, getNextEpisodePrefetcher } = await import(
+      './video-prefetcher'
+    );
+    getVideoPrefetcher().stop();
+    getNextEpisodePrefetcher().stop();
+    const { clearVideoCache } = await import('./video-cache');
+    await clearVideoCache();
+    if (typeof caches !== 'undefined')
+      await caches.delete('moontv-download-segments');
+  } catch {
+    // 不支援離線快取的瀏覽器仍應正常登出。
   }
 }

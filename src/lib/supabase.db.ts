@@ -2,7 +2,14 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 import { AdminConfig } from './admin.types';
 import { normalizePasswordForStorage, verifyPassword } from './password';
-import { Favorite, IStorage, PlayRecord, SkipConfig } from './types';
+import {
+  Favorite,
+  Following,
+  IStorage,
+  PlayRecord,
+  SkipConfig,
+  TodayUpdatedRecord,
+} from './types';
 
 const SEARCH_HISTORY_LIMIT = 20;
 const DEFAULT_TABLE = 'moontv_kv';
@@ -102,20 +109,26 @@ export class SupabaseStorage implements IStorage {
   }
 
   private async listByPrefix<T>(prefix: string): Promise<Record<string, T>> {
-    const rows = await withRetry(async () => {
-      const { data, error } = await this.client
-        .from(tableName())
-        .select('key,value')
-        .like('key', `${prefix}%`);
-
-      if (error) throw error;
-      return (data || []) as KvRow[];
-    });
-
     const result: Record<string, T> = {};
-    rows.forEach((row) => {
-      result[row.key.replace(prefix, '')] = row.value as T;
-    });
+    const pageSize = 500;
+    for (let offset = 0; ; offset += pageSize) {
+      const rows = await withRetry(async () => {
+        const { data, error } = await this.client
+          .from(tableName())
+          .select('key,value')
+          .like('key', `${prefix.replace(/[\\%_]/g, '\\$&')}%`)
+          .order('key')
+          .range(offset, offset + pageSize - 1);
+        if (error) throw error;
+        return (data || []) as KvRow[];
+      });
+      rows.forEach((row) => {
+        if (row.key.startsWith(prefix)) {
+          result[row.key.slice(prefix.length)] = row.value as T;
+        }
+      });
+      if (rows.length < pageSize) break;
+    }
     return result;
   }
 
@@ -124,7 +137,7 @@ export class SupabaseStorage implements IStorage {
       const { error } = await this.client
         .from(tableName())
         .delete()
-        .like('key', `${prefix}%`);
+        .like('key', `${prefix.replace(/[\\%_]/g, '\\$&')}%`);
 
       if (error) throw error;
     });
@@ -197,6 +210,61 @@ export class SupabaseStorage implements IStorage {
     await this.deleteKey(this.favKey(userName, key));
   }
 
+  private followingKey(user: string, key: string) {
+    return `u:${user}:following:${key}`;
+  }
+
+  async getFollowing(userName: string, key: string): Promise<Following | null> {
+    return this.getValue<Following>(this.followingKey(userName, key));
+  }
+
+  async setFollowing(
+    userName: string,
+    key: string,
+    following: Following
+  ): Promise<void> {
+    await this.setValue(this.followingKey(userName, key), following);
+  }
+
+  async updateFollowingIfUnchanged(
+    userName: string,
+    key: string,
+    previous: Following,
+    following: Following
+  ): Promise<boolean> {
+    // A refresh may finish after unfollow or a progress edit. Never recreate
+    // a deleted row or overwrite a concurrent value with the old snapshot.
+    return withRetry(async () => {
+      const { data, error } = await this.client
+        .from(tableName())
+        .update({ value: following, updated_at: new Date().toISOString() })
+        .eq('key', this.followingKey(userName, key))
+        .eq('value', JSON.stringify(previous))
+        .select('key');
+      if (error) throw error;
+      return Boolean(data?.length);
+    });
+  }
+
+  async getAllFollowings(userName: string): Promise<Record<string, Following>> {
+    return this.listByPrefix<Following>(`u:${userName}:following:`);
+  }
+
+  async deleteFollowing(userName: string, key: string): Promise<void> {
+    await this.deleteKey(this.followingKey(userName, key));
+  }
+
+  async getTodayUpdated(userName: string): Promise<TodayUpdatedRecord | null> {
+    return this.getValue<TodayUpdatedRecord>(`u:${userName}:today-updated`);
+  }
+
+  async setTodayUpdated(
+    userName: string,
+    record: TodayUpdatedRecord
+  ): Promise<void> {
+    await this.setValue(`u:${userName}:today-updated`, record);
+  }
+
   private userPwdKey(user: string) {
     return `u:${user}:pwd`;
   }
@@ -241,6 +309,8 @@ export class SupabaseStorage implements IStorage {
     await this.deleteKey(this.shKey(userName));
     await this.deleteByPrefix(`u:${userName}:pr:`);
     await this.deleteByPrefix(`u:${userName}:fav:`);
+    await this.deleteByPrefix(`u:${userName}:following:`);
+    await this.deleteKey(`u:${userName}:today-updated`);
     await this.deleteByPrefix(`u:${userName}:skip:`);
   }
 
@@ -281,19 +351,27 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getAllUsers(): Promise<string[]> {
-    const rows = await withRetry(async () => {
-      const { data, error } = await this.client
-        .from(tableName())
-        .select('key')
-        .like('key', 'u:%:pwd');
-
-      if (error) throw error;
-      return (data || []) as Pick<KvRow, 'key'>[];
-    });
-
-    return rows
-      .map((row) => row.key.match(/^u:(.+?):pwd$/)?.[1])
-      .filter((user): user is string => Boolean(user));
+    const users: string[] = [];
+    const pageSize = 500;
+    for (let offset = 0; ; offset += pageSize) {
+      const rows = await withRetry(async () => {
+        const { data, error } = await this.client
+          .from(tableName())
+          .select('key')
+          .like('key', 'u:%:pwd')
+          .order('key')
+          .range(offset, offset + pageSize - 1);
+        if (error) throw error;
+        return (data || []) as Pick<KvRow, 'key'>[];
+      });
+      users.push(
+        ...rows
+          .map((row) => row.key.match(/^u:(.+?):pwd$/)?.[1])
+          .filter((user): user is string => Boolean(user))
+      );
+      if (rows.length < pageSize) break;
+    }
+    return users;
   }
 
   private adminConfigKey() {
@@ -341,6 +419,82 @@ export class SupabaseStorage implements IStorage {
     userName: string
   ): Promise<Record<string, SkipConfig>> {
     return this.listByPrefix<SkipConfig>(`u:${userName}:skip:`);
+  }
+
+  // Preserve every backup row, including repeated titles, with bounded upsert batches.
+  private async importValues<T>(
+    prefix: string,
+    entries: Array<[string, T]>,
+    onProgress?: (done: number, total: number) => void
+  ): Promise<void> {
+    const batchSize = 100;
+    for (let index = 0; index < entries.length; index += batchSize) {
+      const batch = entries
+        .slice(index, index + batchSize)
+        .map(([key, value]) => ({
+          key: `${prefix}${key}`,
+          value,
+          updated_at: new Date().toISOString(),
+        }));
+      await withRetry(async () => {
+        const { error } = await this.client
+          .from(tableName())
+          .upsert(batch, { onConflict: 'key' });
+        if (error) throw error;
+      });
+      onProgress?.(Math.min(index + batchSize, entries.length), entries.length);
+    }
+  }
+
+  async batchImportPlayRecords(
+    userName: string,
+    entries: Array<[string, PlayRecord]>,
+    onProgress?: (done: number, total: number) => void
+  ): Promise<void> {
+    await this.importValues(`u:${userName}:pr:`, entries, onProgress);
+  }
+
+  async batchImportFavorites(
+    userName: string,
+    entries: Array<[string, Favorite]>,
+    onProgress?: (done: number, total: number) => void
+  ): Promise<void> {
+    await this.importValues(`u:${userName}:fav:`, entries, onProgress);
+  }
+
+  async batchImportFollowings(
+    userName: string,
+    entries: Array<[string, Following]>,
+    onProgress?: (done: number, total: number) => void
+  ): Promise<void> {
+    await this.importValues(`u:${userName}:following:`, entries, onProgress);
+  }
+
+  async batchImportSkipConfigs(
+    userName: string,
+    entries: Array<[string, SkipConfig]>,
+    onProgress?: (done: number, total: number) => void
+  ): Promise<void> {
+    await this.importValues(`u:${userName}:skip:`, entries, onProgress);
+  }
+
+  async batchImportSearchHistory(
+    userName: string,
+    keywords: string[],
+    onProgress?: (done: number, total: number) => void
+  ): Promise<void> {
+    await this.setValue(
+      this.shKey(userName),
+      Array.from(new Set(keywords)).slice(0, SEARCH_HISTORY_LIMIT)
+    );
+    onProgress?.(keywords.length, keywords.length);
+  }
+
+  async batchImportTodayUpdated(
+    userName: string,
+    record: TodayUpdatedRecord
+  ): Promise<void> {
+    await this.setTodayUpdated(userName, record);
   }
 
   async clearAllData(): Promise<void> {

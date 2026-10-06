@@ -155,6 +155,7 @@ export async function GET(request: NextRequest) {
       headers: {
         'Content-Type': 'application/octet-stream',
         'Cache-Control': 'private, no-store',
+        'X-MoonTV-Upstream-URL': response.url || safeUrl,
       },
     });
   } catch (error) {

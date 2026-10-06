@@ -39,6 +39,7 @@ export async function POST(request: NextRequest) {
       DanmakuApiBaseUrl,
       TVBoxEnabled,
       TVBoxPassword,
+      PlaybackSaveInterval,
     } = body as {
       SiteName: string;
       Announcement: string;
@@ -52,6 +53,7 @@ export async function POST(request: NextRequest) {
       DanmakuApiBaseUrl?: string;
       TVBoxEnabled?: boolean;
       TVBoxPassword?: string;
+      PlaybackSaveInterval?: number;
     };
 
     // 參數校驗
@@ -68,7 +70,12 @@ export async function POST(request: NextRequest) {
       (DanmakuApiBaseUrl !== undefined &&
         typeof DanmakuApiBaseUrl !== 'string') ||
       (TVBoxEnabled !== undefined && typeof TVBoxEnabled !== 'boolean') ||
-      (TVBoxPassword !== undefined && typeof TVBoxPassword !== 'string')
+      (TVBoxPassword !== undefined && typeof TVBoxPassword !== 'string') ||
+      (PlaybackSaveInterval !== undefined &&
+        (typeof PlaybackSaveInterval !== 'number' ||
+          !Number.isFinite(PlaybackSaveInterval) ||
+          PlaybackSaveInterval < 1 ||
+          PlaybackSaveInterval > 3600))
     ) {
       return NextResponse.json({ error: '參數格式錯誤' }, { status: 400 });
     }
@@ -89,6 +96,7 @@ export async function POST(request: NextRequest) {
 
     // 更新緩存中的站點設置
     adminConfig.SiteConfig = {
+      ...adminConfig.SiteConfig,
       SiteName,
       Announcement,
       SearchDownstreamMaxPage,
@@ -98,9 +106,12 @@ export async function POST(request: NextRequest) {
       DoubanImageProxyType,
       DoubanImageProxy,
       DisableYellowFilter,
-      DanmakuApiBaseUrl,
-      TVBoxEnabled,
-      TVBoxPassword,
+      DanmakuApiBaseUrl:
+        DanmakuApiBaseUrl ?? adminConfig.SiteConfig.DanmakuApiBaseUrl,
+      TVBoxEnabled: TVBoxEnabled ?? adminConfig.SiteConfig.TVBoxEnabled,
+      TVBoxPassword: TVBoxPassword ?? adminConfig.SiteConfig.TVBoxPassword,
+      PlaybackSaveInterval:
+        PlaybackSaveInterval ?? adminConfig.SiteConfig.PlaybackSaveInterval,
     };
 
     // 同步更新 ConfigFile 中的 cache_time

@@ -1,190 +1,468 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { inflate } from 'pako';
 
-import type { AdminConfig } from '@/lib/admin.types';
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { configSelfCheck, setCachedConfig } from '@/lib/config';
 import { SimpleCrypto } from '@/lib/crypto';
 import { db } from '@/lib/db';
-import type { Favorite, PlayRecord, SkipConfig } from '@/lib/types';
+import type { Favorite, Following, PlayRecord, SkipConfig } from '@/lib/types';
+
+import { ImportUserData, validateBackup } from '../validation';
 
 export const runtime = 'nodejs';
 
 // pako 的 gunzip 是同步的，不需要 promisify
 
+// 分批并行执行写入任务，控制并发度以提升导入速度，同时避免一次性发起过多请求
+// 每处理完一批就通过 onBatchDone 回调推送一次进度
+async function runInBatches<T>(
+  items: T[],
+  batchSize: number,
+  task: (item: T) => Promise<void>,
+  onBatchDone: (doneCount: number, totalCount: number) => void
+): Promise<void> {
+  let doneCount = 0;
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    await Promise.all(batch.map(task));
+    doneCount += batch.length;
+    onBatchDone(doneCount, items.length);
+  }
+}
+
+// 将对象编码为 SSE 事件文本
+function encodeSSE(data: unknown): string {
+  return `data: ${JSON.stringify(data)}\n\n`;
+}
+
+// 统计单个用户需要导入的数据记录总数（用于按总记录条数计算进度）
+function countUserRecords(user: ImportUserData): number {
+  let count = 0;
+  if (user.playRecords) {
+    count += Object.keys(user.playRecords).length;
+  }
+  if (user.favorites) {
+    count += Object.keys(user.favorites).length;
+  }
+  if (user.followings) {
+    count += Object.keys(user.followings).filter((key) => {
+      const [source, id] = key.split('+');
+      return !!(source && id);
+    }).length;
+  }
+  if (user.todayUpdated) {
+    count += 1; // 今日新更整体算 1 条
+  }
+  if (user.searchHistory && Array.isArray(user.searchHistory)) {
+    count += user.searchHistory.length;
+  }
+  if (user.skipConfigs) {
+    count += Object.keys(user.skipConfigs).filter((key) => {
+      const [source, id] = key.split('+');
+      return !!(source && id);
+    }).length;
+  }
+  return count;
+}
+
 export async function POST(req: NextRequest) {
-  try {
-    // 檢查存儲類型
-    const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
-    if (storageType === 'localstorage') {
-      return NextResponse.json(
-        { error: '不支持本地存儲進行數據遷移' },
-        { status: 400 }
-      );
-    }
-
-    // 驗證身份和權限
-    const authInfo = await getVerifiedAuthInfo(req);
-    if (!authInfo || !authInfo.username) {
-      return NextResponse.json({ error: '未登錄' }, { status: 401 });
-    }
-
-    // 檢查用戶權限（只有站長可以導入數據）
-    if (authInfo.username !== process.env.USERNAME) {
-      return NextResponse.json(
-        { error: '權限不足，只有站長可以導入數據' },
-        { status: 401 }
-      );
-    }
-
-    // 解析表單數據
-    const formData = await req.formData();
-    const file = formData.get('file') as File;
-    const password = formData.get('password') as string;
-
-    if (!file) {
-      return NextResponse.json({ error: '請選擇備份文件' }, { status: 400 });
-    }
-
-    if (!password) {
-      return NextResponse.json({ error: '請提供解密密碼' }, { status: 400 });
-    }
-
-    // 讀取文件內容
-    const encryptedData = await file.text();
-
-    // 解密數據
-    let decryptedData: string;
-    try {
-      decryptedData = SimpleCrypto.decrypt(encryptedData, password);
-    } catch (error) {
-      return NextResponse.json(
-        { error: '解密失敗，請檢查密碼是否正確' },
-        { status: 400 }
-      );
-    }
-
-    // 解壓縮數據
-    const compressedBuffer = Buffer.from(decryptedData, 'base64');
-    const decompressedBuffer = inflate(compressedBuffer);
-    const decompressedData = new TextDecoder().decode(decompressedBuffer);
-
-    // 解析JSON數據
-    let importDataUnknown: unknown;
-    try {
-      importDataUnknown = JSON.parse(decompressedData);
-    } catch (error) {
-      return NextResponse.json({ error: '備份文件格式錯誤' }, { status: 400 });
-    }
-
-    // 驗證數據格式
-    type ImportUserData = {
-      password?: string;
-      playRecords?: Record<string, PlayRecord>;
-      favorites?: Record<string, Favorite>;
-      searchHistory?: string[];
-      skipConfigs?: Record<string, SkipConfig>;
-    };
-    const importData = importDataUnknown as {
-      data?: {
-        adminConfig?: AdminConfig;
-        userData?: Record<string, ImportUserData>;
-      };
-      timestamp?: string;
-      serverVersion?: string;
-    };
-    if (
-      !importData.data ||
-      !importData.data.adminConfig ||
-      !importData.data.userData
-    ) {
-      return NextResponse.json({ error: '備份文件格式無效' }, { status: 400 });
-    }
-
-    // 開始導入數據 - 先清空現有數據
-    await db.clearAllData();
-
-    // 導入管理員配置
-    importData.data.adminConfig = configSelfCheck(importData.data.adminConfig);
-    await db.saveAdminConfig(importData.data.adminConfig);
-    await setCachedConfig(importData.data.adminConfig);
-
-    // 導入用戶數據
-    const userData = importData.data.userData;
-    for (const username in userData) {
-      const user = userData[username];
-
-      // 重新註冊用戶（包含密碼）
-      if (user.password) {
-        await db.registerUser(username, String(user.password));
-      }
-
-      // 導入播放記錄
-      if (user.playRecords) {
-        if (user.playRecords) {
-          for (const [key, record] of Object.entries(user.playRecords)) {
-            const [source, id] = key.split('+');
-            if (source && id) {
-              await db.savePlayRecord(
-                username,
-                source,
-                id,
-                record as PlayRecord
-              );
-            }
-          }
-        }
-      }
-
-      // 導入收藏夾
-      if (user.favorites) {
-        if (user.favorites) {
-          for (const [key, favorite] of Object.entries(user.favorites)) {
-            const [source, id] = key.split('+');
-            if (source && id) {
-              await db.saveFavorite(username, source, id, favorite as Favorite);
-            }
-          }
-        }
-      }
-
-      // 導入搜索歷史
-      if (user.searchHistory && Array.isArray(user.searchHistory)) {
-        for (const keyword of user.searchHistory.reverse()) {
-          // 反轉以保持順序
-          await db.addSearchHistory(username, keyword);
-        }
-      }
-
-      // 導入跳過片頭片尾配置
-      if (user.skipConfigs) {
-        for (const [key, skipConfig] of Object.entries(user.skipConfigs)) {
-          const [source, id] = key.split('+');
-          if (source && id) {
-            await db.setSkipConfig(
-              username,
-              source,
-              id,
-              skipConfig as SkipConfig
-            );
-          }
-        }
-      }
-    }
-
-    return NextResponse.json({
-      message: '數據導入成功',
-      importedUsers: Object.keys(userData).length,
-      timestamp: importData.timestamp,
-      serverVersion:
-        typeof importData.serverVersion === 'string'
-          ? importData.serverVersion
-          : '未知版本',
-    });
-  } catch (error) {
+  // 检查存储类型
+  const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
+  if (storageType === 'localstorage') {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : '導入失敗' },
-      { status: 500 }
+      { error: '不支持本地存储进行数据迁移' },
+      { status: 400 }
     );
   }
+
+  // 验证身份和权限
+  const authInfo = await getVerifiedAuthInfo(req);
+  if (!authInfo || !authInfo.username) {
+    return NextResponse.json({ error: '未登录' }, { status: 401 });
+  }
+
+  // 检查用户权限（只有站长可以导入数据）
+  if (authInfo.username !== process.env.USERNAME) {
+    return NextResponse.json(
+      { error: '权限不足，只有站长可以导入数据' },
+      { status: 401 }
+    );
+  }
+
+  // 解析表单数据
+  const formData = await req.formData();
+  const file = formData.get('file') as File;
+  const password = formData.get('password') as string;
+
+  if (!file || typeof file === 'string' || file.size > 64 * 1024 * 1024) {
+    return NextResponse.json({ error: '请选择备份文件' }, { status: 400 });
+  }
+
+  if (!password || typeof password !== 'string') {
+    return NextResponse.json({ error: '请提供解密密码' }, { status: 400 });
+  }
+
+  // 读取文件内容
+  const encryptedData = await file.text();
+
+  // 解密数据
+  let decryptedData: string;
+  try {
+    decryptedData = SimpleCrypto.decrypt(encryptedData, password);
+  } catch (error) {
+    return NextResponse.json(
+      { error: '解密失败，请检查密码是否正确' },
+      { status: 400 }
+    );
+  }
+
+  // Validate the entire backup before deleting any existing data.
+  let importData: NonNullable<ReturnType<typeof validateBackup>>;
+  try {
+    const compressedBuffer = Buffer.from(decryptedData, 'base64');
+    const decompressedData = new TextDecoder().decode(
+      inflate(compressedBuffer)
+    );
+    const validated = validateBackup(JSON.parse(decompressedData));
+    if (!validated) throw new Error('Invalid backup');
+    importData = validated;
+    importData.data.adminConfig = configSelfCheck(importData.data.adminConfig);
+  } catch {
+    return NextResponse.json({ error: '備份文件格式無效' }, { status: 400 });
+  }
+
+  const userData = importData.data.userData;
+  const usernames = Object.keys(userData);
+  const TOTAL_USERS = usernames.length;
+  // 并行写入的批次大小（控制并发度，兼顾速度与稳定性）
+  const BATCH_SIZE = 50;
+
+  // 预统计所有用户所有类型的数据记录总数（作为进度条分母）
+  const totalRecords = usernames.reduce((sum, username) => {
+    return sum + countUserRecords(userData[username]);
+  }, 0);
+
+  // 创建 SSE 流
+  const encoder = new TextEncoder();
+  let streamClosed = false;
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      // 推送 SSE 事件
+      const send = (data: unknown) => {
+        if (streamClosed) return;
+        try {
+          controller.enqueue(encoder.encode(encodeSSE(data)));
+        } catch (err) {
+          streamClosed = true; // Client disconnected; do not enqueue again.
+        }
+      };
+
+      // 已处理的数据记录数（作为进度条分子）
+      let processedRecords = 0;
+
+      // 根据已处理记录数计算并推送全局进度
+      const sendProgress = (dataType: string, done: number, total: number) => {
+        const percent =
+          totalRecords > 0
+            ? Math.min(
+                100,
+                Math.round(((processedRecords + done) / totalRecords) * 100)
+              )
+            : 0;
+        send({
+          type: 'progress',
+          dataType,
+          done,
+          total,
+          percent,
+          message: `${dataType} ${done}/${total}`,
+        });
+      };
+
+      try {
+        // 阶段 1：清空现有数据
+        send({ type: 'stage', message: '正在清空现有数据...', percent: 0 });
+        await db.clearAllData();
+
+        // 阶段 2：导入管理员配置
+        send({ type: 'stage', message: '正在导入管理员配置...', percent: 2 });
+        await db.saveAdminConfig(importData.data.adminConfig);
+        await setCachedConfig(importData.data.adminConfig);
+
+        // 阶段 3：逐用户导入
+        let userIndex = 0;
+        for (const username of usernames) {
+          const user = userData[username];
+          userIndex++;
+
+          send({
+            type: 'user',
+            message: `正在处理用户 ${userIndex}/${TOTAL_USERS}: ${username}`,
+            username,
+            userIndex,
+            totalUsers: TOTAL_USERS,
+          });
+
+          // 重新注册用户（包含密码）
+          if (user.password) {
+            send({ type: 'detail', message: `注册用户: ${username}` });
+            await db.registerUser(username, String(user.password));
+          }
+
+          // 导入播放记录（优先使用 Supabase 批量导入，使用有界批量写入）
+          if (user.playRecords) {
+            const entries = Object.entries(user.playRecords);
+            send({
+              type: 'detail',
+              message: `导入播放记录 (${entries.length} 条)...`,
+              dataType: '播放记录',
+              total: entries.length,
+            });
+            const batched = await db.batchImportPlayRecords(
+              username,
+              entries,
+              (done) => {
+                sendProgress('播放记录', done, entries.length);
+              }
+            );
+            if (!batched) {
+              // 非 Supabase 存储：分批并行逐条写入
+              await runInBatches(
+                entries,
+                BATCH_SIZE,
+                async ([key, record]) => {
+                  const [source, id] = key.split('+');
+                  await db.savePlayRecord(
+                    username,
+                    source,
+                    id,
+                    record as PlayRecord
+                  );
+                },
+                (done) => {
+                  sendProgress('播放记录', done, entries.length);
+                }
+              );
+            }
+            processedRecords += entries.length;
+          }
+
+          // 导入收藏夹（优先使用 Supabase 批量导入）
+          if (user.favorites) {
+            const entries = Object.entries(user.favorites);
+            send({
+              type: 'detail',
+              message: `导入收藏夹 (${entries.length} 条)...`,
+              dataType: '收藏夹',
+              total: entries.length,
+            });
+            const batched = await db.batchImportFavorites(
+              username,
+              entries,
+              (done) => {
+                sendProgress('收藏夹', done, entries.length);
+              }
+            );
+            if (!batched) {
+              await runInBatches(
+                entries,
+                BATCH_SIZE,
+                async ([key, favorite]) => {
+                  const [source, id] = key.split('+');
+                  await db.saveFavorite(
+                    username,
+                    source,
+                    id,
+                    favorite as Favorite
+                  );
+                },
+                (done) => {
+                  sendProgress('收藏夹', done, entries.length);
+                }
+              );
+            }
+            processedRecords += entries.length;
+          }
+
+          // 导入追更（优先使用 Supabase 批量导入）
+          if (user.followings) {
+            const entries = Object.entries(user.followings).filter(([key]) => {
+              const [source, id] = key.split('+');
+              return !!(source && id);
+            });
+            send({
+              type: 'detail',
+              message: `导入追更 (${entries.length} 条)...`,
+              dataType: '追更',
+              total: entries.length,
+            });
+            const batched = await db.batchImportFollowings(
+              username,
+              entries,
+              (done) => {
+                sendProgress('追更', done, entries.length);
+              }
+            );
+            if (!batched) {
+              await runInBatches(
+                entries,
+                BATCH_SIZE,
+                async ([key, following]) => {
+                  const [source, id] = key.split('+');
+                  await db.saveFollowing(
+                    username,
+                    source,
+                    id,
+                    following as Following
+                  );
+                },
+                (done) => {
+                  sendProgress('追更', done, entries.length);
+                }
+              );
+            }
+            processedRecords += entries.length;
+          }
+
+          // 导入今日新更
+          if (user.todayUpdated) {
+            const todayUpdated = user.todayUpdated;
+            // 兜底处理：确保 date 字段存在，避免 Supabase 的 NOT NULL 约束报错
+            if (!todayUpdated.date) {
+              todayUpdated.date = new Date().toISOString().slice(0, 10);
+            }
+            send({
+              type: 'detail',
+              message: `导入今日新更 (date=${todayUpdated.date})...`,
+              dataType: '今日新更',
+            });
+            const batched = await db.batchImportTodayUpdated(
+              username,
+              todayUpdated
+            );
+            if (!batched) {
+              await db.setTodayUpdated(username, todayUpdated);
+            }
+            processedRecords += 1;
+            sendProgress('今日新更', 1, 1);
+          }
+
+          // 导入搜索历史（优先使用 Supabase 批量导入；非 Supabase 的 list 操作需保持顺序，故串行）
+          if (user.searchHistory && Array.isArray(user.searchHistory)) {
+            const history = [...user.searchHistory];
+            send({
+              type: 'detail',
+              message: `导入搜索历史 (${history.length} 条)...`,
+              dataType: '搜索历史',
+              total: history.length,
+            });
+            const batched = await db.batchImportSearchHistory(
+              username,
+              history,
+              (done) => {
+                sendProgress('搜索历史', done, history.length);
+              }
+            );
+            if (!batched) {
+              let historyDone = 0;
+              for (const keyword of history.reverse()) {
+                // 反转以保持顺序
+                await db.addSearchHistory(username, keyword);
+                historyDone++;
+                sendProgress('搜索历史', historyDone, history.length);
+              }
+            }
+            processedRecords += history.length;
+          }
+
+          // 导入跳过片头片尾配置（优先使用 Supabase 批量导入）
+          if (user.skipConfigs) {
+            const entries = Object.entries(user.skipConfigs).filter(([key]) => {
+              const [source, id] = key.split('+');
+              return !!(source && id);
+            });
+            send({
+              type: 'detail',
+              message: `导入跳过配置 (${entries.length} 条)...`,
+              dataType: '跳过配置',
+              total: entries.length,
+            });
+            const batched = await db.batchImportSkipConfigs(
+              username,
+              entries,
+              (done) => {
+                sendProgress('跳过配置', done, entries.length);
+              }
+            );
+            if (!batched) {
+              await runInBatches(
+                entries,
+                BATCH_SIZE,
+                async ([key, skipConfig]) => {
+                  const [source, id] = key.split('+');
+                  await db.setSkipConfig(
+                    username,
+                    source,
+                    id,
+                    skipConfig as SkipConfig
+                  );
+                },
+                (done) => {
+                  sendProgress('跳过配置', done, entries.length);
+                }
+              );
+            }
+            processedRecords += entries.length;
+          }
+
+          send({ type: 'detail', message: `用户 ${username} 处理完成` });
+        }
+
+        // 完成
+        send({
+          type: 'done',
+          message: '数据导入成功',
+          importedUsers: TOTAL_USERS,
+          timestamp: importData.timestamp,
+          serverVersion:
+            typeof importData.serverVersion === 'string'
+              ? importData.serverVersion
+              : '未知版本',
+          percent: 100,
+        });
+        if (!streamClosed) {
+          streamClosed = true;
+          try {
+            controller.close();
+          } catch {
+            /* already cancelled */
+          }
+        }
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : '导入失败';
+        send({ type: 'error', message: errMsg });
+        if (!streamClosed) {
+          streamClosed = true;
+          try {
+            controller.close();
+          } catch {
+            /* already cancelled */
+          }
+        }
+      }
+    },
+    cancel() {
+      streamClosed = true;
+    },
+  });
+
+  return new NextResponse(stream, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'private, no-store, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
+  });
 }

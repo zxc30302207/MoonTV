@@ -1,6 +1,17 @@
 'use client';
 
-import { Cat, Clover, Film, Home, Search, Star, Tv } from 'lucide-react';
+import {
+  Cat,
+  Clapperboard,
+  Clover,
+  Compass,
+  Film,
+  Home,
+  Search,
+  Star,
+  Trophy,
+  Tv,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { memo, useEffect, useState } from 'react';
@@ -37,6 +48,16 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
       href: '/douban?type=tv',
     },
     {
+      icon: Clapperboard,
+      label: '短劇',
+      href: '/douban?type=short',
+    },
+    {
+      icon: Compass,
+      label: '紀錄片',
+      href: '/douban?type=doc',
+    },
+    {
       icon: Cat,
       label: '動漫',
       href: '/douban?type=anime',
@@ -46,6 +67,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
       label: '綜藝',
       href: '/douban?type=show',
     },
+    { icon: Trophy, label: '榜單', href: '/ranking' },
   ]);
 
   // 檢查是否啟用簡潔模式 - 使用狀態管理
@@ -66,7 +88,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
     getCustomCategories().then((categories) => {
       if (categories.length > 0) {
         setNavItems((prevItems) => [
-          ...prevItems,
+          ...prevItems.filter((item) => item.href !== '/douban?type=custom'),
           {
             icon: Star,
             label: '自定義',

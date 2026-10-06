@@ -314,7 +314,7 @@ export const UserMenu: React.FC = () => {
     } catch (error) {
       console.error('注銷請求失敗:', error);
     }
-    clearPrivateClientState();
+    await clearPrivateClientState();
     window.location.href = '/';
   };
 

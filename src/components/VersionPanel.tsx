@@ -38,6 +38,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
   const [mounted, setMounted] = useState(false);
   const [remoteChangelog, setRemoteChangelog] = useState<ChangelogEntry[]>([]);
   const [hasUpdate, setIsHasUpdate] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [latestVersion, setLatestVersion] = useState<string>('');
   const [showRemoteContent, setShowRemoteContent] = useState(false);
 
@@ -56,32 +57,30 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
 
   // 獲取遠程變更日誌
   const fetchRemoteChangelog = async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    setIsHasUpdate(false);
+    setLatestVersion('');
+    setRemoteChangelog([]);
+    setUpdateStatus(null);
     try {
       const response = await fetch(
-        'https://raw.githubusercontent.com/Stardm0/MoonTV/main/CHANGELOG'
+        `https://raw.githubusercontent.com/Stardm0/MoonTV/main/CHANGELOG?_t=${Date.now()}`,
+        { cache: 'no-store', signal: controller.signal }
       );
-      if (response.ok) {
-        const content = await response.text();
-        const parsed = parseChangelog(content);
-        setRemoteChangelog(parsed);
-
-        // 檢查是否有更新
-        if (parsed.length > 0) {
-          const latest = parsed[0];
-          setLatestVersion(latest.version);
-          setIsHasUpdate(
-            compareVersions(latest.version) === UpdateStatus.HAS_UPDATE
-          );
-        }
-      } else {
-        console.error(
-          '獲取遠程變更日誌失敗:',
-          response.status,
-          response.statusText
-        );
-      }
-    } catch (error) {
-      console.error('獲取遠程變更日誌失敗:', error);
+      if (!response.ok) throw new Error('無法讀取上游變更日誌');
+      const parsed = parseChangelog(await response.text());
+      if (!parsed.length) throw new Error('上游變更日誌格式無效');
+      const latest = parsed[0];
+      const status = compareVersions(latest.version);
+      setRemoteChangelog(parsed);
+      setLatestVersion(latest.version);
+      setUpdateStatus(status);
+      setIsHasUpdate(status === UpdateStatus.HAS_UPDATE);
+    } catch {
+      setUpdateStatus(UpdateStatus.FETCH_FAILED);
+    } finally {
+      clearTimeout(timeout);
     }
   };
 
@@ -334,7 +333,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
             )}
 
             {/* 當前為最新版本信息 */}
-            {!hasUpdate && (
+            {updateStatus === UpdateStatus.NO_UPDATE && (
               <div className='bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3 sm:p-4'>
                 <div className='flex flex-col gap-3'>
                   <div className='flex items-center gap-2 sm:gap-3'>
@@ -361,6 +360,18 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
                   </a>
                 </div>
               </div>
+            )}
+
+            {(updateStatus === null ||
+              updateStatus === UpdateStatus.FETCH_FAILED) && (
+              <p
+                role='status'
+                className='text-sm text-gray-500 dark:text-gray-400'
+              >
+                {updateStatus === null
+                  ? '正在檢查更新…'
+                  : '暫時無法檢查更新，請稍後重試。'}
+              </p>
             )}
 
             {/* 遠程可更新內容 */}

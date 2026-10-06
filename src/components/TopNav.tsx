@@ -2,7 +2,22 @@
 
 'use client';
 
-import { Cat, Clover, Download, Film, History, Home, Search, Star, Trash2, Tv, X } from 'lucide-react';
+import {
+  Cat,
+  Clapperboard,
+  Clover,
+  Compass,
+  Download,
+  Film,
+  History,
+  Home,
+  Search,
+  Star,
+  Trash2,
+  Trophy,
+  Tv,
+  X,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { memo, useEffect, useRef, useState } from 'react';
@@ -93,13 +108,19 @@ const TopNav = ({ activePath }: TopNavProps) => {
     if (typeof window !== 'undefined') {
       window.addEventListener('storage', handleStorageChange);
       // 自定義事件：當任務列表更新時
-      window.addEventListener('downloadTasksUpdated', handleStorageChange as EventListener);
+      window.addEventListener(
+        'downloadTasksUpdated',
+        handleStorageChange as EventListener
+      );
     }
 
     return () => {
       if (typeof window !== 'undefined') {
         window.removeEventListener('storage', handleStorageChange);
-        window.removeEventListener('downloadTasksUpdated', handleStorageChange as EventListener);
+        window.removeEventListener(
+          'downloadTasksUpdated',
+          handleStorageChange as EventListener
+        );
       }
     };
   }, []);
@@ -119,7 +140,10 @@ const TopNav = ({ activePath }: TopNavProps) => {
 
     // 加載搜索歷史
     getSearchHistory().then(setSearchHistory);
-    const unsubscribe = subscribeToDataUpdates('searchHistoryUpdated', setSearchHistory);
+    const unsubscribe = subscribeToDataUpdates(
+      'searchHistoryUpdated',
+      setSearchHistory
+    );
 
     return () => {
       unsubscribe();
@@ -165,6 +189,16 @@ const TopNav = ({ activePath }: TopNavProps) => {
       href: '/douban?type=tv',
     },
     {
+      icon: Clapperboard,
+      label: '短劇',
+      href: '/douban?type=short',
+    },
+    {
+      icon: Compass,
+      label: '紀錄片',
+      href: '/douban?type=doc',
+    },
+    {
       icon: Cat,
       label: '動漫',
       href: '/douban?type=anime',
@@ -174,13 +208,18 @@ const TopNav = ({ activePath }: TopNavProps) => {
       label: '綜藝',
       href: '/douban?type=show',
     },
+    {
+      icon: Trophy,
+      label: '榜單',
+      href: '/ranking',
+    },
   ]);
 
   useEffect(() => {
     getCustomCategories().then((categories) => {
       if (categories.length > 0) {
         setMenuItems((prevItems) => [
-          ...prevItems,
+          ...prevItems.filter((item) => item.href !== '/douban?type=custom'),
           {
             icon: Star,
             label: '自定義',
@@ -442,14 +481,29 @@ const TopNav = ({ activePath }: TopNavProps) => {
 
   return (
     <>
-    <header className='hidden md:block sticky top-0 z-50 w-full bg-white/80 backdrop-blur-xl border-b border-gray-200/50 shadow-sm dark:bg-gray-900/80 dark:border-gray-700/50'>
-      <div className='mx-auto px-6 h-16 flex items-center justify-between gap-6'>
-        {/* Logo */}
-        {simpleMode ? (
-          <div className='absolute left-1/2 transform -translate-x-1/2'>
+      <header className='hidden md:block sticky top-0 z-50 w-full bg-white/80 backdrop-blur-xl border-b border-gray-200/50 shadow-sm dark:bg-gray-900/80 dark:border-gray-700/50'>
+        <div className='mx-auto px-6 h-16 flex items-center justify-between gap-6'>
+          {/* Logo */}
+          {simpleMode ? (
+            <div className='absolute left-1/2 transform -translate-x-1/2'>
+              <Link
+                href='/'
+                className='flex items-center justify-center select-none hover:opacity-80 transition-opacity duration-200'
+                onClick={() => {
+                  if (active !== '/') {
+                    startLoading();
+                  }
+                }}
+              >
+                <span className='text-2xl font-bold text-green-600 tracking-tight'>
+                  {siteName}
+                </span>
+              </Link>
+            </div>
+          ) : (
             <Link
               href='/'
-              className='flex items-center justify-center select-none hover:opacity-80 transition-opacity duration-200'
+              className='flex items-center justify-center select-none hover:opacity-80 transition-opacity duration-200 flex-shrink-0'
               onClick={() => {
                 if (active !== '/') {
                   startLoading();
@@ -460,104 +514,91 @@ const TopNav = ({ activePath }: TopNavProps) => {
                 {siteName}
               </span>
             </Link>
-          </div>
-        ) : (
-          <Link
-            href='/'
-            className='flex items-center justify-center select-none hover:opacity-80 transition-opacity duration-200 flex-shrink-0'
-            onClick={() => {
-              if (active !== '/') {
-                startLoading();
-              }
-            }}
-          >
-            <span className='text-2xl font-bold text-green-600 tracking-tight'>
-              {siteName}
-            </span>
-          </Link>
-        )}
+          )}
 
-        {/* 導航菜單 */}
-        <nav className='flex items-center gap-1 flex-shrink-0'>
-        {isClient && !simpleMode && (
-          <Link
-            href='/'
-            onClick={() => {
-              if (active !== '/') {
-                startLoading();
-              }
-              setActive('/');
-            }}
-            data-active={active === '/'}
-            className='group flex items-center gap-2 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100/50 hover:text-green-600 data-[active=true]:bg-green-500/10 data-[active=true]:text-green-600 font-medium transition-colors duration-200 dark:text-gray-300 dark:hover:text-green-400 dark:hover:bg-gray-700/50 dark:data-[active=true]:bg-green-500/10 dark:data-[active=true]:text-green-400'
-          >
-            <Home className='h-4 w-4' />
-            <span>首頁</span>
-          </Link>
-        )}
-
-          {isClient && !simpleMode && menuItems.map((item) => {
-            const typeMatch = item.href.match(/type=([^&]+)/)?.[1];
-            const decodedActive = decodeURIComponent(active);
-            const decodedItemHref = decodeURIComponent(item.href);
-            const isActive =
-              decodedActive === decodedItemHref ||
-              (decodedActive.startsWith('/douban') &&
-                decodedActive.includes(`type=${typeMatch}`));
-            const Icon = item.icon;
-
-            return (
+          {/* 導航菜單 */}
+          <nav className='flex items-center gap-1 flex-shrink-0'>
+            {isClient && !simpleMode && (
               <Link
-                key={item.label}
-                href={item.href}
+                href='/'
                 onClick={() => {
-                  if (!isActive) {
+                  if (active !== '/') {
                     startLoading();
                   }
-                  setActive(item.href);
+                  setActive('/');
                 }}
-                data-active={isActive}
+                data-active={active === '/'}
                 className='group flex items-center gap-2 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100/50 hover:text-green-600 data-[active=true]:bg-green-500/10 data-[active=true]:text-green-600 font-medium transition-colors duration-200 dark:text-gray-300 dark:hover:text-green-400 dark:hover:bg-gray-700/50 dark:data-[active=true]:bg-green-500/10 dark:data-[active=true]:text-green-400'
               >
-                <Icon className='h-4 w-4' />
-                <span>{item.label}</span>
+                <Home className='h-4 w-4' />
+                <span>首頁</span>
               </Link>
-            );
-          })}
-        </nav>
-
-        {/* 中間佔位區域 */}
-        <div className='flex-1'></div>
-
-        {/* 搜索欄 / 搜索按鈕 */}
-        <div className='flex items-center justify-end'>
-          {showSearchBar && searchBarContent}
-          {!showSearchBar && searchButton}
-        </div>
-
-        {/* 右側按鈕組 */}
-        <div className='flex items-center gap-2 flex-shrink-0 mr-9'>
-          <button
-            onClick={() => {
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(new Event('showDownloadManager'));
-              }
-            }}
-            className='p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors relative'
-            title='下載管理器'
-          >
-            <Download className='h-5 w-5' />
-            {downloadTaskCount > 0 && (
-              <span className='absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center'>
-                {downloadTaskCount > 99 ? '99+' : downloadTaskCount}
-              </span>
             )}
-          </button>
-          <ThemeToggle />
-          <UserMenu />
+
+            {isClient &&
+              !simpleMode &&
+              menuItems.map((item) => {
+                const typeMatch = item.href.match(/type=([^&]+)/)?.[1];
+                const decodedActive = decodeURIComponent(active);
+                const decodedItemHref = decodeURIComponent(item.href);
+                const isActive =
+                  decodedActive === decodedItemHref ||
+                  (decodedActive.startsWith('/douban') &&
+                    decodedActive.includes(`type=${typeMatch}`));
+                const Icon = item.icon;
+
+                return (
+                  <Link
+                    key={item.label}
+                    href={item.href}
+                    onClick={() => {
+                      if (!isActive) {
+                        startLoading();
+                      }
+                      setActive(item.href);
+                    }}
+                    data-active={isActive}
+                    className='group flex items-center gap-2 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100/50 hover:text-green-600 data-[active=true]:bg-green-500/10 data-[active=true]:text-green-600 font-medium transition-colors duration-200 dark:text-gray-300 dark:hover:text-green-400 dark:hover:bg-gray-700/50 dark:data-[active=true]:bg-green-500/10 dark:data-[active=true]:text-green-400'
+                  >
+                    <Icon className='h-4 w-4' />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+          </nav>
+
+          {/* 中間佔位區域 */}
+          <div className='flex-1'></div>
+
+          {/* 搜索欄 / 搜索按鈕 */}
+          <div className='flex items-center justify-end'>
+            {showSearchBar && searchBarContent}
+            {!showSearchBar && searchButton}
+          </div>
+
+          {/* 右側按鈕組 */}
+          <div className='flex items-center gap-2 flex-shrink-0 mr-9'>
+            <button
+              onClick={() => {
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new Event('showDownloadManager'));
+                }
+              }}
+              className='p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors relative'
+              title='下載管理器'
+            >
+              <Download className='h-5 w-5' />
+              {downloadTaskCount > 0 && (
+                <span className='absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center'>
+                  {downloadTaskCount > 99 ? '99+' : downloadTaskCount}
+                </span>
+              )}
+            </button>
+            <ThemeToggle />
+            <UserMenu />
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
     </>
   );
 };
@@ -565,4 +606,3 @@ const TopNav = ({ activePath }: TopNavProps) => {
 // 使用 React.memo 優化，避免父組件更新時導致不必要的重新渲染
 // 由於 TopNav 主要依賴內部 hooks 和全局狀態，不需要 props 比較函數
 export default memo(TopNav);
-
