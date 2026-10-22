@@ -64,6 +64,37 @@ describe('/api/m3u8/filter', () => {
     expect(text).not.toContain('/ad/ad0.ts');
   });
 
+  it('applies generic continuation cues through the server filter and reports exact duration', async () => {
+    const playlist = [
+      '#EXTM3U',
+      '#EXT-X-CUE-OUT-CONT:2/6',
+      '#EXTINF:2,',
+      'opaque-a.ts',
+      '#EXT-X-CUE-OUT-CONT:ElapsedTime=4,Duration=6',
+      '#EXTINF:2,',
+      'opaque-b.ts',
+      '#EXT-X-CUE-IN',
+      '#EXTINF:10,',
+      'programme.ts',
+      '#EXT-X-ENDLIST',
+    ].join('\n');
+    mockSafeFetch.mockResolvedValue(new Response(playlist));
+    const { GET } = await import('./route');
+    const response = await GET(
+      requestWithUrl(
+        'http://localhost/api/m3u8/filter?url=' +
+          encodeURIComponent('https://media.example.com/show/index.m3u8')
+      )
+    );
+    const text = await response.text();
+    expect(response.status).toBe(200);
+    expect(response.headers.get('X-MoonTV-Dropped-Segments')).toBe('2');
+    expect(response.headers.get('X-MoonTV-Dropped-Duration')).toBe('4');
+    expect(text).toContain('https://media.example.com/show/programme.ts');
+    expect(text).not.toContain('opaque-a.ts');
+    expect(text).not.toContain('CUE-OUT-CONT');
+  });
+
   it('rewrites master playlist child entries and URI attributes through the filter route', async () => {
     const playlist = [
       '#EXTM3U',

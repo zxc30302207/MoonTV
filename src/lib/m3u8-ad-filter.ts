@@ -66,6 +66,22 @@ export function filterAdsFromM3U8WithStats(
   if (!/#EXT-X-ENDLIST(?:\s|$)/m.test(content))
     return { content, droppedSegments: 0 };
 
+  // Malformed numbering cannot safely be used for AES IVs/discontinuities.
+  if (
+    content
+      .split(/\r?\n/)
+      .some(
+        (line) =>
+          /^#EXT-X-(?:MEDIA-SEQUENCE|DISCONTINUITY-SEQUENCE):/i.test(
+            line.trim()
+          ) &&
+          !/^#EXT-X-(?:MEDIA-SEQUENCE|DISCONTINUITY-SEQUENCE):[0-9]+$/i.test(
+            line.trim()
+          )
+      )
+  )
+    return { content, droppedSegments: 0 };
+
   const parsed = parseMediaPlaylist(content);
   if (parsed.entries.length === 0) {
     return { content, droppedSegments: 0 };
@@ -92,8 +108,9 @@ function hasUnsupportedTimelineState(content: string): boolean {
   return content.split(/\r?\n/).some((rawLine) => {
     const line = rawLine.trim();
     if (line.startsWith('#EXT-X-KEY:')) {
-      const method = line.match(/METHOD=([^,]+)/)?.[1];
-      const format = line.match(/KEYFORMAT="([^"]+)"/)?.[1];
+      const attributes = cueAttributes(line.slice('#EXT-X-KEY:'.length));
+      const method = attributes?.get('METHOD');
+      const format = attributes?.get('KEYFORMAT')?.replace(/^"(.*)"$/, '$1');
       return (
         !['NONE', 'AES-128'].includes(method || '') ||
         Boolean(format && format !== 'identity')
@@ -108,8 +125,24 @@ function parseMediaPlaylist(content: string): ParsedMediaPlaylist {
   const entries: PlaylistEntry[] = [];
   const header: string[] = [];
   let hasSeenSegment = false;
-  let inCueAd = false;
-  let cueRemaining: number | null = null;
+  // Commit a cue span only after its end is verified. A malformed marker must
+  // not turn the remainder of the programme into an unbounded advertisement.
+  let cue: {
+    duration: number | null;
+    elapsed: number;
+    entries: number[];
+  } | null = null;
+  let cueBlocked = false;
+  const isCueComplete = () =>
+    cue !== null &&
+    cue.duration !== null &&
+    Math.abs(cue.elapsed - cue.duration) <= 0.001;
+  const finishCue = () => {
+    if (cue) {
+      for (const index of cue.entries) entries[index].reasons.add('cue');
+    }
+    cue = null;
+  };
   let pendingTags: string[] = [];
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
@@ -121,17 +154,12 @@ function parseMediaPlaylist(content: string): ParsedMediaPlaylist {
     }
 
     if (!line.startsWith('#')) {
+      // Wait through boundary metadata before committing. A continuation on
+      // this next segment may contradict an apparently completed duration.
+      if (isCueComplete()) finishCue();
       const tags = pendingTags;
       const duration = getPendingDuration(tags);
-      const cueAd =
-        inCueAd && (cueRemaining === null || duration <= cueRemaining + 0.001);
-      if (inCueAd && cueRemaining !== null) {
-        cueRemaining -= duration;
-        if (cueRemaining <= 0.001) inCueAd = false;
-      }
       const reasons = new Set<DropReason>();
-
-      if (cueAd) reasons.add('cue');
 
       entries.push({
         duration,
@@ -140,6 +168,19 @@ function parseMediaPlaylist(content: string): ParsedMediaPlaylist {
         tags,
         uri: rawLine,
       });
+
+      if (cue) {
+        cue.entries.push(entries.length - 1);
+        cue.elapsed += duration;
+        if (cue.duration !== null) {
+          if (cue.elapsed > cue.duration + 0.001) {
+            // A segment straddles the advertised boundary; do not cut it or
+            // rely on this ambiguous cue span to remove preceding segments.
+            cue = null;
+            cueBlocked = true;
+          }
+        }
+      }
 
       pendingTags = [];
       hasSeenSegment = true;
@@ -156,18 +197,50 @@ function parseMediaPlaylist(content: string): ParsedMediaPlaylist {
     }
 
     if (isCueOutTag(line)) {
-      const duration = line.match(/(?:DURATION=|:)([0-9]+(?:\.[0-9]+)?)/i);
-      const boundedDuration = duration ? Number(duration[1]) : 0;
-      cueRemaining = boundedDuration > 0 ? boundedDuration : null;
-      // An unterminated cue without a duration must not consume the programme.
-      inCueAd =
-        cueRemaining !== null || lines.slice(lineIndex + 1).some(isCueInTag);
+      if (isCueComplete()) finishCue();
+      const duration = parseCueDuration(line);
+      if (cue || cueBlocked || duration === undefined) {
+        cue = null;
+        cueBlocked = true;
+      } else {
+        cue = { duration, elapsed: 0, entries: [] };
+      }
+      continue;
+    }
+
+    if (isCueContinuationTag(line)) {
+      const continuation = parseCueContinuation(line);
+      if (!continuation || cueBlocked) {
+        cue = null;
+        cueBlocked = true;
+      } else if (cue) {
+        if (
+          (cue.duration !== null &&
+            Math.abs(cue.duration - continuation.duration) > 0.001) ||
+          Math.abs(cue.elapsed - continuation.elapsed) > 0.001
+        ) {
+          cue = null;
+          cueBlocked = true;
+        } else {
+          cue.duration = continuation.duration;
+        }
+      } else if (!hasSeenSegment) {
+        // Archived/clipped playlists can begin during an ad break. Only a
+        // leading continuation can establish a span without an OUT marker.
+        cue = { ...continuation, entries: [] };
+      }
       continue;
     }
 
     if (isCueInTag(line)) {
-      inCueAd = false;
-      cueRemaining = null;
+      // CUE-IN has no payload. Malformed lookalikes cannot validate a span.
+      if (/^#EXT-X-CUE-IN(?::)?$/i.test(line)) {
+        finishCue();
+        cueBlocked = false;
+      } else {
+        cue = null;
+        cueBlocked = true;
+      }
       continue;
     }
 
@@ -192,6 +265,7 @@ function parseMediaPlaylist(content: string): ParsedMediaPlaylist {
     pendingTags.push(rawLine);
   }
 
+  if (isCueComplete()) finishCue();
   return {
     entries,
     header,
@@ -319,8 +393,10 @@ function rebuildPlaylist(
       /^#EXT-X-KEY:/i.test(tag.trim())
     );
     for (const key of keyTags) {
-      if (!/KEYFORMAT=/i.test(key) || /KEYFORMAT="identity"/i.test(key))
-        activeKey = key;
+      const format = cueAttributes(key.trim().slice('#EXT-X-KEY:'.length))
+        ?.get('KEYFORMAT')
+        ?.replace(/^"(.*)"$/, '$1');
+      if (!format || format === 'identity') activeKey = key;
     }
     const range = entry.tags.find((tag) =>
       /^#EXT-X-BYTERANGE:/i.test(tag.trim())
@@ -339,7 +415,8 @@ function rebuildPlaylist(
         !Number.isSafeInteger(size) ||
         size <= 0 ||
         !Number.isSafeInteger(offset) ||
-        offset < 0
+        offset < 0 ||
+        !Number.isSafeInteger(offset + size)
       ) {
         // Ambiguous range semantics: keep the original playlist rather than corrupt retained content.
         return { content: originalContent, droppedSegments: 0 };
@@ -385,8 +462,10 @@ function rebuildPlaylist(
     if (
       dropPlan.size > 0 &&
       activeKey &&
-      /METHOD=AES-128(?:,|$)/i.test(activeKey) &&
-      !/(?:^|,)IV=/i.test(activeKey)
+      cueAttributes(activeKey.trim().slice('#EXT-X-KEY:'.length))?.get(
+        'METHOD'
+      ) === 'AES-128' &&
+      !cueAttributes(activeKey.trim().slice('#EXT-X-KEY:'.length))?.has('IV')
     ) {
       const declaredVersion = Number(
         result
@@ -406,6 +485,48 @@ function rebuildPlaylist(
   result.push(
     ...parsed.tail.filter((line) => !isAdControlOrMetadataTag(line.trim()))
   );
+  // EXT-X-START is relative to the playlist timeline, not the original media.
+  // Map the requested position through cuts so prerolls/midrolls cannot shift it.
+  const totalDuration = sumDurations(parsed.entries);
+  for (let index = 0; index < result.length; index += 1) {
+    if (!result[index].trim().startsWith('#EXT-X-START:')) continue;
+    const match = result[index].match(
+      /(?:[:,])TIME-OFFSET=(-?[0-9]+(?:\.[0-9]+)?)(?=,|$)/
+    );
+    if (!match || !Number.isFinite(Number(match[1]))) {
+      return { content: originalContent, droppedSegments: 0 };
+    }
+    const offset = Number(match[1]);
+    const position = Math.max(
+      0,
+      Math.min(totalDuration, offset < 0 ? totalDuration + offset : offset)
+    );
+    let originalPosition = 0;
+    let mappedPosition = 0;
+    for (const entry of parsed.entries) {
+      if (!dropPlan.has(entry.index)) {
+        mappedPosition += Math.max(
+          0,
+          Math.min(entry.duration, position - originalPosition)
+        );
+      }
+      originalPosition += entry.duration;
+    }
+    const mappedOffset =
+      offset < 0
+        ? mappedPosition - (totalDuration - droppedDuration)
+        : mappedPosition;
+    const roundedOffset = Math.round(mappedOffset * 1000000) / 1000000;
+    // Negative zero is parsed as a start-relative offset; retain the end position.
+    const outputOffset =
+      offset < 0 && roundedOffset === 0
+        ? Math.round(mappedPosition * 1000000) / 1000000
+        : roundedOffset;
+    result[index] = result[index].replace(
+      `TIME-OFFSET=${match[1]}`,
+      `TIME-OFFSET=${outputOffset}`
+    );
+  }
   return {
     content: normalizeDiscontinuities(result).join('\n'),
     droppedSegments,
@@ -457,12 +578,72 @@ function isCueOutTag(line: string): boolean {
   return /^#EXT-X-CUE-OUT(?::|$)/.test(upper);
 }
 
+function isCueContinuationTag(line: string): boolean {
+  return /^#EXT-X-CUE-OUT-CONT(?::|$)/i.test(line.trim());
+}
+
+/** Parse complete decimal values, never a numeric prefix of malformed data. */
+function parseCueNumber(value: string): number | undefined {
+  const unquoted = value.trim().replace(/^"([^"\n]*)"$/, '$1');
+  if (!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(unquoted)) return undefined;
+  const number = Number(unquoted);
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function cueAttributes(value: string): Map<string, string> | undefined {
+  const attributes = new Map<string, string>();
+  // Split outside quotes; SCTE35/CAID metadata may accompany cue timing.
+  const parts = value.match(/(?:[^,"]|"[^"\n]*")+/g) || [];
+  if (parts.join(',') !== value) return undefined;
+  for (const part of parts) {
+    const match = part.trim().match(/^([A-Z0-9-]+)=(.*)$/i);
+    if (!match || attributes.has(match[1].toUpperCase())) return undefined;
+    attributes.set(match[1].toUpperCase(), match[2]);
+  }
+  return attributes;
+}
+
+function parseCueDuration(line: string): number | null | undefined {
+  const separator = line.indexOf(':');
+  if (separator < 0) return null;
+  const value = line.slice(separator + 1).trim();
+  const attributes = value.includes('=') ? cueAttributes(value) : undefined;
+  const duration = parseCueNumber(attributes?.get('DURATION') ?? value);
+  return duration !== undefined && duration > 0 ? duration : undefined;
+}
+
+function parseCueContinuation(
+  line: string
+): { duration: number; elapsed: number } | undefined {
+  const separator = line.indexOf(':');
+  if (separator < 0) return undefined;
+  const value = line.slice(separator + 1).trim();
+  const attributes = cueAttributes(value);
+  const shorthand = value.includes('=') ? [] : value.split('/');
+  const duration = parseCueNumber(
+    attributes?.get('DURATION') ?? (shorthand.length === 2 ? shorthand[1] : '')
+  );
+  const elapsed = parseCueNumber(
+    attributes?.get('ELAPSEDTIME') ??
+      (shorthand.length === 2 ? shorthand[0] : '')
+  );
+  if (
+    duration === undefined ||
+    elapsed === undefined ||
+    duration <= 0 ||
+    elapsed >= duration
+  ) {
+    return undefined;
+  }
+  return { duration, elapsed };
+}
+
 function isCueInTag(line: string): boolean {
   return /^#EXT-X-CUE-IN(?::|$)/.test(line.trim().toUpperCase());
 }
 
 function isAdControlOrMetadataTag(line: string): boolean {
-  return isCueOutTag(line) || isCueInTag(line);
+  return isCueOutTag(line) || isCueInTag(line) || isCueContinuationTag(line);
 }
 
 function isDiscontinuityTag(line: string): boolean {
@@ -489,8 +670,8 @@ function getPendingDuration(tags: string[]): number {
     .find((tag) => tag.trim().startsWith('#EXTINF:'));
   if (!extinf) return 0;
 
-  const match = extinf.match(/^#EXTINF:([0-9.]+)/);
-  return match ? Number.parseFloat(match[1]) || 0 : 0;
+  const match = extinf.trim().match(/^#EXTINF:([0-9]+(?:\.[0-9]+)?),.*$/);
+  return match ? Number(match[1]) : 0;
 }
 
 function sumDurations(entries: PlaylistEntry[]): number {
