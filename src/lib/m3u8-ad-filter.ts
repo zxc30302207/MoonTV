@@ -29,6 +29,12 @@ export type M3U8AdFilterResult = {
  */
 const VERIFIED_AD_SEQUENCES = [
   {
+    // Visually verified three-segment gambling insertion; never a host wildcard.
+    prefix: '/20260818/JMQDkGOL/hls/',
+    files: ['9OG1QJKR.ts', 'Dgaf3EqV.ts', 'Nr4MRgx5.ts'],
+    durations: [5, 5, 3.2],
+  },
+  {
     // Alias verified byte-for-byte against the six-segment creative below.
     // Programme with burned-in sponsor overlays is deliberately not removed.
     prefix: '/20261009/pjEiiKbZ/10152kb/hls/',

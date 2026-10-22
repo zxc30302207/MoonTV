@@ -6,6 +6,7 @@ import {
   refineConfig,
   setCachedConfig,
 } from './config';
+import runtimeConfig from './runtime';
 
 function createAdminConfig(configFile: ConfigFileStruct): AdminConfig {
   return {
@@ -45,6 +46,45 @@ function createAdminConfig(configFile: ConfigFileStruct): AdminConfig {
 }
 
 describe('config runtime defaults', () => {
+  it('adds maoyan without changing the existing fourteen sources or saved disabled switches', () => {
+    const api_site = {
+      ...runtimeConfig.api_site,
+    } as unknown as ConfigFileStruct['api_site'];
+    delete api_site.maoyan;
+    expect(Object.keys(api_site)).toHaveLength(14);
+    const config = createAdminConfig({ api_site });
+    config.SourceConfig = Object.entries(api_site).map(([key, site]) => ({
+      key,
+      name: site.name,
+      api: site.api,
+      detail: site.detail,
+      from: 'config',
+      disabled: key === 'ffzynew',
+    }));
+    const before = config.SourceConfig.map((source) => ({ ...source }));
+    const refined = refineConfig(config);
+    const saved = JSON.parse(refined.ConfigFile) as ConfigFileStruct;
+    expect(Object.keys(saved.api_site)).toHaveLength(15);
+    expect(refined.SourceConfig).toHaveLength(15);
+    before.forEach((source) => {
+      expect(
+        refined.SourceConfig.find((item) => item.key === source.key)
+      ).toEqual(source);
+      expect(saved.api_site[source.key]).toEqual(api_site[source.key]);
+    });
+    expect(
+      refined.SourceConfig.find((source) => source.key === 'maoyan')
+    ).toEqual({
+      key: 'maoyan',
+      name: '貓眼資源',
+      api: 'https://api.maoyanapi.top/api.php/provide/vod',
+      detail: '',
+      from: 'config',
+      disabled: false,
+    });
+    expect(refineConfig(refined).SourceConfig).toHaveLength(15);
+  });
+
   it('removes the nine user-selected sources from saved config and preserves other switches', () => {
     const removed = [
       'lzi',
@@ -187,7 +227,7 @@ describe('config runtime defaults', () => {
     const refined = refineConfig(adminConfig);
     const configFile = JSON.parse(refined.ConfigFile) as ConfigFileStruct;
 
-    expect(Object.keys(configFile.api_site).length).toBe(14);
+    expect(Object.keys(configFile.api_site).length).toBe(15);
     expect(refined.SourceConfig.some((source) => source.key === 'ckzy')).toBe(
       false
     );

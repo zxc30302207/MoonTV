@@ -3,6 +3,13 @@ import { filterAdsFromM3U8WithStats } from './m3u8-ad-filter';
 // Bounded public-source samples visually verified 2026-10-22; see evidence notes.
 describe.each([
   {
+    prefix: '/20260818/JMQDkGOL/hls/',
+    files: ['9OG1QJKR.ts', 'Dgaf3EqV.ts', 'Nr4MRgx5.ts'],
+    durations: [5, 5, 3.2],
+    removedSeconds: 26.4,
+    afterIv: '0e',
+  },
+  {
     prefix: '/20261009/pjEiiKbZ/10152kb/hls/',
     files: [
       'nahMNf8r.ts',

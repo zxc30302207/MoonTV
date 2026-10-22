@@ -67,6 +67,11 @@
       "api": "https://api.souavzyw.net/api.php/provide/vod",
       "name": "souav资源",
       "detail": "https://api.souavzyw.net"
+    },
+    "maoyan": {
+      "api": "https://api.maoyanapi.top/api.php/provide/vod",
+      "name": "貓眼資源",
+      "detail": ""
     }
   }
 }
