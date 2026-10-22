@@ -17,6 +17,16 @@ const AD_MARKER_PATTERN =
 const NON_MEDIA_SEGMENT_PATTERN = /\.(?:gif|jpe?g|png|webp)(?:[?#].*)?$/i;
 const M3U8_URL_PATTERN = /^https?:\/\/.+\.m3u8(?:$|[?#])/i;
 const REMOVED_SOURCE_KEYS = new Set([
+  'lzi',
+  'dyttzy',
+  'zuid',
+  'tyyszy',
+  'bfzy',
+  'yinghua',
+  'ikun',
+  'aivin',
+  'ffzy',
+
   'bdzy',
   'ckzy',
   'dbzy',

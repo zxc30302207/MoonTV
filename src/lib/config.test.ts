@@ -28,7 +28,7 @@ function createAdminConfig(configFile: ConfigFileStruct): AdminConfig {
     },
     SourceConfig: [
       {
-        key: 'dyttzy',
+        key: 'ruyi',
         name: 'Custom Movie Source',
         api: 'https://custom.example/api.php/provide/vod',
         from: 'config',
@@ -45,12 +45,56 @@ function createAdminConfig(configFile: ConfigFileStruct): AdminConfig {
 }
 
 describe('config runtime defaults', () => {
+  it('removes the nine user-selected sources from saved config and preserves other switches', () => {
+    const removed = [
+      'lzi',
+      'dyttzy',
+      'zuid',
+      'tyyszy',
+      'bfzy',
+      'yinghua',
+      'ikun',
+      'aivin',
+      'ffzy',
+    ];
+    const api_site: ConfigFileStruct['api_site'] = {};
+    [...removed, 'ffzynew', 'custom-kept'].forEach((key) => {
+      api_site[key] = { key, name: key, api: `https://${key}.example/api` };
+    });
+    const config = createAdminConfig({ api_site });
+    config.SourceConfig = Object.entries(api_site).map(([key, site]) => ({
+      key,
+      name: site.name,
+      api: site.api,
+      from: 'config',
+      disabled: key === 'ffzynew',
+    }));
+    const refined = refineConfig(config);
+    const saved = JSON.parse(refined.ConfigFile) as ConfigFileStruct;
+    removed.forEach((key) => {
+      expect(saved.api_site[key]).toBeUndefined();
+      expect(refined.SourceConfig.some((source) => source.key === key)).toBe(
+        false
+      );
+    });
+    expect(saved.api_site.ffzynew).toEqual(api_site.ffzynew);
+    expect(saved.api_site['custom-kept']).toEqual(api_site['custom-kept']);
+    expect(
+      refined.SourceConfig.find((source) => source.key === 'ffzynew')?.disabled
+    ).toBe(true);
+    expect(
+      refined.SourceConfig.find((source) => source.key === 'custom-kept')
+        ?.disabled
+    ).toBe(false);
+    expect(refineConfig(refined)).toEqual(refined);
+  });
+
   it('adds missing runtime sources without overwriting saved api_site keys', () => {
     const savedConfig: ConfigFileStruct = {
       cache_time: 111,
       api_site: {
-        dyttzy: {
-          key: 'dyttzy',
+        ruyi: {
+          key: 'ruyi',
           name: 'Custom Movie Source',
           api: 'https://custom.example/api.php/provide/vod',
         },
@@ -61,7 +105,7 @@ describe('config runtime defaults', () => {
 
     expect(result.changed).toBe(true);
     expect(result.config.cache_time).toBe(111);
-    expect(result.config.api_site.dyttzy.api).toBe(
+    expect(result.config.api_site.ruyi.api).toBe(
       'https://custom.example/api.php/provide/vod'
     );
     expect(result.config.api_site.ffzynew).toBeDefined();
@@ -71,8 +115,8 @@ describe('config runtime defaults', () => {
   it('refines old DB config with missing sources and preserves saved switches', () => {
     const adminConfig = createAdminConfig({
       api_site: {
-        dyttzy: {
-          key: 'dyttzy',
+        ruyi: {
+          key: 'ruyi',
           name: 'Custom Movie Source',
           api: 'https://custom.example/api.php/provide/vod',
         },
@@ -80,14 +124,12 @@ describe('config runtime defaults', () => {
     });
 
     const refined = refineConfig(adminConfig);
-    const dyttzy = refined.SourceConfig.find(
-      (source) => source.key === 'dyttzy'
-    );
+    const ruyi = refined.SourceConfig.find((source) => source.key === 'ruyi');
     const yutu = refined.SourceConfig.find((source) => source.key === 'yutu');
     const configFile = JSON.parse(refined.ConfigFile) as ConfigFileStruct;
 
-    expect(dyttzy?.disabled).toBe(true);
-    expect(dyttzy?.api).toBe('https://custom.example/api.php/provide/vod');
+    expect(ruyi?.disabled).toBe(true);
+    expect(ruyi?.api).toBe('https://custom.example/api.php/provide/vod');
     expect(yutu).toEqual(
       expect.objectContaining({
         key: 'yutu',
@@ -145,13 +187,13 @@ describe('config runtime defaults', () => {
     const refined = refineConfig(adminConfig);
     const configFile = JSON.parse(refined.ConfigFile) as ConfigFileStruct;
 
-    expect(Object.keys(configFile.api_site).length).toBeGreaterThanOrEqual(23);
+    expect(Object.keys(configFile.api_site).length).toBe(14);
     expect(refined.SourceConfig.some((source) => source.key === 'ckzy')).toBe(
       false
     );
     expect(
       refined.SourceConfig.some((source) => source.key === 'yinghua')
-    ).toBe(true);
+    ).toBe(false);
     expect(refined.SiteConfig.DisableYellowFilter).toBe(false);
   });
 });

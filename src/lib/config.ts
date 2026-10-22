@@ -73,6 +73,16 @@ export const ADULT_SOURCE_KEYS = new Set([
 ]);
 
 export const REMOVED_SOURCE_KEYS = new Set([
+  'lzi',
+  'dyttzy',
+  'zuid',
+  'tyyszy',
+  'bfzy',
+  'yinghua',
+  'ikun',
+  'aivin',
+  'ffzy',
+
   'bdzy',
   'ckzy',
   'dbzy',
