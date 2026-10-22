@@ -35,6 +35,8 @@ export async function POST(request: NextRequest) {
       DoubanProxy,
       DoubanImageProxyType,
       DoubanImageProxy,
+      BangumiProxy,
+      BangumiImageProxy,
       DisableYellowFilter,
       DanmakuApiBaseUrl,
       TVBoxEnabled,
@@ -49,6 +51,8 @@ export async function POST(request: NextRequest) {
       DoubanProxy: string;
       DoubanImageProxyType: string;
       DoubanImageProxy: string;
+      BangumiProxy?: string;
+      BangumiImageProxy?: string;
       DisableYellowFilter: boolean;
       DanmakuApiBaseUrl?: string;
       TVBoxEnabled?: boolean;
@@ -66,6 +70,9 @@ export async function POST(request: NextRequest) {
       typeof DoubanProxy !== 'string' ||
       typeof DoubanImageProxyType !== 'string' ||
       typeof DoubanImageProxy !== 'string' ||
+      (BangumiProxy !== undefined && typeof BangumiProxy !== 'string') ||
+      (BangumiImageProxy !== undefined &&
+        typeof BangumiImageProxy !== 'string') ||
       typeof DisableYellowFilter !== 'boolean' ||
       (DanmakuApiBaseUrl !== undefined &&
         typeof DanmakuApiBaseUrl !== 'string') ||
@@ -105,6 +112,8 @@ export async function POST(request: NextRequest) {
       DoubanProxy,
       DoubanImageProxyType,
       DoubanImageProxy,
+      BangumiProxy: BangumiProxy || '',
+      BangumiImageProxy: BangumiImageProxy || '',
       DisableYellowFilter,
       DanmakuApiBaseUrl:
         DanmakuApiBaseUrl ?? adminConfig.SiteConfig.DanmakuApiBaseUrl,

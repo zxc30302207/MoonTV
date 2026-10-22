@@ -104,8 +104,11 @@ export async function clearPrivateClientState(): Promise<void> {
     const { getVideoPrefetcher, getNextEpisodePrefetcher } = await import(
       './video-prefetcher'
     );
-    getVideoPrefetcher().stop();
-    getNextEpisodePrefetcher().stop();
+    // Drain in-flight writes before clearing private media and metadata.
+    await Promise.all([
+      getVideoPrefetcher().stopAndWait(),
+      getNextEpisodePrefetcher().stopAndWait(),
+    ]);
     const { clearVideoCache } = await import('./video-cache');
     await clearVideoCache();
     if (typeof caches !== 'undefined')

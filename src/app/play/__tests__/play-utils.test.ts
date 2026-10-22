@@ -7,8 +7,16 @@ import {
 } from '../play-utils';
 
 jest.mock('@/lib/video-cache', () => ({
-  buildSegmentCacheKey: (url: string) =>
-    `/api/m3u8?url=${encodeURIComponent(url)}`,
+  DEFAULT_CACHE_SETTINGS: { useProxy: true },
+  loadCacheSettings: () => ({ useProxy: true }),
+  buildSegmentCacheKey: (
+    url: string,
+    proxy: boolean,
+    range?: { start: number; end: number }
+  ) =>
+    `${proxy ? '/api/m3u8?url=' : ''}${encodeURIComponent(url)}${
+      range ? `#range=${range.start}-${range.end}` : ''
+    }`,
   readCachedSegment: jest.fn(),
   recordSegmentProbe: jest.fn(),
   touchMeta: jest.fn().mockResolvedValue(undefined),
@@ -30,8 +38,7 @@ const context = {
   rangeEnd: 0,
 };
 const flush = async () => {
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let i = 0; i < 6; i += 1) await Promise.resolve();
 };
 
 beforeEach(() => {
@@ -45,7 +52,10 @@ beforeEach(() => {
 describe('HLS loader integration', () => {
   it('serves actual hls.js fragment contexts from cache with finite measured stats', async () => {
     const data = new ArrayBuffer(1024);
-    (readCachedSegment as jest.Mock).mockResolvedValue({ data, costMs: 20 });
+    (readCachedSegment as jest.Mock).mockResolvedValue({
+      fragment: { data, costMs: 20 },
+      matchedKey: 'cached',
+    });
     const Loader = createCustomHlsLoader(Hls);
     const loader = new Loader({});
     const onSuccess = jest.fn();
@@ -60,10 +70,32 @@ describe('HLS loader integration', () => {
     expect(touchMeta).toHaveBeenCalled();
   });
 
-  it('bypasses cached full responses for byte-range fragments', () => {
+  it('uses separate byte-range cache keys instead of full responses', async () => {
+    const data = new ArrayBuffer(1024);
+    (readCachedSegment as jest.Mock).mockResolvedValue({
+      fragment: { data, costMs: 10 },
+      matchedKey: 'ranged',
+    });
     const Loader = createCustomHlsLoader(Hls);
     const callbacks = { onSuccess: jest.fn() };
     const rangeContext = { ...context, rangeEnd: 1024 };
+    new Loader({}).load(rangeContext, {}, callbacks);
+    await flush();
+    expect(baseLoad).not.toHaveBeenCalled();
+    expect(readCachedSegment).toHaveBeenCalledWith(
+      expect.stringContaining('#range=0-1024')
+    );
+    expect(callbacks.onSuccess).toHaveBeenCalledWith(
+      { url: context.url, data },
+      expect.anything(),
+      rangeContext
+    );
+  });
+
+  it('bypasses cache for invalid byte ranges rather than returning a full fragment', () => {
+    const Loader = createCustomHlsLoader(Hls);
+    const callbacks = { onSuccess: jest.fn() };
+    const rangeContext = { ...context, rangeStart: 1024, rangeEnd: 512 };
     new Loader({}).load(rangeContext, {}, callbacks);
     expect(baseLoad).toHaveBeenCalledWith(rangeContext, {}, callbacks);
     expect(readCachedSegment).not.toHaveBeenCalled();
@@ -87,7 +119,10 @@ describe('HLS loader integration', () => {
             resolveOld = resolve;
           })
       )
-      .mockResolvedValueOnce({ data: new ArrayBuffer(1), costMs: 1 });
+      .mockResolvedValueOnce({
+        fragment: { data: new ArrayBuffer(1), costMs: 1 },
+        matchedKey: 'cached',
+      });
     const Loader = createCustomHlsLoader(Hls);
     const loader = new Loader({});
     const oldSuccess = jest.fn();
@@ -99,10 +134,33 @@ describe('HLS loader integration', () => {
       {},
       { onSuccess: newSuccess }
     );
-    resolveOld({ data: new ArrayBuffer(1), costMs: 1 });
+    resolveOld({
+      fragment: { data: new ArrayBuffer(1), costMs: 1 },
+      matchedKey: 'cached',
+    });
     await flush();
     expect(oldSuccess).not.toHaveBeenCalled();
     expect(newSuccess).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not continue cache candidates or start network after a cancelled cache miss', async () => {
+    let resolveOld!: (value: null) => void;
+    (readCachedSegment as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveOld = resolve;
+        })
+    );
+    const Loader = createCustomHlsLoader(Hls);
+    const loader = new Loader({});
+    const onSuccess = jest.fn();
+    loader.load(context, {}, { onSuccess });
+    loader.destroy();
+    resolveOld(null);
+    await flush();
+    expect(readCachedSegment).toHaveBeenCalledTimes(1);
+    expect(baseLoad).not.toHaveBeenCalled();
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 
   it('uses bounded ad cues while retaining encrypted programme media', () => {

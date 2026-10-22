@@ -72,11 +72,7 @@ export async function GET(request: NextRequest) {
   const abortSignal = request.signal as AbortSignal | undefined;
   abortSignal?.addEventListener('abort', () => {
     shouldStop = true;
-    try {
-      writer.close();
-    } catch {
-      // ignore
-    }
+    void writer.abort().catch(() => undefined);
   });
 
   const safeWrite = async (obj: unknown) => {
@@ -102,7 +98,8 @@ export async function GET(request: NextRequest) {
           site,
           queryForSearch,
           true,
-          timeout
+          timeout,
+          request.signal
         );
         for await (const pageResults of generator) {
           let filteredResults = pageResults;
@@ -183,7 +180,8 @@ export async function GET(request: NextRequest) {
           site,
           queryForSearch,
           true,
-          timeout
+          timeout,
+          request.signal
         );
         let hasResults = false;
 

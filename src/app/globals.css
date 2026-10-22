@@ -1,34 +1,245 @@
+/*
+ * 彈性導航欄設計令牌
+ * 思路：導航欄是 <html> 的直屬子級，直接相對視口寬度縮放最可靠。
+ * 這裡用視口單位（vw）而非容器單位，避免 @container 嵌套失效問題。
+ * 所有值以 1280px 視口為基准換算成 vw，讓元素尺寸隨屏幕連續變化。
+ */
+:root {
+  --nav-h: 4.375vw; /* 導航欄高度：56px @1280 → 84px @1920   */
+  --nav-px: 1.25vw; /* 左右內邊距：16px @1280 → 24px @1920   */
+  --nav-gap: 1.25vw; /* 區塊間距：16px @1280 → 24px @1920     */
+  --nav-link-gap: 0.78125vw; /* 菜單項內間距：10px @1280 → 15px @1920  */
+  --nav-text: clamp(13px, 1.171875vw, 22.5px); /* ★ 菜單字號帶上下限   */
+  --nav-icon: clamp(15px, 1.40625vw, 27px); /* ★ 圖標帶上下限      */
+  --nav-logo: clamp(18px, 1.875vw, 36px); /* ★ Logo 帶上下限      */
+  --nav-btn: clamp(30px, 2.5vw, 48px); /* ★ 按鈕帶上下限      */
+
+  /* ★ 搜索欄：與視口等比縮放，clamp 保護下限 */
+  --nav-search-w: clamp(210px, 21.875vw, 420px);
+  --nav-search-h: clamp(36px, calc(var(--nav-h) * 0.64), 54px);
+
+  /* ★ 源選擇器固定寬度：恆定不隨內容變化 */
+  --nav-source-w: clamp(60px, calc(var(--nav-search-w) * 0.26), 104px);
+
+  /* ★ 字號 = 寬度的 5%，兩者同邊界 clamp，字寬比恆定 */
+  --nav-search-text: calc(var(--nav-search-w) * 0.05);
+}
+
+/* 窄屏下限保護 */
+@media (max-width: 1024px) {
+  :root {
+    --nav-h: 56px;
+    --nav-px: 12px;
+    --nav-gap: 8px;
+    --nav-link-gap: 6px;
+    --nav-text: 13px;
+    --nav-icon: 15px;
+    --nav-logo: 18px;
+    --nav-btn: 30px;
+    --nav-search-w: 210px;
+    --nav-search-h: 36px;
+    --nav-source-w: 60px;
+    --nav-search-text: 11px;
+  }
+}
+
+/* 超寬屏上限保護 */
+@media (min-width: 1920px) {
+  :root {
+    --nav-h: 84px;
+    --nav-px: 24px;
+    --nav-gap: 24px;
+    --nav-link-gap: 15px;
+    --nav-text: 22.5px;
+    --nav-icon: 27px;
+    --nav-logo: 36px;
+    --nav-btn: 48px;
+    --nav-search-w: 420px;
+    --nav-search-h: 54px;
+    --nav-source-w: 104px;
+    --nav-search-text: 20px;
+  }
+}
+
+/* ★ 源數量角標：絕對定位，脫離文檔流，不參與按鈕寬度計算 */
+.top-nav__source-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #22c55e;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none; /* ★ 不阻擋點擊齒輪按鈕 */
+  z-index: 10;
+  box-shadow: 0 0 0 1.5px rgb(255 255 255 / 0.95);
+}
+.dark .top-nav__source-count {
+  box-shadow: 0 0 0 1.5px rgb(31 41 55 / 0.95);
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer utilities {
   .scrollbar-hide {
-    -ms-overflow-style: none; /* IE and Edge */
-    scrollbar-width: none; /* Firefox */
+    scrollbar-width: none;
   }
-
   .scrollbar-hide::-webkit-scrollbar {
-    display: none; /* Chrome, Safari and Opera */
+    display: none;
   }
 }
 
-:root {
-  --foreground-rgb: 255, 255, 255;
+/* ★ 搜索區：flex 容器，源選擇器與搜索框橫向並排 */
+.top-nav__search {
+  width: var(--nav-search-w);
+  flex-shrink: 0;
+  display: flex; /* ★ 正常文檔流 */
+  align-items: stretch; /* ★ 子項等高 */
+  position: relative;
+}
+
+/* ★ 搜索框：flex-1 佔滿剩余空間 */
+.top-nav__searchbox {
+  flex: 1 1 auto;
+  height: var(--nav-search-h);
+  font-size: var(--nav-search-text);
+  min-width: 0; /* ★ 允許收縮，防止 flex 子項溢出 */
+  padding-left: 32px !important; /* ★ 固定值，只給放大鏡圖標留位 */
+  padding-right: 32px !important;
+}
+
+.top-nav__search-icon {
+  width: var(--nav-icon);
+  height: var(--nav-icon);
+}
+
+/* ★ 源選擇器按鈕（導航欄緊湊版）：與搜索框等高，隨導航欄等比縮放 */
+.top-nav__source-btn {
+  height: var(--nav-search-h);
+  padding-left: calc(var(--nav-search-h) * 0.3333);
+  padding-right: calc(var(--nav-search-h) * 0.3333);
+  gap: calc(var(--nav-search-h) * 0.1111);
+}
+.top-nav__source-btn > svg {
+  width: var(--nav-icon);
+  height: var(--nav-icon);
+  flex-shrink: 0;
+}
+
+.top-nav__searchbox::placeholder {
+  font-size: calc(var(--nav-search-text) - 1px);
+  color: rgb(156 163 175);
+}
+.dark .top-nav__searchbox::placeholder {
+  color: rgb(107 114 128);
+}
+
+/* ★ 剛性圖標按鈕：幾何尺寸徹底鎖死 */
+.top-nav__btn-rigid {
+  width: var(--nav-btn) !important;
+  height: var(--nav-btn) !important;
+  min-width: var(--nav-btn) !important;
+  max-width: var(--nav-btn) !important;
+  min-height: var(--nav-btn) !important;
+  max-height: var(--nav-btn) !important;
+  box-sizing: border-box !important;
+  flex-shrink: 0 !important;
+  flex-grow: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  position: relative;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+}
+.top-nav__btn-rigid > svg {
+  width: var(--nav-icon);
+  height: var(--nav-icon);
+  flex-shrink: 0;
+}
+.top-nav__badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+/* 導航欄容器 */
+.top-nav {
+  height: var(--nav-h);
+}
+.top-nav__inner {
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  gap: var(--nav-gap);
+  padding-left: var(--nav-px);
+  padding-right: var(--nav-px);
+}
+.top-nav__menu {
+  gap: var(--nav-link-gap);
+}
+.top-nav__link {
+  padding-left: var(--nav-link-gap);
+  padding-right: var(--nav-link-gap);
+  padding-top: calc(var(--nav-link-gap) * 0.6);
+  padding-bottom: calc(var(--nav-link-gap) * 0.6);
+  gap: var(--nav-link-gap);
+}
+.top-nav__text {
+  font-size: var(--nav-text);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.top-nav__logo {
+  font-size: var(--nav-logo);
+  line-height: 1;
+}
+.top-nav__icon {
+  width: var(--nav-icon);
+  height: var(--nav-icon);
+  flex-shrink: 0;
+}
+.top-nav__btn {
+  width: var(--nav-btn);
+  height: var(--nav-btn);
+  padding: calc(var(--nav-btn) * 0.28);
+}
+.top-nav__actions {
+  gap: calc(var(--nav-gap) * 0.6);
+}
+
+@media (max-width: 1023px) {
+  .top-nav__text {
+    display: none;
+  }
+  .top-nav__link {
+    min-width: 36px;
+    min-height: 36px;
+    justify-content: center;
+  }
 }
 
 html,
 body {
   height: 100%;
   overflow-x: hidden;
-  /* 阻止 iOS Safari 拉動回彈 */
   overscroll-behavior: none;
 }
-
 body {
   color: rgb(var(--foreground-rgb));
 }
-
 html:not(.dark) body {
   background: linear-gradient(
     180deg,
@@ -41,36 +252,26 @@ html:not(.dark) body {
   );
   background-attachment: fixed;
 }
-
-/* 自定義滾動條樣式 */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
-
 ::-webkit-scrollbar-track {
   background: rgba(31, 41, 55, 0.1);
 }
-
 ::-webkit-scrollbar-thumb {
   background: rgba(75, 85, 99, 0.3);
   border-radius: 4px;
 }
-
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(107, 114, 128, 0.5);
 }
-
-/* 視頻卡片懸停效果 */
 .video-card-hover {
   transition: transform 0.3s ease;
 }
-
 .video-card-hover:hover {
   transform: scale(1.05);
 }
-
-/* 漸變遮罩 */
 .gradient-overlay {
   background: linear-gradient(
     to bottom,
@@ -78,22 +279,16 @@ html:not(.dark) body {
     rgba(0, 0, 0, 0.8) 100%
   );
 }
-
-/* 隱藏移動端（<768px）垂直滾動條 */
 @media (max-width: 767px) {
   html,
   body {
-    -ms-overflow-style: none; /* IE & Edge */
-    scrollbar-width: none; /* Firefox */
+    scrollbar-width: none;
   }
-
   html::-webkit-scrollbar,
   body::-webkit-scrollbar {
-    display: none; /* Chrome Safari */
+    display: none;
   }
 }
-
-/* View Transitions API 動畫 - 整體漸變模式 */
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -102,7 +297,6 @@ html:not(.dark) body {
     opacity: 1;
   }
 }
-
 @keyframes fade-out {
   from {
     opacity: 1;
@@ -111,21 +305,15 @@ html:not(.dark) body {
     opacity: 0;
   }
 }
-
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation-duration: 0.6s;
   animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   animation-fill-mode: both;
 }
-
-/*
-  整體漸變模式：舊視圖淡出，新視圖淡入
-*/
 ::view-transition-old(root) {
   animation-name: fade-out;
 }
-
 ::view-transition-new(root) {
   animation-name: fade-in;
 }
@@ -135,24 +323,62 @@ div[data-media-provider] video {
   height: 100%;
   object-fit: contain;
 }
-
 .art-poster {
-  background-size: contain !important; /* 使圖片完整展示 */
-  background-position: center center !important; /* 居中顯示 */
-  background-repeat: no-repeat !important; /* 防止重復 */
-  background-color: #000 !important; /* 其餘區域填充為黑色 */
+  background-size: contain !important;
+  background-position: center center !important;
+  background-repeat: no-repeat !important;
+  background-color: #000 !important;
 }
-
-/* 隱藏移動端豎屏時的 pip 按鈕 */
+.art-video-player .art-settings {
+  max-width: calc(100% - 2 * var(--art-padding, 10px));
+}
+.art-video-player .art-settings .art-setting-item {
+  gap: 12px;
+  min-height: var(--art-settings-item-height, 35px);
+  height: auto !important;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.art-video-player .art-settings .art-setting-item-right {
+  min-width: 0;
+}
+.art-video-player .art-settings .art-setting-item-right-tooltip {
+  min-width: 0;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  text-align: right;
+  line-height: 1.4;
+}
+.art-video-player .art-settings .art-setting-item-right-icon {
+  flex-shrink: 0;
+}
+.art-video-player .moontv-play-header {
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+.art-video-player:not(.art-control-show):not(.art-hover) .moontv-play-header,
+.art-video-player.art-hide-cursor .moontv-play-header,
+.art-video-player.art-lock .moontv-play-header {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none !important;
+}
+.art-video-player .moontv-progress-preview {
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+.art-video-player.art-hide-cursor .moontv-progress-preview,
+.art-video-player.art-lock .moontv-progress-preview {
+  opacity: 0;
+  visibility: hidden;
+}
+.art-video-player:fullscreen .moontv-player-modal > div,
+.art-video-player:-webkit-full-screen .moontv-player-modal > div,
+.art-video-player.art-fullscreen-web .moontv-player-modal > div,
+.art-video-player.art-fullscreen .moontv-player-modal > div {
+  position: absolute;
+}
 @media (max-width: 768px) {
-  .art-control-pip {
-    display: none !important;
-  }
-
-  .art-control-fullscreenWeb {
-    display: none !important;
-  }
-
+  .art-control-pip,
+  .art-control-fullscreenWeb,
   .art-control-volume {
     display: none !important;
   }
