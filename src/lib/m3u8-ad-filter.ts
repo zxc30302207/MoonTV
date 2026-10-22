@@ -29,6 +29,20 @@ export type M3U8AdFilterResult = {
  */
 const VERIFIED_AD_SEQUENCES = [
   {
+    // Alias verified byte-for-byte against the six-segment creative below.
+    // Programme with burned-in sponsor overlays is deliberately not removed.
+    prefix: '/20261009/pjEiiKbZ/10152kb/hls/',
+    files: [
+      'nahMNf8r.ts',
+      'ZFz9RQeM.ts',
+      'cHqkizsC.ts',
+      'jYruJ6ZL.ts',
+      '7j1ossEx.ts',
+      'ZTQzdtRR.ts',
+    ],
+    durations: [3, 3, 5, 3, 3, 0.64],
+  },
+  {
     // Four-segment packaging of visually verified gambling creative (2026-10-22).
     prefix: '/20261008/2DExGZYA/hls/',
     files: ['wTYCABLc.ts', 'HJKFKNWX.ts', 'tem9H9Vu.ts', 'Y2VXzNPO.ts'],
