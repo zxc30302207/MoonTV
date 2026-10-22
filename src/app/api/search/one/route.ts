@@ -7,6 +7,7 @@ import {
   getConfig,
 } from '@/lib/config';
 import { searchFromApiStream } from '@/lib/downstream';
+import { matchesFullSearchTitle } from '@/lib/search-title';
 import { SearchResult } from '@/lib/types';
 import { isYellowSearchResult } from '@/lib/yellow';
 import { normalizeForCompare, toSimplified } from '@/lib/zh';
@@ -67,14 +68,17 @@ export async function GET(request: NextRequest) {
       targetSite,
       queryForSearch,
       true,
-      timeout
+      timeout,
+      request.signal
     )) {
       allResults.push(...batch);
     }
 
     // OrionTV 行為：按標題完全匹配過濾
     const cmp = normalizeForCompare(query || '');
-    let result = allResults.filter((r) => normalizeForCompare(r.title) === cmp);
+    let result = allResults.filter((r) =>
+      matchesFullSearchTitle(normalizeForCompare(r.title), cmp)
+    );
     if (shouldFilterYellow) {
       result = result.filter((item) => !isYellowSearchResult(item));
     }

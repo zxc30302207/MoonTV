@@ -43,16 +43,19 @@ function HomeClient() {
     'home' | 'history' | 'following' | 'favorites'
   >('home');
   const [hotMovies, setHotMovies] = useState<DoubanItem[]>([]);
+  const [hotMoviesLoading, setHotMoviesLoading] = useState(true);
   const [hotTvShows, setHotTvShows] = useState<DoubanItem[]>([]);
+  const [hotTvShowsLoading, setHotTvShowsLoading] = useState(true);
   const [hotVarietyShows, setHotVarietyShows] = useState<DoubanItem[]>([]);
   const [adultRecommendations, setAdultRecommendations] = useState<
     SearchResult[]
   >([]);
   const [adultRefreshKey, setAdultRefreshKey] = useState('');
+  const [hotVarietyShowsLoading, setHotVarietyShowsLoading] = useState(true);
   const [bangumiCalendarData, setBangumiCalendarData] = useState<
     BangumiCalendarData[]
   >([]);
-  const [loading, setLoading] = useState(true);
+  const [bangumiCalendarLoading, setBangumiCalendarLoading] = useState(true);
   const { announcement } = useSite();
   const { startLoading } = useNavigationLoading();
 
@@ -67,7 +70,11 @@ function HomeClient() {
     if (typeof window !== 'undefined') {
       const savedSimpleMode = localStorage.getItem('simpleMode');
       if (savedSimpleMode !== null) {
-        setSimpleMode(JSON.parse(savedSimpleMode));
+        try {
+          setSimpleMode(JSON.parse(savedSimpleMode));
+        } catch {
+          setSimpleMode(false);
+        }
       }
     }
   }, []);
@@ -171,80 +178,138 @@ function HomeClient() {
   const hasAutoRefreshedRef = useRef(false);
 
   useEffect(() => {
-    const fetchRecommendData = async () => {
-      try {
-        setLoading(true);
+    let cancelled = false;
 
-        // 檢查是否啟用簡潔模式
-        const savedSimpleMode = localStorage.getItem('simpleMode');
-        const isSimpleMode = savedSimpleMode
-          ? JSON.parse(savedSimpleMode)
-          : false;
-
-        if (isSimpleMode) {
-          // 簡潔模式下跳過豆瓣數據獲取
-          setLoading(false);
-          return;
+    const loadRecommendData = async () => {
+      const savedSimpleMode = localStorage.getItem('simpleMode');
+      let isSimpleMode = false;
+      if (savedSimpleMode) {
+        try {
+          isSimpleMode = JSON.parse(savedSimpleMode);
+        } catch {
+          isSimpleMode = false;
         }
-
-        const adultRecommendationsRequest = fetch(
-          '/api/adult/recommends?limit=24'
-        ).then((response) => (response.ok ? response.json() : { list: [] }));
-
-        void adultRecommendationsRequest
-          .then((data) => {
-            setAdultRecommendations(data.list || []);
-            setAdultRefreshKey(data.refreshKey || '');
-          })
-          .catch((error) => {
-            console.error('獲取成人推薦失敗:', error);
-            setAdultRecommendations([]);
-            setAdultRefreshKey('');
-          });
-
-        // 並行獲取熱門電影、熱門劇集、熱門綜藝
-        const [moviesData, tvShowsData, varietyShowsData, bangumiCalendarData] =
-          await Promise.all([
-            getDoubanCategories({
-              kind: 'movie',
-              category: '熱門',
-              type: '全部',
-            }),
-            getDoubanCategories({ kind: 'tv', category: 'tv', type: 'tv' }),
-            getDoubanCategories({ kind: 'tv', category: 'show', type: 'show' }),
-            GetBangumiCalendarData(),
-          ]);
-
-        if (moviesData.code === 200) {
-          setHotMovies(moviesData.list);
-        }
-
-        if (tvShowsData.code === 200) {
-          setHotTvShows(tvShowsData.list);
-        }
-
-        if (varietyShowsData.code === 200) {
-          setHotVarietyShows(varietyShowsData.list);
-        }
-
-        setBangumiCalendarData(bangumiCalendarData);
-      } catch (error) {
-        console.error('獲取推薦數據失敗:', error);
-      } finally {
-        setLoading(false);
       }
+
+      if (isSimpleMode) {
+        if (cancelled) return;
+        setHotMoviesLoading(false);
+        setHotTvShowsLoading(false);
+        setHotVarietyShowsLoading(false);
+        setBangumiCalendarLoading(false);
+        return;
+      }
+
+      void fetch('/api/adult/recommends?limit=24')
+        .then((response) => (response.ok ? response.json() : { list: [] }))
+        .then((data) => {
+          if (cancelled) return;
+          setAdultRecommendations(Array.isArray(data.list) ? data.list : []);
+          setAdultRefreshKey(data.refreshKey || '');
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setAdultRecommendations([]);
+          setAdultRefreshKey('');
+        });
+
+      setHotMoviesLoading(true);
+      setHotTvShowsLoading(true);
+      setHotVarietyShowsLoading(true);
+      setBangumiCalendarLoading(true);
+
+      void (async () => {
+        try {
+          const moviesData = await getDoubanCategories({
+            kind: 'movie',
+            category: '熱門',
+            type: '全部',
+          });
+          if (
+            !cancelled &&
+            moviesData?.code === 200 &&
+            Array.isArray(moviesData.list)
+          ) {
+            setHotMovies(moviesData.list);
+          }
+        } catch (error) {
+          console.error('獲取熱門電影失敗:', error);
+        } finally {
+          if (!cancelled) setHotMoviesLoading(false);
+        }
+      })();
+
+      void (async () => {
+        try {
+          const tvShowsData = await getDoubanCategories({
+            kind: 'tv',
+            category: 'tv',
+            type: 'tv',
+          });
+          if (
+            !cancelled &&
+            tvShowsData?.code === 200 &&
+            Array.isArray(tvShowsData.list)
+          ) {
+            setHotTvShows(tvShowsData.list);
+          }
+        } catch (error) {
+          console.error('獲取熱門劇集失敗:', error);
+        } finally {
+          if (!cancelled) setHotTvShowsLoading(false);
+        }
+      })();
+
+      void (async () => {
+        try {
+          const varietyShowsData = await getDoubanCategories({
+            kind: 'tv',
+            category: 'show',
+            type: 'show',
+          });
+          if (
+            !cancelled &&
+            varietyShowsData?.code === 200 &&
+            Array.isArray(varietyShowsData.list)
+          ) {
+            setHotVarietyShows(varietyShowsData.list);
+          }
+        } catch (error) {
+          console.error('獲取熱門綜藝失敗:', error);
+        } finally {
+          if (!cancelled) setHotVarietyShowsLoading(false);
+        }
+      })();
+
+      void (async () => {
+        try {
+          const bangumiData = await GetBangumiCalendarData();
+          if (!cancelled && Array.isArray(bangumiData)) {
+            setBangumiCalendarData(bangumiData);
+          }
+        } catch (error) {
+          console.error('獲取新番放送失敗:', error);
+        } finally {
+          if (!cancelled) setBangumiCalendarLoading(false);
+        }
+      })();
     };
 
-    fetchRecommendData();
+    void loadRecommendData();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // 處理收藏數據更新的函數
   const updateFavoriteItems = async (allFavorites: Record<string, any>) => {
-    const allPlayRecords = await getAllPlayRecords();
+    const allPlayRecords = (await getAllPlayRecords()) || {};
 
     // 根據保存時間排序（從近到遠）
-    const sorted = Object.entries(allFavorites)
-      .sort(([, a], [, b]) => b.save_time - a.save_time)
+    const sorted = Object.entries(allFavorites || {})
+      .filter(([, fav]) => fav && typeof fav === 'object')
+      .sort(([, a], [, b]) => (b.save_time || 0) - (a.save_time || 0))
       .map(([key, fav]) => {
         const plusIndex = key.indexOf('+');
         const source = key.slice(0, plusIndex);
@@ -276,14 +341,16 @@ function HomeClient() {
     const allPlayRecords =
       providedPlayRecords ??
       latestPlayRecordsRef.current ??
-      (await getAllPlayRecords());
+      (await getAllPlayRecords()) ??
+      {};
     latestPlayRecordsRef.current = allPlayRecords;
 
     // 按標題索引播放記錄，優先按標題匹配「當前播放集數/總集數」，
     // 解決用戶換片源觀看後追更 key(source+id) 與播放記錄 key 對不上而取不到的問題。
     const playRecordTitleIndex = buildPlayRecordTitleIndex(allPlayRecords);
 
-    const sorted = Object.entries(allFollowings)
+    const sorted = Object.entries(allFollowings || {})
+      .filter(([, item]) => item && typeof item === 'object')
       .sort(([, a], [, b]) => (b.save_time || 0) - (a.save_time || 0))
       .map(([key, item]) => {
         const plusIndex = key.indexOf('+');
@@ -1137,7 +1204,7 @@ function HomeClient() {
                       </Link>
                     </div>
                     <ScrollableRow>
-                      {loading
+                      {hotMoviesLoading
                         ? // 加載狀態顯示灰色佔位數據
                           Array.from({ length: 8 }).map((_, index) => (
                             <div
@@ -1186,7 +1253,7 @@ function HomeClient() {
                       </Link>
                     </div>
                     <ScrollableRow>
-                      {loading
+                      {hotTvShowsLoading
                         ? // 加載狀態顯示灰色佔位數據
                           Array.from({ length: 8 }).map((_, index) => (
                             <div
@@ -1234,7 +1301,7 @@ function HomeClient() {
                       </Link>
                     </div>
                     <ScrollableRow>
-                      {loading
+                      {bangumiCalendarLoading
                         ? // 加載狀態顯示灰色佔位數據
                           Array.from({ length: 8 }).map((_, index) => (
                             <div
@@ -1264,32 +1331,38 @@ function HomeClient() {
 
                             // 找到當前星期對應的番劇數據
                             const todayAnimes =
-                              bangumiCalendarData.find(
-                                (item) => item.weekday.en === currentWeekday
+                              (Array.isArray(bangumiCalendarData)
+                                ? bangumiCalendarData
+                                : []
+                              ).find(
+                                (item) => item?.weekday?.en === currentWeekday
                               )?.items || [];
 
-                            return todayAnimes.map((anime, index) => (
-                              <div
-                                key={`${anime.id}-${index}`}
-                                className='min-w-[96px] w-24 sm:min-w-[180px] sm:w-44'
-                              >
-                                <VideoCard
-                                  from='douban'
-                                  title={anime.name_cn || anime.name}
-                                  poster={
-                                    anime.images.large ||
-                                    anime.images.common ||
-                                    anime.images.medium ||
-                                    anime.images.small ||
-                                    anime.images.grid
-                                  }
-                                  douban_id={anime.id}
-                                  rate={anime.rating?.score?.toString() || ''}
-                                  year={anime.air_date?.split('-')?.[0] || ''}
-                                  isBangumi={true}
-                                />
-                              </div>
-                            ));
+                            return todayAnimes
+                              .filter(Boolean)
+                              .map((anime, index) => (
+                                <div
+                                  key={`${anime.id}-${index}`}
+                                  className='min-w-[96px] w-24 sm:min-w-[180px] sm:w-44'
+                                >
+                                  <VideoCard
+                                    from='douban'
+                                    title={anime.name_cn || anime.name || ''}
+                                    poster={
+                                      anime.images?.large ||
+                                      anime.images?.common ||
+                                      anime.images?.medium ||
+                                      anime.images?.small ||
+                                      anime.images?.grid ||
+                                      ''
+                                    }
+                                    douban_id={anime.id}
+                                    rate={anime.rating?.score?.toString() || ''}
+                                    year={anime.air_date?.split('-')?.[0] || ''}
+                                    isBangumi={true}
+                                  />
+                                </div>
+                              ));
                           })()}
                     </ScrollableRow>
                   </section>
@@ -1310,7 +1383,7 @@ function HomeClient() {
                       </Link>
                     </div>
                     <ScrollableRow>
-                      {loading
+                      {hotVarietyShowsLoading
                         ? // 加載狀態顯示灰色佔位數據
                           Array.from({ length: 8 }).map((_, index) => (
                             <div

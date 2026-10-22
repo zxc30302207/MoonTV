@@ -128,3 +128,56 @@ describe('VideoCard following actions', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('VideoCard upstream gesture and URL compatibility', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    followingStatus.mockResolvedValue(false);
+    (subscribeToDataUpdates as jest.Mock).mockReturnValue(unsubscribe);
+  });
+
+  it('encodes special titles and preserves custom aggregate source preference', async () => {
+    render(
+      <VideoCard
+        from='search'
+        title='作品（特別篇） & test'
+        items={[
+          {
+            id: 'v1',
+            source: 'source1',
+            title: '作品（特別篇） & test',
+            poster: '',
+            year: '2026',
+            episodes: ['https://example.com/video.m3u8'],
+            episodes_titles: ['1'],
+            source_name: 'Source',
+          },
+        ]}
+      />
+    );
+    fireEvent.contextMenu(
+      screen.getByRole('img', { name: '作品（特別篇） & test' })
+    );
+    fireEvent.click(screen.getByRole('button', { name: '播放' }));
+    const url = new URL(push.mock.calls[0][0], 'https://example.com');
+    expect(url.searchParams.get('title')).toBe('作品（特別篇） & test');
+    expect(url.searchParams.get('prefer')).toBe('true');
+    expect(url.searchParams.get('source')).toBe('source1');
+    await waitFor(() => expect(followingStatus).toHaveBeenCalled());
+  });
+
+  it('does not open a long-press menu after dragging a touch card', () => {
+    jest.useFakeTimers();
+    render(<VideoCard id='v1' source='source1' title='作品' from='search' />);
+    const card = screen.getByRole('img', { name: '作品' });
+    fireEvent.touchStart(card, { touches: [{ clientX: 10, clientY: 10 }] });
+    fireEvent.touchMove(card, { touches: [{ clientX: 10, clientY: 50 }] });
+    jest.advanceTimersByTime(600);
+    fireEvent.contextMenu(card);
+    expect(
+      screen.queryByRole('button', { name: '播放' })
+    ).not.toBeInTheDocument();
+    fireEvent.touchEnd(card);
+    jest.useRealTimers();
+  });
+});

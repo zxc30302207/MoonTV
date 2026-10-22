@@ -17,35 +17,35 @@ describe('上游相容版本', () => {
     expect(changelog[0].version).toBe(CURRENT_VERSION);
   });
   it.each([
-    '4.2.1',
-    'v4.2.1',
-    ' 4.2.1\n',
-    '4.2.1+fork.1',
-    '4.2.1-custom.2',
+    '4.5.0',
+    'v4.5.0',
+    ' 4.5.0\n',
+    '4.5.0+fork.1',
+    '4.5.0-custom.2',
     '4.2.0',
     '3.9.5',
   ])('does not announce integrated or older %s', (version) => {
     expect(compareVersions(version)).toBe(UpdateStatus.NO_UPDATE);
   });
-  it.each(['4.2.2', '4.3.0', '4.10.0', '5.0.0'])(
+  it.each(['4.5.1', '4.6.0', '4.10.0', '5.0.0'])(
     'still announces newer %s',
     (version) => {
       expect(compareVersions(version)).toBe(UpdateStatus.HAS_UPDATE);
     }
   );
   it('compares upstream against a custom build suffix', () => {
-    expect(compareVersions('4.2.1', '4.2.1-custom.1')).toBe(
+    expect(compareVersions('4.5.0', '4.5.0-custom.1')).toBe(
       UpdateStatus.NO_UPDATE
     );
-    expect(compareVersions('4.2.2', '4.2.1+local')).toBe(
+    expect(compareVersions('4.5.1', '4.5.0+local')).toBe(
       UpdateStatus.HAS_UPDATE
     );
   });
   it.each([
     '',
     '<html>Error</html>',
-    '4.2.1broken',
-    '4.2.1.4',
+    '4.5.0broken',
+    '4.5.0.4',
     '-1.2.3',
     '1e2.3.4',
   ])('rejects malformed response %s without a false alert', (version) => {
@@ -61,7 +61,7 @@ describe('fresh version fetch', () => {
   it('bypasses HTTP cache and compares the response', async () => {
     global.fetch = jest
       .fn()
-      .mockResolvedValue({ ok: true, text: async () => '4.2.1' });
+      .mockResolvedValue({ ok: true, text: async () => '4.5.0' });
     await expect(checkForUpdates()).resolves.toBe(UpdateStatus.NO_UPDATE);
     expect(global.fetch).toHaveBeenCalledWith(
       expect.stringContaining('VERSION.txt?_t='),

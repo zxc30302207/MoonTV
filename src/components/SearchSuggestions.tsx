@@ -40,7 +40,7 @@ export default function SearchSuggestions({
         { signal: controller.signal }
       );
 
-      if (!response.body) return;
+      if (!response.ok || !response.body) return;
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -49,6 +49,7 @@ export default function SearchSuggestions({
 
       while (!done) {
         const { value, done: readerDone } = await reader.read();
+        if (controller.signal.aborted) return;
         done = readerDone;
         if (done) break;
 
@@ -61,20 +62,31 @@ export default function SearchSuggestions({
           try {
             const parsed = JSON.parse(line);
             if (parsed.suggestions && Array.isArray(parsed.suggestions)) {
-              setSuggestions((prev) => [
-                ...prev,
-                ...parsed.suggestions.map((s: { text: string }) => ({
-                  text: s.text,
-                })),
-              ]);
+              const incoming = (parsed.suggestions as unknown[]).filter(
+                (s): s is SuggestionItem =>
+                  !!s &&
+                  typeof s === 'object' &&
+                  typeof (s as SuggestionItem).text === 'string'
+              );
+              setSuggestions((prev) =>
+                Array.from(
+                  new Map(
+                    [...prev, ...incoming].map((s) => [s.text, s])
+                  ).values()
+                ).slice(0, 20)
+              );
             }
           } catch (err) {
-            /* ignore malformed line */ void 0;
+            /* Ignore malformed stream lines. */
           }
         }
       }
     } catch (err: unknown) {
-      if (err instanceof Error && err.name === 'AbortError') return;
+      if (
+        controller.signal.aborted ||
+        (err instanceof Error && err.name === 'AbortError')
+      )
+        return;
       setSuggestions([]);
       setSelectedIndex(-1);
     }
@@ -118,6 +130,7 @@ export default function SearchSuggestions({
       debounceTimer.current = setTimeout(() => {
         if (searchQuery.trim() && isVisible && isEnabled) {
           setSuggestions([]); // 新查詢清空舊數據
+          setSelectedIndex(-1);
           fetchSuggestionsFromAPI(searchQuery);
         } else {
           setSuggestions([]);

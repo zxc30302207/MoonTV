@@ -1,5 +1,6 @@
 import { API_CONFIG, ApiSite, getConfig } from '@/lib/config';
 import { cleanM3U8Url, isDirectM3U8Url } from '@/lib/playback-url';
+import { getFallbackSearchQuery } from '@/lib/search-title';
 import { SearchResult } from '@/lib/types';
 import { cleanHtmlTags } from '@/lib/utils';
 
@@ -52,7 +53,12 @@ async function fetchWithTimeout(
   timeout = 30000
 ): Promise<Response> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const abort = () => controller.abort();
+  if (options.signal?.aborted) abort();
+  options.signal?.addEventListener('abort', abort, { once: true });
+  const timeoutMs =
+    Number.isFinite(timeout) && timeout > 0 ? Math.min(timeout, 120000) : 30000;
+  const timeoutId = setTimeout(abort, timeoutMs);
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } catch (error: unknown) {
@@ -71,6 +77,7 @@ async function fetchWithTimeout(
     }
   } finally {
     clearTimeout(timeoutId);
+    options.signal?.removeEventListener('abort', abort);
   }
 }
 
@@ -151,14 +158,47 @@ export async function* searchFromApiStream(
   apiSite: ApiSite,
   query: string,
   parallel = true,
-  timeout?: number
+  timeout?: number,
+  signal?: AbortSignal
 ): AsyncGenerator<SearchResult[], void, unknown> {
+  if (signal?.aborted) return;
+  // Normalize only the upstream keyword; callers retain the full query for matching.
+  const searchQuery = getFallbackSearchQuery(query) ?? query;
+  const seen = new Set<string>();
+
+  for await (const page of searchApiQuery(
+    apiSite,
+    searchQuery,
+    parallel,
+    timeout,
+    signal
+  )) {
+    if (signal?.aborted) return;
+    const results = page.filter((result) => {
+      const key = JSON.stringify([result.source, result.id]);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    if (results.length > 0) yield results;
+  }
+}
+
+/** Search one literal keyword, including all configured pages. */
+async function* searchApiQuery(
+  apiSite: ApiSite,
+  query: string,
+  parallel = true,
+  timeout?: number,
+  signal?: AbortSignal
+): AsyncGenerator<SearchResult[], void, unknown> {
+  if (signal?.aborted) return;
   const apiUrl =
     apiSite.api + API_CONFIG.search.path + encodeURIComponent(query);
 
   const response = await fetchWithTimeout(
     apiUrl,
-    { headers: API_CONFIG.search.headers },
+    { headers: API_CONFIG.search.headers, signal },
     timeout
   );
   if (!response.ok) return;
@@ -186,6 +226,7 @@ export async function* searchFromApiStream(
       } | null>[] = [];
 
       for (let page = 2; page <= pagesToFetch; page++) {
+        if (signal?.aborted) return;
         const pageUrl =
           apiSite.api +
           API_CONFIG.search.pagePath
@@ -195,7 +236,7 @@ export async function* searchFromApiStream(
         const promise = (async () => {
           const pageRes = await fetchWithTimeout(
             pageUrl,
-            { headers: API_CONFIG.search.headers },
+            { headers: API_CONFIG.search.headers, signal },
             timeout
           );
           if (!pageRes.ok) return null;
@@ -212,18 +253,23 @@ export async function* searchFromApiStream(
         pagePromises.push(promise);
       }
 
-      const settled = await Promise.all(pagePromises);
-      for (const res of settled
+      const settled = await Promise.allSettled(pagePromises);
+      const successful = settled.flatMap((result) =>
+        result.status === 'fulfilled' ? [result.value] : []
+      );
+      for (const res of successful
         .filter(
           (r): r is { page: number; results: SearchResult[] } =>
             !!r && r.results.length > 0
         )
         .sort((a, b) => a.page - b.page)) {
+        if (signal?.aborted) return;
         yield res.results;
       }
     } else {
       // ------------------ 順序模式 ------------------
       for (let page = 2; page <= pagesToFetch; page++) {
+        if (signal?.aborted) return;
         const pageUrl =
           apiSite.api +
           API_CONFIG.search.pagePath
@@ -232,7 +278,7 @@ export async function* searchFromApiStream(
 
         const pageRes = await fetchWithTimeout(
           pageUrl,
-          { headers: API_CONFIG.search.headers },
+          { headers: API_CONFIG.search.headers, signal },
           timeout
         );
         if (!pageRes.ok) continue;

@@ -36,6 +36,7 @@ export async function GET(request: Request) {
     const imageResponse = await safeFetch(
       imageUrl,
       {
+        signal: request.signal,
         headers: {
           Referer: 'https://movie.douban.com/',
           'User-Agent':
@@ -67,7 +68,8 @@ export async function GET(request: Request) {
 
     const headers = new Headers();
     const contentType = imageResponse.headers.get('content-type');
-    if (contentType && !contentType.toLowerCase().startsWith('image/')) {
+    if (!contentType?.toLowerCase().startsWith('image/')) {
+      await imageResponse.body.cancel();
       return NextResponse.json(
         { error: 'Proxy target is not an image' },
         { status: 400, headers: { 'Cache-Control': 'private, no-store' } }
@@ -78,6 +80,7 @@ export async function GET(request: Request) {
     }
     headers.set('Cache-Control', 'private, no-store');
     headers.set('Vary', 'Cookie');
+    headers.set('X-Content-Type-Options', 'nosniff');
 
     return new Response(imageResponse.body, {
       status: 200,

@@ -82,6 +82,8 @@ interface SiteConfig {
   DoubanProxy: string;
   DoubanImageProxyType: string;
   DoubanImageProxy: string;
+  BangumiProxy?: string;
+  BangumiImageProxy?: string;
   DisableYellowFilter: boolean;
   TVBoxEnabled?: boolean;
   TVBoxPassword?: string;
@@ -2755,6 +2757,8 @@ const SiteConfigComponent = ({
     DoubanProxy: '',
     DoubanImageProxyType: 'direct',
     DoubanImageProxy: '',
+    BangumiProxy: '',
+    BangumiImageProxy: '',
     DisableYellowFilter: false,
     TVBoxEnabled: false,
     TVBoxPassword: '',
@@ -2871,6 +2875,8 @@ const SiteConfigComponent = ({
         DoubanImageProxyType:
           config.SiteConfig.DoubanImageProxyType || 'direct',
         DoubanImageProxy: config.SiteConfig.DoubanImageProxy || '',
+        BangumiProxy: config.SiteConfig.BangumiProxy || '',
+        BangumiImageProxy: config.SiteConfig.BangumiImageProxy || '',
         DisableYellowFilter: config.SiteConfig.DisableYellowFilter || false,
         TVBoxEnabled: config.SiteConfig.TVBoxEnabled || false,
         TVBoxPassword: config.SiteConfig.TVBoxPassword || '',
@@ -3292,6 +3298,77 @@ const SiteConfigComponent = ({
             </p>
           </div>
         )}
+      </div>
+
+      {/* Bangumi 數據代理 */}
+      <div>
+        <label
+          className={`block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${
+            isLocalStorage ? 'opacity-50' : ''
+          }`}
+        >
+          Bangumi 數據代理
+          {isLocalStorage && (
+            <span className='ml-2 text-xs text-gray-500 dark:text-gray-400'>
+              (本地存儲下請通過環境變量 NEXT_PUBLIC_BANGUMI_PROXY 修改)
+            </span>
+          )}
+        </label>
+        <input
+          type='text'
+          placeholder='例如: https://bgmapi.example.com'
+          value={siteSettings.BangumiProxy || ''}
+          onChange={(e) =>
+            !isLocalStorage &&
+            setSiteSettings((prev) => ({
+              ...prev,
+              BangumiProxy: e.target.value,
+            }))
+          }
+          disabled={isLocalStorage}
+          className={`w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 shadow-sm hover:border-gray-400 dark:hover:border-gray-500 ${
+            isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
+          }`}
+        />
+        <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
+          設置 Bangumi API 代理地址，留空則使用官方
+          API（由後端代理請求，前端不直接訪問）
+        </p>
+      </div>
+
+      {/* Bangumi 圖片代理 */}
+      <div>
+        <label
+          className={`block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${
+            isLocalStorage ? 'opacity-50' : ''
+          }`}
+        >
+          Bangumi 圖片代理
+          {isLocalStorage && (
+            <span className='ml-2 text-xs text-gray-500 dark:text-gray-400'>
+              (本地存儲下請通過環境變量 NEXT_PUBLIC_BANGUMI_IMAGE_PROXY 修改)
+            </span>
+          )}
+        </label>
+        <input
+          type='text'
+          placeholder='例如: https://bgmimg.example.com'
+          value={siteSettings.BangumiImageProxy || ''}
+          onChange={(e) =>
+            !isLocalStorage &&
+            setSiteSettings((prev) => ({
+              ...prev,
+              BangumiImageProxy: e.target.value,
+            }))
+          }
+          disabled={isLocalStorage}
+          className={`w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 shadow-sm hover:border-gray-400 dark:hover:border-gray-500 ${
+            isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
+          }`}
+        />
+        <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
+          設置 Bangumi 圖片代理域名，用於替換 lain.bgm.tv 圖片地址
+        </p>
       </div>
 
       {/* 搜索接口可拉取最大頁數 */}

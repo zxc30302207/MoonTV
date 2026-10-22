@@ -45,6 +45,8 @@ import {
 import { describeHlsError, PlaybackRecovery } from '@/lib/playback-recovery';
 import { getDefaultPlaybackSaveInterval } from '@/lib/playback-settings';
 import { isDirectM3U8Url, sanitizePlaybackResult } from '@/lib/playback-url';
+import { shouldThrottlePrefetch } from '@/lib/prefetch-scheduler';
+import { matchesFullSearchTitle } from '@/lib/search-title';
 import {
   type SourceProbeResult,
   type VideoProbeInfo,
@@ -53,8 +55,13 @@ import {
   selectEpisodeUrlForSource,
 } from '@/lib/source-preference';
 import { SearchResult } from '@/lib/types';
-import { getRequestTimeout, getVideoResolutionFromM3u8 } from '@/lib/utils';
 import {
+  getRequestTimeout,
+  getVideoResolutionFromM3u8,
+  processImageUrl,
+} from '@/lib/utils';
+import {
+  clearVideoCache,
   getSegmentProbe,
   loadCacheSettings,
   saveCacheSettings,
@@ -72,6 +79,12 @@ import {
 } from '@/components/GlobalErrorIndicator';
 
 import { wrapArtplayerPluginDanmuku } from './danmuku-live-font-size';
+import {
+  bindDeferredProgressSeek,
+  PROGRESS_PREVIEW_END,
+  PROGRESS_PREVIEW_MOVE,
+  ProgressPreviewMove,
+} from './deferred-progress-seek';
 import { useVideoActions } from './hooks/useVideoActions';
 import { useWakeLock } from './hooks/useWakeLock';
 import {
@@ -83,6 +96,18 @@ import {
   saveDanmakuSettings,
   SkipConfig,
 } from './play-utils';
+import { PreviewThumbnailer } from './preview-thumbnailer';
+
+/** 進度條懸停預覽浮層的實時狀態 */
+export interface PlayPreviewState {
+  visible: boolean;
+  /** 懸停對應的時間點（秒） */
+  time: number;
+  /** 相對進度條寬度的百分比水平位置（0-100） */
+  left: number;
+  /** 已抽取的預覽圖 dataURL；加載中 / 失敗為 null */
+  image: string | null;
+}
 
 // 擴展 HTMLVideoElement 類型以支持 hls 屬性
 declare global {
@@ -193,8 +218,10 @@ export function usePlayEngine() {
     outro_time: 0,
   });
   const skipConfigRef = useRef(skipConfig);
+  const restartPrefetchForSkipRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     skipConfigRef.current = skipConfig;
+    restartPrefetchForSkipRef.current?.();
   }, [
     skipConfig,
     skipConfig.enable,
@@ -235,6 +262,8 @@ export function usePlayEngine() {
   // 進度不走 React state——它會以 250ms 的節奏回調，走 state 會讓整頁高頻重渲染，
   // 這裡直接更新 ArtPlayer 的設置項 tooltip。
   const prefetcherRef = useRef(getVideoPrefetcher());
+  const cacheClearPromiseRef = useRef<Promise<void> | null>(null);
+  const previousCacheEpisodeRef = useRef<number | null>(null);
 
   // 下一集預熱（落地路線第 3 步）。獨立實例，避免打斷當前集的隊列。
   // `nextWarmupKeyRef` 記錄"已經為哪一集的哪個檔位預熱過"，防止重復排隊。
@@ -371,6 +400,41 @@ export function usePlayEngine() {
   // 切集時清空"已試過的源"與"自動換源次數"：
   // 某個源只是這一集掛了，不代表下一集也掛，不該把懲罰帶到下一集。
   useEffect(() => {
+    const previousEpisode = previousCacheEpisodeRef.current;
+    previousCacheEpisodeRef.current = currentEpisodeIndex;
+    // 切集或換源立即中止舊下載，是否刪除已落盤緩存由清理開關單獨決定。
+    prefetcherRef.current.stop();
+    getNextEpisodePrefetcher().stop();
+    if (
+      previousEpisode !== null &&
+      previousEpisode !== currentEpisodeIndex &&
+      loadCacheSettings().autoClearOnEpisodeChange
+    ) {
+      const previousClear = cacheClearPromiseRef.current;
+      const stopped = Promise.all([
+        prefetcherRef.current.stopAndWait(),
+        getNextEpisodePrefetcher().stopAndWait(),
+      ]);
+      // 新當前集可能正是已預熱的下一集，同時保留它之後一集的預熱。
+      const episodePrefix = `${currentSource}:${currentId}`;
+      const keepEpisodeKeys = [
+        `${episodePrefix}:${currentEpisodeIndex}`,
+        `${episodePrefix}:${currentEpisodeIndex + 1}`,
+      ];
+      const clearing = (async () => {
+        await previousClear;
+        await stopped;
+        await clearVideoCache(keepEpisodeKeys);
+      })().catch((error) => {
+        console.error('切集自動清理緩存失敗:', error);
+      });
+      cacheClearPromiseRef.current = clearing;
+      void clearing.finally(() => {
+        if (cacheClearPromiseRef.current === clearing) {
+          cacheClearPromiseRef.current = null;
+        }
+      });
+    }
     triedSourcesRef.current = new Set();
     autoSwitchCountRef.current = 0;
   }, [currentEpisodeIndex]);
@@ -437,7 +501,15 @@ export function usePlayEngine() {
 
   const artPlayerRef = useRef<any>(null);
   const artRef = useRef<HTMLDivElement | null>(null);
+  /** ArtPlayer 根節點，供把返回/標題 portal 進播放器（全屏也能看見） */
+  const [playerHost, setPlayerHost] = useState<HTMLElement | null>(null);
   const danmukuPluginInstanceRef = useRef<any>(null); // 彈幕插件實例
+
+  // ---- 進度條懸停預覽 ----
+  const previewThumbnailerRef = useRef<PreviewThumbnailer | null>(null);
+  const previewTimerRef = useRef<number | null>(null);
+  const previewRequestIdRef = useRef(0);
+  const [preview, setPreview] = useState<PlayPreviewState | null>(null);
   const lastDanmakuUrlRef = useRef<string>(''); // 上一次加載的彈幕 URL
   const pendingDanmakuVisibleRestoreRef = useRef<boolean | null>(null); // 切集後待恢復的彈幕可見狀態
 
@@ -681,6 +753,7 @@ export function usePlayEngine() {
     // 先取消待執行的退避重試，避免定時器醒來後操作已銷毀的 hls 實例
     recoveryRef.current?.dispose();
     recoveryRef.current = null;
+    setPlayerHost(null);
 
     if (artPlayerRef.current) {
       try {
@@ -832,6 +905,7 @@ export function usePlayEngine() {
       setSourceSearchError('');
 
       const aggregatedResults: SearchResult[] = [];
+      const targetYear = videoYearRef.current;
 
       try {
         // 發起流式搜索請求
@@ -872,15 +946,9 @@ export function usePlayEngine() {
                     .map(sanitizePlaybackResult)
                     .filter((r: SearchResult) => {
                       if (!r.episodes.length) return false;
-                      const titleMatch =
-                        r.title.trim().replace(/\s+/g, ' ').toLowerCase() ===
-                        videoTitleRef.current
-                          .trim()
-                          .replace(/\s+/g, ' ')
-                          .toLowerCase();
-                      const yearMatch = videoYearRef.current
-                        ? r.year.toLowerCase() ===
-                          videoYearRef.current.toLowerCase()
+                      const titleMatch = matchesFullSearchTitle(r.title, query);
+                      const yearMatch = targetYear
+                        ? r.year.toLowerCase() === targetYear.toLowerCase()
                         : true;
                       const typeMatch = searchType
                         ? (searchType === 'tv' && r.episodes.length > 1) ||
@@ -940,12 +1008,22 @@ export function usePlayEngine() {
       setVideoDoubanId(detailData.douban_id || 0);
       setDetail(detailData);
 
-      // 傳入的起始集數超出本源可用集數范圍時，直接定位到最後一集（而非回到第一集）
+      // 傳入的起始集數超出本源可用集數范圍時，直接定位到最後一集（而非回到第一集）。
+      // 以 URL 的 ep 為准，避免依賴可能尚未寫入的 state / 播放記錄。
+      const requestedEp = Number(
+        new URLSearchParams(window.location.search).get('ep')
+      );
+      const requestedIndex =
+        Number.isInteger(requestedEp) && requestedEp >= 1
+          ? requestedEp - 1
+          : currentEpisodeIndex;
       if (
         detailData.episodes.length > 0 &&
-        currentEpisodeIndex >= detailData.episodes.length
+        (requestedIndex < 0 || requestedIndex >= detailData.episodes.length)
       ) {
-        setCurrentEpisodeIndex(detailData.episodes.length - 1);
+        setCurrentEpisodeIndex(
+          requestedIndex < 0 ? 0 : detailData.episodes.length - 1
+        );
       }
 
       // 規范 URL 參數
@@ -992,7 +1070,7 @@ export function usePlayEngine() {
       let allResults: SearchResult[] = [];
       let hasInitialized = false; // 標記是否已經初始化過播放數據
 
-      await fetchSourcesData(videoTitle, (newResults) => {
+      await fetchSourcesData(videoTitle || searchTitle, (newResults) => {
         allResults = [...allResults, ...newResults];
 
         // 如果還沒確定 detailData，就嘗試找目標源
@@ -1410,8 +1488,12 @@ export function usePlayEngine() {
       // 嘗試跳轉到當前正在播放的集數
       let targetIndex = currentEpisodeIndex;
 
-      // 如果當前集數超出新源的范圍，則跳轉到第一集
-      if (!newDetail.episodes || targetIndex >= newDetail.episodes.length) {
+      // 集數越界時夾取：大於新源最大集數則跳轉最後一集，負數則回到第一集
+      if (!newDetail.episodes || newDetail.episodes.length === 0) {
+        targetIndex = 0;
+      } else if (targetIndex >= newDetail.episodes.length) {
+        targetIndex = newDetail.episodes.length - 1;
+      } else if (targetIndex < 0) {
         targetIndex = 0;
       }
 
@@ -1901,7 +1983,7 @@ export function usePlayEngine() {
       artPlayerRef.current.title = `${videoTitle} - 第${
         currentEpisodeIndex + 1
       }集`;
-      artPlayerRef.current.poster = videoCover;
+      artPlayerRef.current.poster = processImageUrl(videoCover);
       if (artPlayerRef.current?.video) {
         ensureVideoSource(
           artPlayerRef.current.video as HTMLVideoElement,
@@ -1918,7 +2000,7 @@ export function usePlayEngine() {
       artPlayerRef.current.title = `${videoTitle} - 第${
         currentEpisodeIndex + 1
       }集`;
-      artPlayerRef.current.poster = videoCover;
+      artPlayerRef.current.poster = processImageUrl(videoCover);
       if (artPlayerRef.current?.video) {
         ensureVideoSource(
           artPlayerRef.current.video as HTMLVideoElement,
@@ -1964,13 +2046,35 @@ export function usePlayEngine() {
        * 內部會無條件 `render()` 把設置面板彈回根面板，導致用戶剛點進
        * 「畫質」子面板就被踢出來，需要連點很多次。詳見 `artplayer-setting.ts`。
        */
+      let lastCacheTooltip = '';
       const updateCacheTooltip = (text: string, switchState?: boolean) => {
         const art = artPlayerRef.current;
         if (!art) return;
-        setSettingTooltip(art, CACHE_SETTING_NAME, text);
+        if (text !== lastCacheTooltip) {
+          setSettingTooltip(art, CACHE_SETTING_NAME, text);
+          lastCacheTooltip = text;
+        }
         if (switchState !== undefined) {
           setSettingSwitch(art, CACHE_SETTING_NAME, switchState);
         }
+      };
+
+      let cacheBandwidthThrottled = false;
+      let lastBufferCheckAt = 0;
+      const setCacheBandwidthThrottled = (value: boolean) => {
+        cacheBandwidthThrottled = value;
+        prefetcherRef.current.setThrottled(value);
+        getNextEpisodePrefetcher().setThrottled(value);
+      };
+      const syncCacheBandwidth = (force = false) => {
+        const video = artPlayerRef.current?.video;
+        if (!video) return;
+        const now = Date.now();
+        if (!force && now - lastBufferCheckAt < 1_000) return;
+        lastBufferCheckAt = now;
+        setCacheBandwidthThrottled(
+          shouldThrottlePrefetch(video, cacheBandwidthThrottled)
+        );
       };
 
       /**
@@ -1987,10 +2091,37 @@ export function usePlayEngine() {
         currentTime: number,
         horizonSeconds?: number
       ) => {
+        if (artPlayerRef.current?.video?.seeking) return;
+        const clearing = cacheClearPromiseRef.current;
+        if (clearing) {
+          const episodeIndex = currentEpisodeIndexRef.current;
+          void clearing.then(() => {
+            if (
+              episodeIndex === currentEpisodeIndexRef.current &&
+              m3u8Url === currentVideoUrlRef.current &&
+              artPlayerRef.current
+            ) {
+              ensurePrefetch(m3u8Url, currentTime, horizonSeconds);
+            }
+          });
+          return;
+        }
         prefetcherRef.current.ensure({
           m3u8Url,
           currentTime,
           blockAd: blockAdEnabledRef.current,
+          lookBehindSeconds: 0,
+          skipIntroSeconds: skipConfigRef.current.enable
+            ? Math.max(0, skipConfigRef.current.intro_time)
+            : 0,
+          skipOutroSeconds: skipConfigRef.current.enable
+            ? Math.max(0, -skipConfigRef.current.outro_time)
+            : 0,
+          title: videoTitleRef.current || '未知影片',
+          source:
+            detailRef.current?.source_name ||
+            currentSourceRef.current ||
+            '未知來源',
           episodeKey: `${currentSourceRef.current}:${currentIdRef.current}:${currentEpisodeIndexRef.current}`,
           preferredHeight: preferredHeightRef.current,
           ...(horizonSeconds === undefined ? {} : { horizonSeconds }),
@@ -2006,6 +2137,7 @@ export function usePlayEngine() {
             if (stats.state === 'done') warmupNextEpisode();
           },
         });
+        syncCacheBandwidth(true);
       };
 
       /**
@@ -2016,6 +2148,7 @@ export function usePlayEngine() {
        * 並且隨集數/畫質變化自動失效。
        */
       const warmupNextEpisode = () => {
+        if (cacheClearPromiseRef.current) return;
         if (!loadCacheSettings().enabled) return;
 
         const data = detailRef.current;
@@ -2030,9 +2163,16 @@ export function usePlayEngine() {
 
         const preferred = preferredHeightRef.current;
         // 畫質檔位也是預熱鍵的一部分：換了檔位，預熱過的分片 URL 就不同了
+        const skip = skipConfigRef.current;
+        const skipIntroSeconds = skip.enable ? Math.max(0, skip.intro_time) : 0;
+        const skipOutroSeconds = skip.enable
+          ? Math.max(0, -skip.outro_time)
+          : 0;
         const key = `${currentSourceRef.current}:${
           currentIdRef.current
-        }:${nextIndex}:${preferred ?? 'auto'}`;
+        }:${nextIndex}:${
+          preferred ?? 'auto'
+        }:${skipIntroSeconds}:${skipOutroSeconds}`;
         if (nextWarmupKeyRef.current === key) return;
         nextWarmupKeyRef.current = key;
 
@@ -2040,11 +2180,20 @@ export function usePlayEngine() {
           m3u8Url: nextUrl,
           blockAd: blockAdEnabledRef.current,
           currentTime: 0,
+          skipIntroSeconds,
+          skipOutroSeconds,
+          title: videoTitleRef.current || '未知影片',
+          source:
+            detailRef.current?.source_name ||
+            currentSourceRef.current ||
+            '未知來源',
           episodeKey: `${currentSourceRef.current}:${currentIdRef.current}:${nextIndex}`,
           preferredHeight: preferred,
           horizonSeconds: NEXT_EPISODE_HORIZON_SECONDS,
           useProxy: loadCacheSettings().useProxy,
+          concurrency: 1,
         });
+        syncCacheBandwidth(true);
       };
 
       /**
@@ -2060,6 +2209,29 @@ export function usePlayEngine() {
         const live = currentVideoUrlRef.current;
         if (!live) return;
         ensurePrefetch(live, currentTime, horizonSeconds);
+      };
+
+      const cacheModeLabels = {
+        low: '低檔',
+        medium: '中檔',
+        high: '高檔',
+        custom: '自定義',
+      };
+      const restartCacheQueue = () => {
+        prefetcherRef.current.stop();
+        getNextEpisodePrefetcher().stop();
+        nextWarmupKeyRef.current = null;
+        if (loadCacheSettings().enabled) {
+          ensurePrefetchCurrent(artPlayerRef.current?.currentTime || 0);
+        }
+      };
+      restartPrefetchForSkipRef.current = () => {
+        prefetcherRef.current.stop(true);
+        getNextEpisodePrefetcher().stop();
+        nextWarmupKeyRef.current = null;
+        if (loadCacheSettings().enabled) {
+          ensurePrefetchCurrent(artPlayerRef.current?.currentTime || 0);
+        }
       };
 
       /** 刷新「畫質」設置項的 tooltip（同樣走 DOM setter，不打斷面板層級） */
@@ -2116,7 +2288,7 @@ export function usePlayEngine() {
         pip: true,
         autoSize: false,
         autoMini: false,
-        screenshot: false,
+        screenshot: true,
         setting: true,
         loop: false,
         flip: false,
@@ -2125,7 +2297,7 @@ export function usePlayEngine() {
         fullscreen: true,
         fullscreenWeb: true,
         subtitleOffset: false,
-        miniProgressBar: false,
+        miniProgressBar: true,
         mutex: true,
         playsInline: true,
         autoPlayback: false,
@@ -2173,7 +2345,8 @@ export function usePlayEngine() {
             }
             const hls = new Hls({
               debug: false, // 關閉日志
-              enableWorker: true, // WebWorker 解碼，降低主線程壓力
+              // 分片處理移到 Worker；自定義 loader 仍在主線程讀取緩存。
+              enableWorker: true,
 
               // VOD 場景關閉低延遲模式：LL-HLS 會主動壓縮前向緩沖，與"多緩存"目標相悖
               lowLatencyMode: false,
@@ -2488,6 +2661,67 @@ export function usePlayEngine() {
             },
           },
           {
+            name: '緩存模式',
+            html: '緩存模式',
+            tooltip: `${
+              cacheModeLabels[loadCacheSettings().concurrencyMode]
+            } · ${loadCacheSettings().concurrency} 個`,
+            selector: (['low', 'medium', 'high', 'custom'] as const).map(
+              (mode) => ({
+                html:
+                  mode === 'custom'
+                    ? '自定義'
+                    : `${cacheModeLabels[mode]}（${
+                        { low: 3, medium: 6, high: 9 }[mode]
+                      } 個）`,
+                value: mode,
+                default: mode === loadCacheSettings().concurrencyMode,
+              })
+            ),
+            onSelect: function (item: any) {
+              const settings = saveCacheSettings({
+                concurrencyMode: item.value,
+              });
+              restartCacheQueue();
+              return `${cacheModeLabels[settings.concurrencyMode]} · ${
+                settings.concurrency
+              } 個`;
+            },
+          },
+          {
+            name: '自定義緩存並發',
+            html: '自定義並發',
+            tooltip: `${loadCacheSettings().customConcurrency} 個`,
+            range: [loadCacheSettings().customConcurrency, 1, 32, 1],
+            onChange: function (item: any) {
+              return `${item.range[0]} 個`;
+            },
+            onRange: function (item: any) {
+              const settings = saveCacheSettings({
+                concurrencyMode: 'custom',
+                customConcurrency: Number(item.range[0]),
+              });
+              updateSettingPreservingPanel(artPlayerRef.current, {
+                name: '緩存模式',
+                tooltip: `自定義 · ${settings.concurrency} 個`,
+                selector: (['low', 'medium', 'high', 'custom'] as const).map(
+                  (mode) => ({
+                    html:
+                      mode === 'custom'
+                        ? '自定義'
+                        : `${cacheModeLabels[mode]}（${
+                            { low: 3, medium: 6, high: 9 }[mode]
+                          } 個）`,
+                    value: mode,
+                    default: mode === 'custom',
+                  })
+                ),
+              });
+              restartCacheQueue();
+              return `${settings.concurrency} 個`;
+            },
+          },
+          {
             html: '緩存管理',
             onClick: function () {
               setShowCacheManager(true);
@@ -2508,6 +2742,17 @@ export function usePlayEngine() {
           },
         ],
       });
+
+      bindDeferredProgressSeek(artPlayerRef.current);
+
+      const playerEl =
+        (artPlayerRef.current.template?.$player as HTMLElement | undefined) ||
+        (artRef.current?.querySelector(
+          '.art-video-player'
+        ) as HTMLElement | null);
+      if (playerEl) {
+        setPlayerHost(playerEl);
+      }
 
       // 監聽播放器事件
       artPlayerRef.current.on('ready', () => {
@@ -2571,6 +2816,7 @@ export function usePlayEngine() {
       // 監聽播放狀態變化，控制 Wake Lock
       artPlayerRef.current.on('play', () => {
         requestWakeLock();
+        syncCacheBandwidth(true);
       });
 
       artPlayerRef.current.on('pause', () => {
@@ -2584,7 +2830,7 @@ export function usePlayEngine() {
         //    緩存鋪得越遠；字節上限與 LRU 淘汰才是這條路的兜底。
         //    走 ensurePrefetchCurrent 而不是閉包裡的 videoUrl——播放器跨集復用，
         //    閉包裡的地址可能是上一集的。
-        prefetcherRef.current.setThrottled(false);
+        setCacheBandwidthThrottled(false);
         ensurePrefetchCurrent(
           artPlayerRef.current.currentTime || 0,
           UNLIMITED_HORIZON_SECONDS
@@ -2594,15 +2840,20 @@ export function usePlayEngine() {
       // ---------------------------------------------------------------------
       // 前向預緩存：窗口維護
       // ---------------------------------------------------------------------
-      // seek 後窗口可能不再覆蓋目標位置；ensure 內部會判斷，窗口夠用時零成本返回
+      // 跳轉開始即中止舊請求，保留統計和已寫入緩存；落點確定後重新排隊。
+      artPlayerRef.current.on('video:seeking', () => {
+        prefetcherRef.current.stop(true);
+        setCacheBandwidthThrottled(true);
+      });
       artPlayerRef.current.on('video:seeked', () => {
+        prefetcherRef.current.stop(true);
         ensurePrefetchCurrent(artPlayerRef.current.currentTime || 0);
       });
 
       // 播放卡頓時讓出帶寬，恢復後繼續預取。
       // 注意：這是"臨時讓路"，不是"視頻暫停就停緩存"。
       artPlayerRef.current.on('video:waiting', () => {
-        prefetcherRef.current.setThrottled(true);
+        setCacheBandwidthThrottled(!artPlayerRef.current?.video?.paused);
 
         // —— 弱網自動降檔 ——
         // seek/換源也會觸發 waiting，因此 5 秒內的重復事件只記一次；
@@ -2650,8 +2901,9 @@ export function usePlayEngine() {
         }
       });
       artPlayerRef.current.on('video:playing', () => {
-        prefetcherRef.current.setThrottled(false);
+        syncCacheBandwidth(true);
       });
+      artPlayerRef.current.on('video:progress', () => syncCacheBandwidth());
 
       // 如果播放器初始化時已經在播放狀態，則請求 Wake Lock
       if (artPlayerRef.current && !artPlayerRef.current.paused) {
@@ -2708,6 +2960,7 @@ export function usePlayEngine() {
       // （兩個邏輯合並到同一個監聽器，避免重復注冊 timeupdate）
       artPlayerRef.current.on('video:timeupdate', () => {
         const now = Date.now();
+        syncCacheBandwidth();
 
         // —— 播放進度自動保存 ——
         // 間隔優先讀取站點配置（RUNTIME_CONFIG.PLAYBACK_SAVE_INTERVAL，單位秒），
@@ -2814,6 +3067,174 @@ export function usePlayEngine() {
     detail,
   ]);
 
+  // -----------------------------------------------------------------------------
+  // 進度條懸停預覽
+  // -----------------------------------------------------------------------------
+
+  // 抽幀器實例生命周期：切集 / 換源 / 去廣告開關變化時重建，
+  // 其 loader 配置與主播放器完全一致，保證預覽分片同樣命中 Cache Storage / 同源代理。
+  useEffect(() => {
+    if (!libsReady || !videoUrl) return;
+    const Hls = hlsLibRef.current;
+    if (!Hls) return;
+
+    const thumb = new PreviewThumbnailer();
+    previewThumbnailerRef.current?.destroy();
+    previewThumbnailerRef.current = thumb;
+    thumb.load(
+      getPlaybackUrl(videoUrl, blockAdEnabledRef.current),
+      Hls,
+      createCustomHlsLoader(Hls, {
+        blockAd: blockAdEnabledRef.current,
+        useProxy: loadCacheSettings().useProxy,
+        // 預覽抽幀不計入「緩存命中率」診斷，避免污染主播放器統計
+        onProbe: () => undefined,
+      })
+    );
+    setPreview(null);
+
+    return () => {
+      // Invalidate captures from the old source before their promises settle.
+      previewRequestIdRef.current++;
+      thumb.destroy();
+      if (previewThumbnailerRef.current === thumb) {
+        previewThumbnailerRef.current = null;
+      }
+    };
+  }, [libsReady, videoUrl, blockAdEnabled]);
+
+  // 鼠標懸停及拖動處理器共享預覽；觸摸抽幀串行執行，避免移動時反復取消。
+  // playerHost 變化代表播放器已重建（進度條 DOM 換新），需重新綁定。
+  useEffect(() => {
+    if (!playerHost) return;
+    const progressEl =
+      (artPlayerRef.current?.template?.$progress as HTMLElement | null) ||
+      (playerHost.querySelector('.art-progress') as HTMLElement | null);
+    if (!progressEl) return;
+
+    let dragging = false;
+    let touchTime: number | null = null;
+    let capturingTouch = false;
+    let capturedTouchTime: number | null = null;
+
+    const scheduleTouchCapture = () => {
+      if (
+        touchTime === null ||
+        capturingTouch ||
+        previewTimerRef.current !== null ||
+        touchTime === capturedTouchTime
+      ) {
+        return;
+      }
+      const id = previewRequestIdRef.current;
+      previewTimerRef.current = window.setTimeout(() => {
+        previewTimerRef.current = null;
+        const thumb = previewThumbnailerRef.current;
+        const time = touchTime;
+        if (!thumb || time === null) return;
+        capturingTouch = true;
+        capturedTouchTime = time;
+        thumb.capture(time).then((image) => {
+          if (id !== previewRequestIdRef.current) return;
+          capturingTouch = false;
+          // 保留上一幀直到新幀就緒；移動中的時間標簽仍實時更新。
+          if (image) {
+            setPreview((p) => (p?.visible ? { ...p, image } : p));
+          }
+          scheduleTouchCapture();
+        });
+      }, 120);
+    };
+
+    const showPreview = (ratio: number, input: 'mouse' | 'touch') => {
+      const duration = artPlayerRef.current?.duration || 0;
+      if (!Number.isFinite(duration) || duration <= 0) return;
+      const time = ratio * duration;
+      setPreview((p) => ({
+        visible: true,
+        time,
+        left:
+          input === 'touch' || artLibRef.current?.utils?.isMobile
+            ? 50
+            : ratio * 100,
+        image: p?.visible ? p.image : null,
+      }));
+      if (input === 'touch') {
+        touchTime = time;
+        scheduleTouchCapture();
+        return;
+      }
+      // 先使已在進行中的抽幀失效，避免舊圖串到新位置
+      const id = ++previewRequestIdRef.current;
+      previewThumbnailerRef.current?.cancel();
+
+      if (previewTimerRef.current != null)
+        clearTimeout(previewTimerRef.current);
+      previewTimerRef.current = window.setTimeout(() => {
+        previewTimerRef.current = null;
+        const thumb = previewThumbnailerRef.current;
+        if (!thumb) return;
+        thumb.capture(time).then((image) => {
+          if (id !== previewRequestIdRef.current) return;
+          setPreview((p) =>
+            image && p && p.visible && Math.abs(p.time - time) < 0.5
+              ? { ...p, image }
+              : p
+          );
+        });
+      }, 120);
+    };
+
+    const hidePreview = () => {
+      dragging = false;
+      touchTime = null;
+      capturedTouchTime = null;
+      capturingTouch = false;
+      if (previewTimerRef.current != null) {
+        clearTimeout(previewTimerRef.current);
+        previewTimerRef.current = null;
+      }
+      previewRequestIdRef.current++;
+      previewThumbnailerRef.current?.cancel();
+      setPreview((p) => (p ? { ...p, visible: false } : p));
+    };
+
+    const onDragMove = (event: Event) => {
+      const { ratio, input } = (event as CustomEvent<ProgressPreviewMove>)
+        .detail;
+      if (!dragging && input === 'touch') hidePreview();
+      dragging = true;
+      showPreview(ratio, input);
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      // 觸摸由拖動處理器驅動，不依賴瀏覽器是否產生 pointermove。
+      if (e.pointerType === 'touch' || dragging) return;
+      const rect = progressEl.getBoundingClientRect();
+      const rotated = artPlayerRef.current?.isRotate;
+      const size = rotated ? rect.height : rect.width;
+      if (size <= 0) return;
+      const offset = rotated ? e.clientY - rect.top : e.clientX - rect.left;
+      showPreview(Math.min(1, Math.max(0, offset / size)), 'mouse');
+    };
+    const onPointerLeave = () => {
+      if (!dragging) hidePreview();
+    };
+
+    progressEl.addEventListener(PROGRESS_PREVIEW_MOVE, onDragMove);
+    progressEl.addEventListener(PROGRESS_PREVIEW_END, hidePreview);
+    progressEl.addEventListener('pointermove', onPointerMove);
+    progressEl.addEventListener('pointerleave', onPointerLeave);
+
+    return () => {
+      progressEl.removeEventListener(PROGRESS_PREVIEW_MOVE, onDragMove);
+      progressEl.removeEventListener(PROGRESS_PREVIEW_END, hidePreview);
+      progressEl.removeEventListener('pointermove', onPointerMove);
+      progressEl.removeEventListener('pointerleave', onPointerLeave);
+      hidePreview();
+      setPreview(null);
+    };
+  }, [playerHost]);
+
   // 當組件卸載時清理定時器、Wake Lock 和播放器資源
   useEffect(() => {
     // 監聽頁面可見性變化
@@ -2851,6 +3272,7 @@ export function usePlayEngine() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
 
       // 停止前向預緩存（含下一集預熱隊列）
+      restartPrefetchForSkipRef.current = null;
       prefetcherRef.current.stop();
       getNextEpisodePrefetcher().stop();
 
@@ -2924,6 +3346,8 @@ export function usePlayEngine() {
     skipConfig,
     // 播放器
     artRef,
+    playerHost,
+    preview,
     isVideoLoading,
     videoLoadingStage,
     setLoading,

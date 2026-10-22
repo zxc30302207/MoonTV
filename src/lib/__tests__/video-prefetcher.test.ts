@@ -1,13 +1,17 @@
 import { parseM3U8 } from '../m3u8-downloader';
 import {
+  getCachedSegmentRecords,
   loadCacheSettings,
   metaStore,
   putCachedSegmentResilient,
+  SegmentMeta,
 } from '../video-cache';
 import { VideoPrefetcher } from '../video-prefetcher';
 
 jest.mock('../m3u8-downloader', () => ({ parseM3U8: jest.fn() }));
 jest.mock('../video-cache', () => ({
+  ...jest.requireActual('../video-cache'),
+  getCachedSegmentRecords: jest.fn().mockResolvedValue([]),
   buildSegmentCacheKey: (url: string, proxy: boolean) =>
     proxy ? `/api/m3u8?url=${encodeURIComponent(url)}` : url,
   enforceQuota: jest.fn().mockResolvedValue(0),
@@ -21,6 +25,7 @@ jest.mock('../video-cache', () => ({
 
 const settings = {
   enabled: true,
+  concurrency: 1,
   horizonSeconds: 0,
   useProxy: true,
   maxBytesPerEpisode: 1e6,
@@ -37,12 +42,19 @@ const task = {
   durationSecond: 600,
 };
 const flush = async () => {
-  for (let i = 0; i < 20; i++) await Promise.resolve();
+  for (let i = 0; i < 100; i++) await Promise.resolve();
 };
 
 beforeEach(() => {
   jest.clearAllMocks();
   (loadCacheSettings as jest.Mock).mockReturnValue(settings);
+  const records: SegmentMeta[] = [];
+  (getCachedSegmentRecords as jest.Mock).mockImplementation(async () =>
+    records.slice()
+  );
+  (metaStore.put as jest.Mock).mockImplementation(async (record) => {
+    records.push(record);
+  });
   Object.defineProperty(globalThis, 'caches', {
     configurable: true,
     value: {},
@@ -58,13 +70,14 @@ beforeEach(() => {
   });
 });
 
-it('does not restart unlimited prefetch while the playlist is still parsing', () => {
+it('does not restart unlimited prefetch while the playlist is still parsing', async () => {
   (parseM3U8 as jest.Mock).mockImplementation(
     () => new Promise(() => undefined)
   );
   const prefetcher = new VideoPrefetcher();
   prefetcher.ensure(options);
   prefetcher.ensure({ ...options, currentTime: 1 });
+  await flush();
   expect(parseM3U8).toHaveBeenCalledTimes(1);
   prefetcher.stop();
 });
@@ -90,7 +103,7 @@ it('keeps proxy requests authenticated and aligns the ad-filtered playlist with 
     })
   );
   expect(fetch).toHaveBeenCalledWith(
-    expect.stringContaining('/api/m3u8?'),
+    task.tsUrlList[0],
     expect.objectContaining({ credentials: 'same-origin' })
   );
   expect(prefetcher.getStats()).toMatchObject({ state: 'done', cached: 1 });
@@ -111,6 +124,7 @@ it('does not let an aborted parse clear or overwrite the newer queue', async () 
   const newProgress = jest.fn();
   const prefetcher = new VideoPrefetcher();
   prefetcher.ensure({ ...options, onProgress: oldProgress });
+  await flush();
   prefetcher.ensure({
     ...options,
     episodeKey: 'source:id:1',

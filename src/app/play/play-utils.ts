@@ -9,7 +9,13 @@
 
 import { filterAdsFromM3U8WithStats } from '@/lib/m3u8-ad-filter';
 import {
+  type SegmentByteRange,
+  normalizeByteRange,
+} from '@/lib/video-byte-range';
+import {
   buildSegmentCacheKey,
+  DEFAULT_CACHE_SETTINGS,
+  loadCacheSettings,
   readCachedSegment,
   recordSegmentProbe,
   touchMeta,
@@ -49,10 +55,69 @@ export function formatTime(seconds: number): string {
 }
 
 /**
- * 去廣告：過濾 M3U8 內容中的 #EXT-X-DISCONTINUITY 標記。
+ * 去廣告：僅移除已確認的廣告，保留普通轉場及加密狀態。
  */
 export function filterAdsFromM3U8(m3u8Content: string): string {
   return filterAdsFromM3U8WithStats(m3u8Content).content;
+}
+
+/**
+ * 彈幕密度限制參數。
+ *
+ * 用時間補償的方式平滑削峰，避免硬窗口把某個時間段直接掏空。
+ */
+const DANMAKU_REFILL_RATE = 14 / 5;
+const DANMAKU_BUCKET_CAPACITY = 28;
+const DANMAKU_MAX_TOTAL = 8000;
+
+function createDanmakuFilter() {
+  let credits = DANMAKU_BUCKET_CAPACITY;
+  let lastTime = -Infinity;
+  let acceptedCount = 0;
+
+  return (danmu: any) => {
+    if (!danmu || typeof danmu !== 'object') return false;
+
+    if (typeof danmu.text === 'string' && danmu.text.length > 100) {
+      return false;
+    }
+
+    const rawTime =
+      typeof danmu.time === 'number'
+        ? danmu.time
+        : typeof danmu.time === 'string'
+        ? Number(danmu.time)
+        : NaN;
+
+    if (!Number.isFinite(rawTime)) {
+      return true;
+    }
+
+    if (rawTime + 0.5 < lastTime) {
+      credits = DANMAKU_BUCKET_CAPACITY;
+      acceptedCount = 0;
+      lastTime = rawTime;
+    } else {
+      const elapsed = Math.max(0, rawTime - lastTime);
+      credits = Math.min(
+        DANMAKU_BUCKET_CAPACITY,
+        credits + elapsed * DANMAKU_REFILL_RATE
+      );
+      lastTime = rawTime;
+    }
+
+    if (acceptedCount >= DANMAKU_MAX_TOTAL) {
+      return false;
+    }
+
+    if (credits < 1) {
+      return false;
+    }
+
+    credits -= 1;
+    acceptedCount += 1;
+    return true;
+  };
 }
 
 /**
@@ -154,7 +219,7 @@ export function createDanmakuDefaultConfig(): any {
     heatmap: false,
     width: 512,
     points: [],
-    filter: (danmu: any) => danmu.text.length <= 100,
+    filter: createDanmakuFilter(),
     beforeVisible: () => true,
     visible: true,
     emitter: false,
@@ -379,7 +444,7 @@ function isFilteredProxyUrl(url: string): boolean {
 
 export interface HlsLoaderOptions {
   onAdFilter?: (report: AdFilterReport) => void;
-  /** 是否過濾 m3u8 中的 #EXT-X-DISCONTINUITY（去廣告） */
+  /** 僅移除經可靠標記或已核實素材確認的廣告，保留一般轉場。 */
   blockAd?: boolean;
   /** 片段緩存鍵是否走同源代理，必須與 VideoPrefetcher 保持一致 */
   useProxy?: boolean;
@@ -418,7 +483,7 @@ function buildCachedStats(
 /**
  * 創建「去廣告 + 緩存優先」的 HLS Loader。
  *
- * - manifest / level：按需過濾 #EXT-X-DISCONTINUITY
+ * - manifest / level：按需套用保守廣告過濾，保留加密與片段狀態
  * - fragment：先查 Cache Storage（由 VideoPrefetcher 預取填充），命中直接返回，
  *   未命中再走原 loader 回源。因此緩存未命中時行為與默認 loader 完全一致。
  */
@@ -428,8 +493,31 @@ export function createCustomHlsLoader(
 ): any {
   const BaseLoader = Hls.DefaultConfig.loader;
   const useAdFilter = options.blockAd !== false;
-  const useProxy = options.useProxy !== false;
   const onProbe = options.onProbe ?? recordSegmentProbe;
+
+  /**
+   * 構建候選緩存鍵列表（按可能性先後排序）。
+   *  - 不再信任創建時快照的 useProxy：設置面板裡切開關後，loader 和預取器
+   *    用的 format 可能不統一，因此兩種 format 都生成，逐個試。
+   *  - 再疊加 readCachedSegment 內部的「相對路徑/絕對 URL」雙重兜底，
+   *    基本能覆蓋所有 key 不一致的情況。
+   */
+  function candidateCacheKeys(
+    contextUrl: string,
+    range?: SegmentByteRange
+  ): string[] {
+    const liveSettings =
+      typeof window !== 'undefined'
+        ? loadCacheSettings()
+        : DEFAULT_CACHE_SETTINGS;
+    const preferredUseProxy =
+      options.useProxy !== undefined ? options.useProxy : liveSettings.useProxy;
+    const urls = new Set<string>();
+    // 優先按當前偏好的 useProxy 生成，其次反過來兜底
+    urls.add(buildSegmentCacheKey(contextUrl, preferredUseProxy, range));
+    urls.add(buildSegmentCacheKey(contextUrl, !preferredUseProxy, range));
+    return Array.from(urls);
+  }
 
   return class MoontvHlsLoader extends BaseLoader {
     constructor(config: any) {
@@ -465,8 +553,30 @@ export function createCustomHlsLoader(
       this.load = function (context: any, cfg: any, callbacks: any) {
         const loadGeneration = ++generation;
         self.context = context;
+        // hls.js 不同版本 loader 調用約定不一致，type/url 可能在 context 或 cfg 上：
+        //   - type: manifest / level / fragment
+        //   - url / uri: 實際請求地址
+        // 這裡做一次健壯的字段探測。
+        const rawType =
+          (context && typeof context.type === 'string'
+            ? context.type
+            : undefined) ??
+          (cfg && typeof cfg.type === 'string' ? cfg.type : undefined);
+        const rawUrl =
+          (context &&
+          (typeof context.url === 'string' || typeof context.uri === 'string')
+            ? context.url || context.uri
+            : undefined) ??
+          (cfg && (typeof cfg.url === 'string' || typeof cfg.uri === 'string')
+            ? cfg.url || cfg.uri
+            : undefined);
+        const rangeStart = context?.rangeStart ?? cfg?.rangeStart;
+        const rangeEnd = context?.rangeEnd ?? cfg?.rangeEnd;
+        const type: string | undefined = rawType as any;
+        const url = typeof rawUrl === 'string' ? rawUrl : '';
+
         // ① 文本播放列表：去廣告
-        if (context.type === 'manifest' || context.type === 'level') {
+        if (type === 'manifest' || type === 'level') {
           if (useAdFilter) {
             const onSuccess = callbacks.onSuccess;
             callbacks.onSuccess = function (
@@ -498,53 +608,61 @@ export function createCustomHlsLoader(
         }
 
         // ② 片段：緩存優先
-        //    - 字節范圍分片（rangeStart 非空）多個片段共用 URL，不能作緩存鍵
-        //    - 環境不支持 Cache Storage 時直接回源
-        if (
-          !(
-            context.type === 'fragment' ||
-            (context.frag && context.responseType === 'arraybuffer')
-          ) ||
-          Number(context.rangeEnd) > 0 ||
-          Number(context.rangeStart) > 0 ||
-          typeof caches === 'undefined'
-        ) {
+        //    - 有效的 [rangeStart, rangeEnd) 使用獨立緩存鍵，包含從 0 開始的區間。
+        //      rangeEnd=0 / undefined 是 hls.js 的整文件哨兵，不應誤判。
+        //    - 沒有明確 type 時：用 URL 後綴/關鍵詞啟發式判斷是不是視頻/音頻分片。
+        const looksLikeFragment =
+          /\.(ts|m4s|m4v|mp4|webm|aac|mp3)(\?|$)/i.test(url) ||
+          /segment|fragment|clip|part|chunk|frag|plist/i.test(url);
+        const treatAsFragment =
+          type === 'fragment' ||
+          (context?.frag && context.responseType === 'arraybuffer') ||
+          (!type && looksLikeFragment);
+        const range = normalizeByteRange(rangeStart, rangeEnd);
+        const invalidRange = !range && (rangeStart > 0 || rangeEnd > 0);
+
+        if (!treatAsFragment || invalidRange || typeof caches === 'undefined') {
           baseLoad(context, cfg, callbacks);
           return;
         }
 
-        const cacheKey = buildSegmentCacheKey(context.url, useProxy);
+        // 候選緩存鍵按 (useProxy=true/false) × (相對路徑/絕對URL) 生成，
+        // 任何一個命中就算命中，解決設置切換 / 瀏覽器自動補全 origin 導致的不匹配。
+        const keys = candidateCacheKeys(url, range);
 
-        readCachedSegment(cacheKey)
-          .then((cached) => {
+        (async () => {
+          for (const cacheKey of keys) {
+            const res = await readCachedSegment(cacheKey);
             if (loadGeneration !== generation) return;
+            if (!res) continue;
 
-            onProbe(cached !== null);
+            const { fragment, matchedKey } = res;
 
-            if (!cached) {
-              baseLoad(context, cfg, callbacks);
-              return;
-            }
+            onProbe(true);
+            void touchMeta(matchedKey);
 
-            void touchMeta(cacheKey);
-
-            // 就地更新基礎類的 stats，讓 hls.js 內部的帶寬估算與本次命中保持一致
+            // 就地更新基礎類的 stats，避免 hls.js 帶寬估算失真
             const stats = buildCachedStats(
-              cached.costMs,
-              cached.data.byteLength
+              fragment.costMs,
+              fragment.data.byteLength
             );
             Object.assign(self.stats, stats);
 
             callbacks.onSuccess(
-              { url: context.url, data: cached.data },
+              { url: context.url, data: fragment.data },
               self.stats,
               context
             );
-          })
-          .catch(() => {
-            if (loadGeneration === generation)
-              baseLoad(context, cfg, callbacks);
-          });
+            return;
+          }
+
+          // 所有候選鍵都沒命中 → 走網絡
+          if (loadGeneration !== generation) return;
+          onProbe(false);
+          baseLoad(context, cfg, callbacks);
+        })().catch(() => {
+          if (loadGeneration === generation) baseLoad(context, cfg, callbacks);
+        });
       };
     }
   };

@@ -12,6 +12,7 @@ import {
   getSearchHistory,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
+import { matchesSearchTitle } from '@/lib/search-title';
 import { SearchResult } from '@/lib/types';
 import { getRequestTimeout } from '@/lib/utils';
 
@@ -21,7 +22,6 @@ import PageLayout from '@/components/PageLayout';
 import SearchSuggestions from '@/components/SearchSuggestions';
 import SourceSelector from '@/components/SourceSelector';
 import VideoCard from '@/components/VideoCard';
-
 
 function SearchPageClient() {
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
@@ -33,8 +33,12 @@ function SearchPageClient() {
   const [showResults, setShowResults] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [failedSources, setFailedSources] = useState<{ name: string; key: string; error: string }[]>([]);
-  const [selectedHistoryItem, setSelectedHistoryItem] = useState<string | null>(null);
+  const [failedSources, setFailedSources] = useState<
+    { name: string; key: string; error: string }[]
+  >([]);
+  const [selectedHistoryItem, setSelectedHistoryItem] = useState<string | null>(
+    null
+  );
   const historyRef = useRef<HTMLDivElement>(null);
   const [hasResetOnEmptyParams, setHasResetOnEmptyParams] = useState(true);
 
@@ -84,15 +88,18 @@ function SearchPageClient() {
   // 新增狀態：記錄當前展開的篩選框
   const [openFilter, setOpenFilter] = useState<string | null>(null);
   // 排序狀態：字段與順序（默認：按源數量，倒序）
-  const [sortField, setSortField] = useState<'sources' | 'year' | 'episodes'>(() => {
-    const sf = searchParams.get('sort');
-    return sf === 'sources' || sf === 'episodes' || sf === 'year' ? sf : 'sources';
-  });
+  const [sortField, setSortField] = useState<'sources' | 'year' | 'episodes'>(
+    () => {
+      const sf = searchParams.get('sort');
+      return sf === 'sources' || sf === 'episodes' || sf === 'year'
+        ? sf
+        : 'sources';
+    }
+  );
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(() => {
     const so = searchParams.get('order');
     return so === 'asc' ? 'asc' : 'desc';
   });
-
 
   const [viewMode, setViewMode] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -116,14 +123,16 @@ function SearchPageClient() {
     searchResults.forEach((item) => {
       // 使用標準化的標題（移除多餘空格但保留單詞間的單個空格）作為聚合鍵的一部分
       const normalizedTitle = item.title.trim().replace(/\s+/g, ' ');
-      const key = `${normalizedTitle}-${item.year || 'unknown'}-${item.episodes.length === 1 ? 'movie' : 'tv'}`;
+      const key = `${normalizedTitle}-${item.year || 'unknown'}-${
+        item.episodes.length === 1 ? 'movie' : 'tv'
+      }`;
       const arr = map.get(key) || [];
       arr.push(item);
       map.set(key, arr);
     });
     return Array.from(map.entries()).sort((a, b) => {
-      const aExactMatch = a[1][0].title.toLowerCase().includes(searchQuery.trim().toLowerCase());
-      const bExactMatch = b[1][0].title.toLowerCase().includes(searchQuery.trim().toLowerCase());
+      const aExactMatch = matchesSearchTitle(a[1][0].title, searchQuery);
+      const bExactMatch = matchesSearchTitle(b[1][0].title, searchQuery);
       if (aExactMatch && !bExactMatch) return -1;
       if (!aExactMatch && bExactMatch) return 1;
 
@@ -134,28 +143,32 @@ function SearchPageClient() {
       if (bYear === 'unknown') return 1;
       return aYear > bYear ? -1 : 1;
     });
-  }, [searchResults]);
+  }, [searchResults, searchQuery]);
 
   // 用於篩選後的聚合結果，保證類型安全
   const filteredAggregatedResults: [string, SearchResult[]][] = useMemo(() => {
     return aggregatedResults
       .filter(([_key, group]) => {
         // 來源篩選：如果沒有選擇任何來源（filterSources.length === 0），默認顯示全部；如果選擇了來源，只保留包含至少一個選中來源的影片組
-        const sourceMatch = filterSources.length === 0 ||
-          group.some(item => filterSources.includes(item.source_name));
+        const sourceMatch =
+          filterSources.length === 0 ||
+          group.some((item) => filterSources.includes(item.source_name));
         // 標題篩選：如果選擇了標題，只保留標題匹配的影片組
-        const titleMatch = selectedTitles.length === 0 ||
+        const titleMatch =
+          selectedTitles.length === 0 ||
           selectedTitles.includes(group[0].title);
         // 年份篩選：如果選擇了年份，只保留年份匹配的影片組
-        const yearMatch = selectedYears.length === 0 ||
-          selectedYears.includes(group[0].year);
+        const yearMatch =
+          selectedYears.length === 0 || selectedYears.includes(group[0].year);
         return sourceMatch && titleMatch && yearMatch;
       })
       .map(([_key, group]) => {
         // 在組內也進行篩選，確保組內每個項目都符合篩選條件
         const filteredGroup = group.filter((item) => {
-          const titleMatch = selectedTitles.length === 0 || selectedTitles.includes(item.title);
-          const yearMatch = selectedYears.length === 0 || selectedYears.includes(item.year);
+          const titleMatch =
+            selectedTitles.length === 0 || selectedTitles.includes(item.title);
+          const yearMatch =
+            selectedYears.length === 0 || selectedYears.includes(item.year);
           return titleMatch && yearMatch;
         });
         return [_key, filteredGroup] as [string, SearchResult[]];
@@ -163,70 +176,102 @@ function SearchPageClient() {
       .filter(([_, group]) => group.length > 0);
   }, [aggregatedResults, filterSources, selectedTitles, selectedYears]);
 
-// 返回兩個數組：exact 和 others
-const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [string, SearchResult[]][] } = useMemo(() => {
-  const aggregateMode = viewMode;
-  const groups: [string, SearchResult[]][] = aggregateMode
-    ? filteredAggregatedResults
-    : searchResults.map(item => [
-        `${item.title}-${item.year}-${item.source_name}`,
-        [item],
-      ]);
+  // 返回兩個數組：exact 和 others
+  const sortedAggregatedResults: {
+    exact: [string, SearchResult[]][];
+    others: [string, SearchResult[]][];
+  } = useMemo(() => {
+    const aggregateMode = viewMode;
+    const groups: [string, SearchResult[]][] = aggregateMode
+      ? filteredAggregatedResults
+      : searchResults
+          .filter(
+            (item) =>
+              (filterSources.length === 0 ||
+                filterSources.includes(item.source_name)) &&
+              (selectedTitles.length === 0 ||
+                selectedTitles.includes(item.title)) &&
+              (selectedYears.length === 0 || selectedYears.includes(item.year))
+          )
+          .map((item) => [
+            `${item.title}-${item.year}-${item.source_name}`,
+            [item],
+          ]);
 
-  const query = (searchParams.get('q') ?? '').trim().toLowerCase();
-  const isExact = (group: SearchResult[]) => group[0].title.toLowerCase().includes(query);
+    const query = (searchParams.get('q') ?? '').trim().toLowerCase();
+    const isExact = (group: SearchResult[]) =>
+      matchesSearchTitle(group[0].title, query);
 
-  const getYearValue = (group: SearchResult[]) => {
-    const y = group[0].year;
-    if (!y || y === 'unknown') return null;
-    const n = Number(y);
-    return Number.isNaN(n) ? null : n;
-  };
+    const getYearValue = (group: SearchResult[]) => {
+      const y = group[0].year;
+      if (!y || y === 'unknown') return null;
+      const n = Number(y);
+      return Number.isNaN(n) ? null : n;
+    };
 
-  const getSourcesCount = (group: SearchResult[]) => group.length;
-  const getEpisodesCount = (group: SearchResult[]) => {
-    let maxEpisodes = 0;
-    for (const item of group) {
-      const count = Array.isArray(item.episodes) ? item.episodes.length : 0;
-      if (count > maxEpisodes) maxEpisodes = count;
+    const getSourcesCount = (group: SearchResult[]) => group.length;
+    const getEpisodesCount = (group: SearchResult[]) => {
+      let maxEpisodes = 0;
+      for (const item of group) {
+        const count = Array.isArray(item.episodes) ? item.episodes.length : 0;
+        if (count > maxEpisodes) maxEpisodes = count;
+      }
+      return maxEpisodes;
+    };
+
+    const valueOf = (group: SearchResult[]) => {
+      switch (sortField) {
+        case 'sources':
+          return getSourcesCount(group);
+        case 'episodes':
+          return getEpisodesCount(group);
+        case 'year':
+        default:
+          return getYearValue(group);
+      }
+    };
+
+    const compare = (
+      a: [string, SearchResult[]],
+      b: [string, SearchResult[]]
+    ) => {
+      const aVal = valueOf(a[1]);
+      const bVal = valueOf(b[1]);
+      const aIsNull = aVal === null || aVal === undefined;
+      const bIsNull = bVal === null || bVal === undefined;
+      if (aIsNull && !bIsNull) return 1;
+      if (!aIsNull && bIsNull) return -1;
+      if (aIsNull && bIsNull) return 0;
+
+      if ((aVal as number) < (bVal as number))
+        return sortOrder === 'asc' ? -1 : 1;
+      if ((aVal as number) > (bVal as number))
+        return sortOrder === 'asc' ? 1 : -1;
+
+      return a[1][0].title.localeCompare(b[1][0].title);
+    };
+
+    const exact: [string, SearchResult[]][] = [];
+    const others: [string, SearchResult[]][] = [];
+    for (const item of groups) {
+      (isExact(item[1]) ? exact : others).push(item);
     }
-    return maxEpisodes;
-  };
+    exact.sort(compare);
+    others.sort(compare);
 
-  const valueOf = (group: SearchResult[]) => {
-    switch (sortField) {
-      case 'sources': return getSourcesCount(group);
-      case 'episodes': return getEpisodesCount(group);
-      case 'year':
-      default: return getYearValue(group);
-    }
-  };
-
-  const compare = (a: [string, SearchResult[]], b: [string, SearchResult[]]) => {
-    const aVal = valueOf(a[1]);
-    const bVal = valueOf(b[1]);
-    const aIsNull = aVal === null || aVal === undefined;
-    const bIsNull = bVal === null || bVal === undefined;
-    if (aIsNull && !bIsNull) return 1;
-    if (!aIsNull && bIsNull) return -1;
-    if (aIsNull && bIsNull) return 0;
-
-    if ((aVal as number) < (bVal as number)) return sortOrder === 'asc' ? -1 : 1;
-    if ((aVal as number) > (bVal as number)) return sortOrder === 'asc' ? 1 : -1;
-
-    return a[1][0].title.localeCompare(b[1][0].title);
-  };
-
-  const exact: [string, SearchResult[]][] = [];
-  const others: [string, SearchResult[]][] = [];
-  for (const item of groups) {
-    (isExact(item[1]) ? exact : others).push(item);
-  }
-  exact.sort(compare);
-  others.sort(compare);
-
-  return { exact, others };
-}, [filteredAggregatedResults, searchResults, sortField, sortOrder, searchQuery, viewMode]);
+    return { exact, others };
+  }, [
+    filteredAggregatedResults,
+    searchResults,
+    sortField,
+    sortOrder,
+    searchQuery,
+    viewMode,
+    filterSources,
+    selectedTitles,
+    selectedYears,
+    searchParams,
+  ]);
 
   // 分頁顯示的結果
   const displayedExactResults = useMemo(() => {
@@ -237,10 +282,10 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
     return sortedAggregatedResults.others.slice(0, displayedOthersCount);
   }, [sortedAggregatedResults.others, displayedOthersCount]);
 
-  const hasMoreExact = sortedAggregatedResults.exact.length > displayedExactCount;
-  const hasMoreOthers = sortedAggregatedResults.others.length > displayedOthersCount;
-
-
+  const hasMoreExact =
+    sortedAggregatedResults.exact.length > displayedExactCount;
+  const hasMoreOthers =
+    sortedAggregatedResults.others.length > displayedOthersCount;
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -270,9 +315,13 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
       const response = await fetch(`/api/search?${params.toString()}`, {
         signal: controller.signal,
       });
+      if (!response.ok)
+        throw new Error(`Search request failed: ${response.status}`);
+      if (controller.signal.aborted) return;
 
       if (!streamEnabled) {
         const json = await response.json();
+        if (controller.signal.aborted) return;
         setSearchResults(json.results || []);
         setFailedSources(json.failedSources || []);
         setIsLoading(false);
@@ -286,6 +335,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
 
         while (!done) {
           const { value, done: readerDone } = await reader.read();
+          if (controller.signal.aborted) return;
           done = readerDone;
 
           if (value) {
@@ -315,7 +365,8 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
         if (buffer.trim()) {
           try {
             const json = JSON.parse(buffer);
-            if (json.pageResults) setSearchResults((prev) => [...prev, ...json.pageResults]);
+            if (json.pageResults)
+              setSearchResults((prev) => [...prev, ...json.pageResults]);
             if (json.failedSources) setFailedSources(json.failedSources);
           } catch {
             //
@@ -325,15 +376,25 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
         setIsLoading(false);
       }
     } catch (err: any) {
-      if (err.name === 'AbortError') return;
+      if (controller.signal.aborted || err.name === 'AbortError') return;
       setSearchResults([]);
+    } finally {
+      if (
+        abortControllerRef.current === controller &&
+        !controller.signal.aborted
+      ) {
+        setIsLoading(false);
+      }
     }
   };
 
   // 初始化：搜索歷史、滾動監聽
   useEffect(() => {
     getSearchHistory().then(setSearchHistory);
-    const unsubscribe = subscribeToDataUpdates('searchHistoryUpdated', setSearchHistory);
+    const unsubscribe = subscribeToDataUpdates(
+      'searchHistoryUpdated',
+      setSearchHistory
+    );
     const handleScroll = () => {
       setShowBackToTop((document.body.scrollTop || 0) > 300);
     };
@@ -363,7 +424,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
       },
       {
         threshold: 0.1,
-        rootMargin: '200px' // 提前200px開始加載，提供更流暢的體驗
+        rootMargin: '200px', // 提前200px開始加載，提供更流暢的體驗
       }
     );
 
@@ -379,7 +440,12 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
 
   // 設置滾動監聽，實現分頁加載 - 其他結果
   useEffect(() => {
-    if (!loadingMoreOthersRef.current || isLoading || !hasMoreOthers || hasMoreExact) {
+    if (
+      !loadingMoreOthersRef.current ||
+      isLoading ||
+      !hasMoreOthers ||
+      hasMoreExact
+    ) {
       // 如果還有精確匹配結果未加載完，不監聽其他結果
       return;
     }
@@ -397,7 +463,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
       },
       {
         threshold: 0.1,
-        rootMargin: '200px' // 提前200px開始加載，提供更流暢的體驗
+        rootMargin: '200px', // 提前200px開始加載，提供更流暢的體驗
       }
     );
 
@@ -413,7 +479,10 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
 
   // 提取當前的查詢參數 q 和 sources
   const currentQuery = useMemo(() => searchParams.get('q'), [searchParams]);
-  const currentSources = useMemo(() => searchParams.get('sources'), [searchParams]);
+  const currentSources = useMemo(
+    () => searchParams.get('sources'),
+    [searchParams]
+  );
 
   // 監聽查詢變化時重置分頁
   useEffect(() => {
@@ -443,6 +512,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
       // 沒有搜索參數時，聚焦輸入框
       document.getElementById('searchInput')?.focus();
     }
+    return () => abortControllerRef.current?.abort();
   }, [currentQuery]); // 只依賴查詢參數 q，僅在 q 變化時觸發
 
   // 監聽URL參數變化，當URL變為無參數時重新掛載組件（只執行一次）
@@ -462,7 +532,10 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
   // 點擊空白處取消高亮
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
+      if (
+        historyRef.current &&
+        !historyRef.current.contains(e.target as Node)
+      ) {
         setSelectedHistoryItem(null);
       }
     };
@@ -514,7 +587,14 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
     if (searchParams.get('q')) {
       window.history.replaceState({}, '', `/search?${params.toString()}`);
     }
-  }, [filterSources, selectedTitles, selectedYears, sortField, sortOrder, searchParams]); // 移除 selectedSources 依賴，避免選擇搜索源時觸發重新搜索
+  }, [
+    filterSources,
+    selectedTitles,
+    selectedYears,
+    sortField,
+    sortOrder,
+    searchParams,
+  ]); // 移除 selectedSources 依賴，避免選擇搜索源時觸發重新搜索
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -567,9 +647,15 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
   };
 
   // 生成篩選選項
-  const sourceOptions = Array.from(new Set(searchResults.map((r) => r.source_name))).sort();
-  const titleOptions = Array.from(new Set(searchResults.map((r) => r.title))).sort();
-  const yearOptions = Array.from(new Set(searchResults.map((r) => r.year))).sort();
+  const sourceOptions = Array.from(
+    new Set(searchResults.map((r) => r.source_name))
+  ).sort();
+  const titleOptions = Array.from(
+    new Set(searchResults.map((r) => r.title))
+  ).sort();
+  const yearOptions = Array.from(
+    new Set(searchResults.map((r) => r.year))
+  ).sort();
 
   // 處理排序字段變化的包裝函數
   const handleSortFieldChange = (field: string) => {
@@ -577,13 +663,13 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
   };
 
   return (
-    <PageLayout activePath="/search">
-      <div className="px-4 sm:px-10 py-4 sm:py-8 overflow-visible mb-10">
+    <PageLayout activePath='/search'>
+      <div className='px-4 sm:px-10 py-4 sm:py-8 overflow-visible mb-10'>
         {/* 移動端搜索框和搜索源選擇器 */}
-        <div className="mb-7 max-w-2xl mx-auto md:hidden">
-          <div className="flex items-center">
+        <div className='mb-7 max-w-2xl mx-auto md:hidden'>
+          <div className='flex items-center'>
             {/* 搜索源選擇器 - 在搜索框左側，作為一個整體 */}
-            <div className="flex-shrink-0">
+            <div className='flex-shrink-0'>
               <SourceSelector
                 selectedSources={searchSources}
                 onChange={setSearchSources}
@@ -593,279 +679,324 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
             </div>
 
             {/* 搜索框 */}
-            <form onSubmit={handleSearch} className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
+            <form onSubmit={handleSearch} className='flex-1 relative'>
+              <Search className='absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400 dark:text-gray-500' />
               <input
-                id="searchInput"
-                type="text"
+                id='searchInput'
+                type='text'
                 value={searchQuery}
                 onChange={handleInputChange}
                 onFocus={handleInputFocus}
-                placeholder="搜索電影、電視劇..."
-                className="w-full h-12 rounded-r-lg rounded-l-none bg-gray-50/80 py-3 pl-10 pr-4 text-base text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-400 focus:bg-white border border-gray-200/50 border-l-0 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:placeholder-gray-500 dark:focus:bg-gray-700 dark:border-gray-700 dark:border-l-0"
+                placeholder='搜索電影、電視劇...'
+                className='w-full h-12 rounded-r-lg rounded-l-none bg-gray-50/80 py-3 pl-10 pr-4 text-base text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-400 focus:bg-white border border-gray-200/50 border-l-0 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:placeholder-gray-500 dark:focus:bg-gray-700 dark:border-gray-700 dark:border-l-0'
               />
 
-              <SearchSuggestions query={searchQuery} isVisible={showSuggestions} onSelect={handleSuggestionSelect} onClose={() => setShowSuggestions(false)} />
+              <SearchSuggestions
+                query={searchQuery}
+                isVisible={showSuggestions}
+                onSelect={handleSuggestionSelect}
+                onClose={() => setShowSuggestions(false)}
+              />
             </form>
           </div>
         </div>
 
-
-
-
         {/* 搜索結果 */}
-        <div className="max-w-[95%] mx-auto overflow-visible">
+        <div className='max-w-[95%] mx-auto overflow-visible'>
           {isLoading ? (
-            <div className="flex justify-center items-center h-40">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500"></div>
+            <div className='flex justify-center items-center h-40'>
+              <div className='animate-spin rounded-full h-8 w-8 border-b-2 border-green-500'></div>
             </div>
           ) : showResults ? (
-            <section className="mb-12">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200">搜索結果</h2>
-                <FailedSourcesDisplay failedSources={failedSources} />
-              </div>
-              <div className="flex items-center gap-4">
-                {/* 流式/聚合切換 */}
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <span className="text-sm text-gray-700 dark:text-gray-300">流式</span>
-                  <div className="relative">
-                    <input
-                      type="checkbox"
-                      className="sr-only peer"
-                      checked={streamEnabled}
-                      onChange={() => setStreamEnabled(!streamEnabled)}
-                    />
-                    <div className="w-9 h-5 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600"></div>
-                    <div className="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4"></div>
-                  </div>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <span className="text-sm text-gray-700 dark:text-gray-300">聚合</span>
-                  <div className="relative">
-                    <input
-                      type="checkbox"
-                      className="sr-only peer"
-                      checked={viewMode} // true 表示聚合
-                      onChange={() => setViewMode(!viewMode)}
-                    />
-                    <div className="w-9 h-5 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600"></div>
-                    <div className="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4"></div>
-                  </div>
-                </label>
-              </div>
-            </div>
-
-            {/* 篩選組件彈窗 */}
-            {showResults && searchResults.length > 0 && (
-              <div className="flex gap-3 flex-wrap mb-7 max-w-[100%] mx-auto">
-                <FilterOptions
-                  openFilter={openFilter}
-                  setOpenFilter={setOpenFilter}
-                  sourceOptions={sourceOptions}
-                  filterSources={filterSources}
-                  setFilterSources={setFilterSources}
-                  titleOptions={titleOptions}
-                  selectedTitles={selectedTitles}
-                  setSelectedTitles={setSelectedTitles}
-                  yearOptions={yearOptions}
-                  selectedYears={selectedYears}
-                  setSelectedYears={setSelectedYears}
-                  sortField={sortField}
-                  onSortFieldChange={handleSortFieldChange}
-                  sortOrder={sortOrder}
-                  onSortOrderChange={setSortOrder}
-                  sortOptions={[
-                    { value: "sources", label: "按源數量" },
-                    { value: "year", label: "按年份" },
-                    { value: "episodes", label: "按集數" },
-                  ]}
-                />
-              </div>
-            )}
-
-            {/* 精確匹配結果 */}
-            <div
-              key={`search-results-${viewMode}`}
-              className="justify-start grid grid-cols-3 gap-x-2 gap-y-14 sm:gap-y-20 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,_minmax(11rem,_1fr))] sm:gap-x-8"
-            >
-              {displayedExactResults.map(([mapKey, group], index) => {
-                if (viewMode) {
-                  return (
-                    <div key={`agg-${mapKey}-${index}`} className="w-full">
-                      <VideoCard
-                        from="search"
-                        items={group}
-                        query={searchQuery.trim() !== group[0].title ? searchQuery.trim() : ''}
+            <section className='mb-12'>
+              <div className='mb-3 flex items-center justify-between'>
+                <div className='flex items-center gap-4'>
+                  <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
+                    搜索結果
+                  </h2>
+                  <FailedSourcesDisplay failedSources={failedSources} />
+                </div>
+                <div className='flex items-center gap-4'>
+                  {/* 流式/聚合切換 */}
+                  <label className='flex items-center gap-2 cursor-pointer select-none'>
+                    <span className='text-sm text-gray-700 dark:text-gray-300'>
+                      流式
+                    </span>
+                    <div className='relative'>
+                      <input
+                        type='checkbox'
+                        className='sr-only peer'
+                        checked={streamEnabled}
+                        onChange={() => setStreamEnabled(!streamEnabled)}
                       />
+                      <div className='w-9 h-5 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
+                      <div className='absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4'></div>
                     </div>
-                  );
-                } else {
-                  const item = group[0];
-                  return (
-                    <div key={`all-${mapKey}-${index}`} className="w-full">
-                      <VideoCard
-                        id={item.id}
-                        title={item.title || ''}
-                        poster={item.poster}
-                        episodes={item.episodes ? item.episodes.length : 0} // 轉為 number
-                        source={item.source}
-                        source_name={item.source_name}
-                        douban_id={item.douban_id}
-                        query={searchQuery.trim() !== item.title ? searchQuery.trim() : ''}
-                        year={item.year}
-                        from="search"
-                        type={item.episodes && item.episodes.length > 1 ? 'tv' : 'movie'}
+                  </label>
+                  <label className='flex items-center gap-2 cursor-pointer select-none'>
+                    <span className='text-sm text-gray-700 dark:text-gray-300'>
+                      聚合
+                    </span>
+                    <div className='relative'>
+                      <input
+                        type='checkbox'
+                        className='sr-only peer'
+                        checked={viewMode} // true 表示聚合
+                        onChange={() => setViewMode(!viewMode)}
                       />
+                      <div className='w-9 h-5 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
+                      <div className='absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4'></div>
                     </div>
-                  );
-                }
-              })}
+                  </label>
+                </div>
+              </div>
 
-              {sortedAggregatedResults.exact.length === 0 && sortedAggregatedResults.others.length === 0 && (
-                <div className="col-span-full text-center text-gray-500 py-8 dark:text-gray-400">
-                  未找到相關結果
+              {/* 篩選組件彈窗 */}
+              {showResults && searchResults.length > 0 && (
+                <div className='flex gap-3 flex-wrap mb-7 max-w-[100%] mx-auto'>
+                  <FilterOptions
+                    openFilter={openFilter}
+                    setOpenFilter={setOpenFilter}
+                    sourceOptions={sourceOptions}
+                    filterSources={filterSources}
+                    setFilterSources={setFilterSources}
+                    titleOptions={titleOptions}
+                    selectedTitles={selectedTitles}
+                    setSelectedTitles={setSelectedTitles}
+                    yearOptions={yearOptions}
+                    selectedYears={selectedYears}
+                    setSelectedYears={setSelectedYears}
+                    sortField={sortField}
+                    onSortFieldChange={handleSortFieldChange}
+                    sortOrder={sortOrder}
+                    onSortOrderChange={setSortOrder}
+                    sortOptions={[
+                      { value: 'sources', label: '按源數量' },
+                      { value: 'year', label: '按年份' },
+                      { value: 'episodes', label: '按集數' },
+                    ]}
+                  />
                 </div>
               )}
 
-              {/* 加載更多指示器 - 精確匹配結果 */}
-              {hasMoreExact && (
-                <div
-                  ref={loadingMoreExactRef}
-                  className="col-span-full flex justify-center py-8"
-                >
-                  <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
-                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-green-500"></div>
-                    <span className="text-sm">加載中...</span>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* 更多結果 */}
-            {sortedAggregatedResults.others.length > 0 && (
-              <div className="mt-8">
-                <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-7">更多結果</h2>
-                <div className="justify-start grid grid-cols-3 gap-x-2 gap-y-14 sm:gap-y-20 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,_minmax(11rem,_1fr))] sm:gap-x-8">
-                  {displayedOthersResults.map(([mapKey, group], index) => {
-                    if (viewMode) {
-                      return (
-                        <div key={`agg-others-${mapKey}-${index}`} className="w-full">
-                          <VideoCard
-                            from="search"
-                            items={group}
-                            query={searchQuery.trim() !== group[0].title ? searchQuery.trim() : ''}
-                          />
-                        </div>
-                      );
-                    } else {
-                      const item = group[0];
-                      return (
-                        <div key={`all-others-${mapKey}-${index}`} className="w-full">
-                          <VideoCard
-                            id={item.id}
-                            title={item.title || ''}
-                            poster={item.poster}
-                            episodes={item.episodes ? item.episodes.length : 0} // 轉為 number
-                            source={item.source}
-                            source_name={item.source_name}
-                            douban_id={item.douban_id}
-                            query={searchQuery.trim() !== item.title ? searchQuery.trim() : ''}
-                            year={item.year}
-                            from="search"
-                            type={item.episodes && item.episodes.length > 1 ? 'tv' : 'movie'}
-                          />
-                        </div>
-                      );
-                    }
-                  })}
-
-                  {/* 加載更多指示器 - 其他結果 */}
-                  {hasMoreOthers && !hasMoreExact && (
-                    <div
-                      ref={loadingMoreOthersRef}
-                      className="col-span-full flex justify-center py-8"
-                    >
-                      <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-green-500"></div>
-                        <span className="text-sm">加載中...</span>
+              {/* 精確匹配結果 */}
+              <div
+                key={`search-results-${viewMode}`}
+                className='justify-start grid grid-cols-3 gap-x-2 gap-y-14 sm:gap-y-20 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,_minmax(11rem,_1fr))] sm:gap-x-8'
+              >
+                {displayedExactResults.map(([mapKey, group], index) => {
+                  if (viewMode) {
+                    return (
+                      <div key={`agg-${mapKey}-${index}`} className='w-full'>
+                        <VideoCard
+                          from='search'
+                          items={group}
+                          query={
+                            searchQuery.trim() !== group[0].title
+                              ? searchQuery.trim()
+                              : ''
+                          }
+                        />
                       </div>
+                    );
+                  } else {
+                    const item = group[0];
+                    return (
+                      <div key={`all-${mapKey}-${index}`} className='w-full'>
+                        <VideoCard
+                          id={item.id}
+                          title={item.title || ''}
+                          poster={item.poster}
+                          episodes={item.episodes ? item.episodes.length : 0} // 轉為 number
+                          source={item.source}
+                          source_name={item.source_name}
+                          douban_id={item.douban_id}
+                          query={
+                            searchQuery.trim() !== item.title
+                              ? searchQuery.trim()
+                              : ''
+                          }
+                          year={item.year}
+                          from='search'
+                          type={
+                            item.episodes && item.episodes.length > 1
+                              ? 'tv'
+                              : 'movie'
+                          }
+                        />
+                      </div>
+                    );
+                  }
+                })}
+
+                {sortedAggregatedResults.exact.length === 0 &&
+                  sortedAggregatedResults.others.length === 0 && (
+                    <div className='col-span-full text-center text-gray-500 py-8 dark:text-gray-400'>
+                      未找到相關結果
                     </div>
                   )}
-                </div>
-              </div>
-            )}
-          </section>
 
-
-          ) : searchHistory.length > 0 ? (
-            <section className="mb-12">
-            <h2 className="mb-4 text-xl font-bold text-gray-800 text-left dark:text-gray-200">
-              搜索歷史
-              {searchHistory.length > 0 && (
-                <button
-                  onClick={() => clearSearchHistory()}
-                  className="ml-3 text-sm text-gray-500 hover:text-red-500 transition-colors dark:text-gray-400 dark:hover:text-red-500"
-                >
-                  清空
-                </button>
-              )}
-            </h2>
-            <div ref={historyRef} className="flex flex-wrap gap-2">
-            {searchHistory.map((item, index) => (
-              <div key={`history-${item}-${index}`} className="relative group">
-                <button
-                  onClick={() => {
-                    if (selectedHistoryItem === item) {
-                      // 第二次點擊觸發搜索
-                      handleSearch(undefined, item);
-                    } else {
-                      // 第一次點擊，選中歷史項
-                      setSearchQuery(item);
-                      setSelectedHistoryItem(item);
-                    }
-                  }}
-                  className={`px-4 py-2 rounded-full text-sm transition-colors duration-200 ${
-                    selectedHistoryItem === item
-                      ? 'bg-green-500/20 text-green-600 dark:bg-green-600/30 dark:text-green-300'
-                      : 'bg-gray-500/10 hover:bg-gray-300 text-gray-700 dark:bg-gray-700/50 dark:hover:bg-gray-600 dark:text-gray-300'
-                  }`}
-                >
-                  {item}
-                </button>
-
-                {/* 刪除按鈕 */}
-                {(selectedHistoryItem === item) ? (
-                  <button
-                    aria-label="刪除搜索歷史"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      deleteSearchHistory(item);
-                      if (selectedHistoryItem === item) setSelectedHistoryItem(null);
-                    }}
-                    className="absolute -top-1 -right-1 w-4 h-4 bg-gray-400 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] transition-colors"
+                {/* 加載更多指示器 - 精確匹配結果 */}
+                {hasMoreExact && (
+                  <div
+                    ref={loadingMoreExactRef}
+                    className='col-span-full flex justify-center py-8'
                   >
-                    <X className="w-3 h-3" />
-                  </button>
-                ) : (
-                  <button
-                    aria-label="刪除搜索歷史"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      deleteSearchHistory(item);
-                    }}
-                    className="absolute -top-1 -right-1 w-4 h-4 opacity-0 group-hover:opacity-100 bg-gray-400 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] transition-colors"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
+                    <div className='flex items-center gap-2 text-gray-500 dark:text-gray-400'>
+                      <div className='animate-spin rounded-full h-5 w-5 border-b-2 border-green-500'></div>
+                      <span className='text-sm'>加載中...</span>
+                    </div>
+                  </div>
                 )}
               </div>
-            ))}
-          </div>
-          </section>
+
+              {/* 更多結果 */}
+              {sortedAggregatedResults.others.length > 0 && (
+                <div className='mt-8'>
+                  <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200 mb-7'>
+                    更多結果
+                  </h2>
+                  <div className='justify-start grid grid-cols-3 gap-x-2 gap-y-14 sm:gap-y-20 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,_minmax(11rem,_1fr))] sm:gap-x-8'>
+                    {displayedOthersResults.map(([mapKey, group], index) => {
+                      if (viewMode) {
+                        return (
+                          <div
+                            key={`agg-others-${mapKey}-${index}`}
+                            className='w-full'
+                          >
+                            <VideoCard
+                              from='search'
+                              items={group}
+                              query={
+                                searchQuery.trim() !== group[0].title
+                                  ? searchQuery.trim()
+                                  : ''
+                              }
+                            />
+                          </div>
+                        );
+                      } else {
+                        const item = group[0];
+                        return (
+                          <div
+                            key={`all-others-${mapKey}-${index}`}
+                            className='w-full'
+                          >
+                            <VideoCard
+                              id={item.id}
+                              title={item.title || ''}
+                              poster={item.poster}
+                              episodes={
+                                item.episodes ? item.episodes.length : 0
+                              } // 轉為 number
+                              source={item.source}
+                              source_name={item.source_name}
+                              douban_id={item.douban_id}
+                              query={
+                                searchQuery.trim() !== item.title
+                                  ? searchQuery.trim()
+                                  : ''
+                              }
+                              year={item.year}
+                              from='search'
+                              type={
+                                item.episodes && item.episodes.length > 1
+                                  ? 'tv'
+                                  : 'movie'
+                              }
+                            />
+                          </div>
+                        );
+                      }
+                    })}
+
+                    {/* 加載更多指示器 - 其他結果 */}
+                    {hasMoreOthers && !hasMoreExact && (
+                      <div
+                        ref={loadingMoreOthersRef}
+                        className='col-span-full flex justify-center py-8'
+                      >
+                        <div className='flex items-center gap-2 text-gray-500 dark:text-gray-400'>
+                          <div className='animate-spin rounded-full h-5 w-5 border-b-2 border-green-500'></div>
+                          <span className='text-sm'>加載中...</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </section>
+          ) : searchHistory.length > 0 ? (
+            <section className='mb-12'>
+              <h2 className='mb-4 text-xl font-bold text-gray-800 text-left dark:text-gray-200'>
+                搜索歷史
+                {searchHistory.length > 0 && (
+                  <button
+                    onClick={() => clearSearchHistory()}
+                    className='ml-3 text-sm text-gray-500 hover:text-red-500 transition-colors dark:text-gray-400 dark:hover:text-red-500'
+                  >
+                    清空
+                  </button>
+                )}
+              </h2>
+              <div ref={historyRef} className='flex flex-wrap gap-2'>
+                {searchHistory.map((item, index) => (
+                  <div
+                    key={`history-${item}-${index}`}
+                    className='relative group'
+                  >
+                    <button
+                      onClick={() => {
+                        if (selectedHistoryItem === item) {
+                          // 第二次點擊觸發搜索
+                          handleSearch(undefined, item);
+                        } else {
+                          // 第一次點擊，選中歷史項
+                          setSearchQuery(item);
+                          setSelectedHistoryItem(item);
+                        }
+                      }}
+                      className={`px-4 py-2 rounded-full text-sm transition-colors duration-200 ${
+                        selectedHistoryItem === item
+                          ? 'bg-green-500/20 text-green-600 dark:bg-green-600/30 dark:text-green-300'
+                          : 'bg-gray-500/10 hover:bg-gray-300 text-gray-700 dark:bg-gray-700/50 dark:hover:bg-gray-600 dark:text-gray-300'
+                      }`}
+                    >
+                      {item}
+                    </button>
+
+                    {/* 刪除按鈕 */}
+                    {selectedHistoryItem === item ? (
+                      <button
+                        aria-label='刪除搜索歷史'
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          deleteSearchHistory(item);
+                          if (selectedHistoryItem === item)
+                            setSelectedHistoryItem(null);
+                        }}
+                        className='absolute -top-1 -right-1 w-4 h-4 bg-gray-400 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] transition-colors'
+                      >
+                        <X className='w-3 h-3' />
+                      </button>
+                    ) : (
+                      <button
+                        aria-label='刪除搜索歷史'
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          deleteSearchHistory(item);
+                        }}
+                        className='absolute -top-1 -right-1 w-4 h-4 opacity-0 group-hover:opacity-100 bg-gray-400 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] transition-colors'
+                      >
+                        <X className='w-3 h-3' />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
           ) : null}
         </div>
       </div>
@@ -873,11 +1004,13 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
       <button
         onClick={scrollToTop}
         className={`fixed bottom-20 md:bottom-6 right-6 z-[500] w-12 h-12 bg-green-500/90 hover:bg-green-500 text-white rounded-full shadow-lg backdrop-blur-sm transition-all duration-300 ease-in-out flex items-center justify-center group ${
-          showBackToTop ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-4 pointer-events-none'
+          showBackToTop
+            ? 'opacity-100 translate-y-0 pointer-events-auto'
+            : 'opacity-0 translate-y-4 pointer-events-none'
         }`}
-        aria-label="返回頂部"
+        aria-label='返回頂部'
       >
-        <ChevronUp className="w-6 h-6 transition-transform group-hover:scale-110" />
+        <ChevronUp className='w-6 h-6 transition-transform group-hover:scale-110' />
       </button>
     </PageLayout>
   );

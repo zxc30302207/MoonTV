@@ -46,16 +46,21 @@ export async function GET(request: NextRequest) {
         const suggestionsStream = generateSuggestionsStream(
           toSimplified(query || ''),
           username,
-          timeout
+          timeout,
+          request.signal
         );
 
-        for await (const suggestions of suggestionsStream) {
-          controller.enqueue(
-            encoder.encode(JSON.stringify({ suggestions }) + '\n')
-          );
+        try {
+          for await (const suggestions of suggestionsStream) {
+            if (request.signal.aborted) break;
+            controller.enqueue(
+              encoder.encode(JSON.stringify({ suggestions }) + '\n')
+            );
+          }
+          controller.close();
+        } catch (error) {
+          if (!request.signal.aborted) controller.error(error);
         }
-
-        controller.close();
       },
     });
 
@@ -73,7 +78,8 @@ export async function GET(request: NextRequest) {
 async function* generateSuggestionsStream(
   query: string,
   username?: string,
-  timeout?: number
+  timeout?: number,
+  signal?: AbortSignal
 ) {
   const queryLower = toSimplified(query).toLowerCase();
   const config = await getConfig();
@@ -88,7 +94,8 @@ async function* generateSuggestionsStream(
       site,
       toSimplified(query),
       true,
-      timeout
+      timeout,
+      signal
     )) {
       const filteredResults = shouldFilterYellow
         ? results.filter((result) => !isYellowSearchResult(result))

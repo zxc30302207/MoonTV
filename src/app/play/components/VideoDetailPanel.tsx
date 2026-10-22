@@ -5,6 +5,7 @@
 import { Download, Heart } from 'lucide-react';
 
 import { SearchResult } from '@/lib/types';
+import { processImageUrl } from '@/lib/utils';
 
 import DoubanComments from '@/components/DoubanComments';
 import ExternalPlayerMenu from '@/components/ExternalPlayerMenu';
@@ -49,135 +50,158 @@ export function VideoDetailPanel(props: VideoDetailPanelProps) {
   } = props;
 
   return (
-    <div className='grid grid-cols-1 gap-4'>
+    <div className='grid grid-cols-1 gap-5 md:grid-cols-[auto_1fr] md:gap-6'>
+      {/* 封面圖片區 */}
+      {detail?.poster && (
+        <div className='mx-auto flex-shrink-0 md:mx-0'>
+          <div className='aspect-[2/3] w-28 overflow-hidden rounded-xl bg-gray-200 shadow-md sm:w-36 md:w-44 lg:w-52 dark:bg-gray-700'>
+            <img
+              src={processImageUrl(detail.poster)}
+              alt={videoTitle || '影片封面'}
+              className='w-full h-full object-cover'
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.style.display = 'none';
+              }}
+            />
+          </div>
+        </div>
+      )}
       {/* 文字區 */}
-      <div className='w-full'>
-        <div className='p-6 flex flex-col min-h-0'>
-          {/* 標題 */}
-          <h1 className='text-3xl font-bold mb-2 tracking-wide flex items-center flex-shrink-0 text-center md:text-left w-full'>
-            {videoTitle || '影片標題'}
+      <div className='flex w-full min-w-0 flex-col gap-3'>
+        {/* 標題 + 操作按鈕 */}
+        <div className='flex flex-col gap-3 md:flex-row md:items-start md:justify-between'>
+          <h1 className='flex min-w-0 flex-wrap items-center justify-center gap-x-2 text-xl font-bold tracking-wide sm:text-2xl md:justify-start'>
+            <span className='min-w-0 truncate'>{videoTitle || '影片標題'}</span>
             {totalEpisodes > 1 && (
-              <span className='text-gray-500 dark:text-gray-400 text-2xl ml-3'>
+              <span className='text-base font-normal text-gray-500 sm:text-lg dark:text-gray-400'>
                 {detail?.episodes_titles?.[currentEpisodeIndex] ||
                   `第 ${currentEpisodeIndex + 1} 集`}
               </span>
             )}
-            <div className='ml-3 flex flex-shrink-0 items-center gap-3'>
+          </h1>
+          <div className='flex flex-shrink-0 items-center justify-center gap-3 md:justify-end'>
+            <button
+              type='button'
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleFavorite();
+              }}
+              className={`flex h-8 w-8 items-center justify-center rounded-full shadow-md transition-all duration-300 ease-out hover:scale-[1.1] ${
+                favorited
+                  ? 'bg-red-500 text-white hover:bg-red-600'
+                  : 'bg-gray-200 text-gray-600 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
+              }`}
+              title={favorited ? '取消收藏' : '加入收藏'}
+              aria-label={favorited ? '取消收藏' : '加入收藏'}
+            >
+              <Heart
+                className={`h-4 w-4 ${
+                  favorited
+                    ? 'fill-white stroke-white'
+                    : 'fill-transparent stroke-current stroke-[1.5]'
+                }`}
+              />
+            </button>
+            {videoUrl && (
               <button
                 type='button'
+                onClick={() => onDownload()}
+                className='flex h-8 w-8 items-center justify-center rounded-full bg-blue-500 text-white shadow-md transition-all duration-300 ease-out hover:scale-[1.1] hover:bg-blue-600'
+                title='下載視頻'
+                aria-label='下載視頻'
+              >
+                <Download className='h-4 w-4' />
+              </button>
+            )}
+            <ExternalPlayerMenu
+              mediaUrl={videoUrl}
+              title={`${videoTitle}${
+                totalEpisodes > 1
+                  ? ` ${
+                      detail?.episodes_titles?.[currentEpisodeIndex] ||
+                      `EP${currentEpisodeIndex + 1}`
+                    }`
+                  : ''
+              }`}
+              className='flex-shrink-0'
+            />
+            {videoDoubanId !== 0 && (
+              <a
+                href={`https://movie.douban.com/subject/${videoDoubanId.toString()}`}
+                target='_blank'
+                rel='noopener noreferrer'
+                className='flex h-8 w-8 items-center justify-center rounded-full bg-green-500 text-white shadow-md transition-all duration-300 ease-out hover:scale-[1.1] hover:bg-green-600'
+                title='打開豆瓣頁面'
+                aria-label='打開豆瓣頁面'
+              >
+                <svg
+                  width='16'
+                  height='16'
+                  viewBox='0 0 24 24'
+                  fill='none'
+                  stroke='currentColor'
+                  strokeWidth='2'
+                  strokeLinecap='round'
+                  strokeLinejoin='round'
+                  aria-hidden='true'
+                >
+                  <path d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'></path>
+                  <path d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'></path>
+                </svg>
+              </a>
+            )}
+            {currentSource && currentId && (
+              <FollowingIconButton
+                following={following}
+                size={16}
+                padding={8}
+                theme='detail'
                 onClick={(e) => {
                   e.stopPropagation();
-                  onToggleFavorite();
+                  onToggleFollowing();
                 }}
-                className={`flex h-8 w-8 items-center justify-center rounded-full shadow-md transition-all duration-300 ease-out hover:scale-[1.1] ${
-                  favorited
-                    ? 'bg-red-500 text-white hover:bg-red-600'
-                    : 'bg-gray-200 text-gray-600 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
-                }`}
-                title={favorited ? '取消收藏' : '加入收藏'}
-                aria-label={favorited ? '取消收藏' : '加入收藏'}
-              >
-                <Heart
-                  className={`h-4 w-4 ${
-                    favorited
-                      ? 'fill-white stroke-white'
-                      : 'fill-transparent stroke-current stroke-[1.5]'
-                  }`}
-                />
-              </button>
-              {videoUrl && (
-                <button
-                  type='button'
-                  onClick={() => onDownload()}
-                  className='flex h-8 w-8 items-center justify-center rounded-full bg-blue-500 text-white shadow-md transition-all duration-300 ease-out hover:scale-[1.1] hover:bg-blue-600'
-                  title='下載視頻'
-                  aria-label='下載視頻'
-                >
-                  <Download className='h-4 w-4' />
-                </button>
-              )}
-              <ExternalPlayerMenu
-                mediaUrl={videoUrl}
-                title={`${videoTitle}${
-                  totalEpisodes > 1
-                    ? ` ${
-                        detail?.episodes_titles?.[currentEpisodeIndex] ||
-                        `EP${currentEpisodeIndex + 1}`
-                      }`
-                    : ''
-                }`}
-                className='flex-shrink-0'
               />
-              {videoDoubanId !== 0 && (
-                <a
-                  href={`https://movie.douban.com/subject/${videoDoubanId.toString()}`}
-                  target='_blank'
-                  rel='noopener noreferrer'
-                  className='flex h-8 w-8 items-center justify-center rounded-full bg-green-500 text-white shadow-md transition-all duration-300 ease-out hover:scale-[1.1] hover:bg-green-600'
-                  title='打開豆瓣頁面'
-                  aria-label='打開豆瓣頁面'
-                >
-                  <svg
-                    width='16'
-                    height='16'
-                    viewBox='0 0 24 24'
-                    fill='none'
-                    stroke='currentColor'
-                    strokeWidth='2'
-                    strokeLinecap='round'
-                    strokeLinejoin='round'
-                    aria-hidden='true'
-                  >
-                    <path d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'></path>
-                    <path d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'></path>
-                  </svg>
-                </a>
-              )}
-              {currentSource && currentId && (
-                <FollowingIconButton
-                  following={following}
-                  size={16}
-                  padding={8}
-                  theme='detail'
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onToggleFollowing();
-                  }}
-                />
-              )}
-            </div>
-          </h1>
-
-          {/* 關鍵信息行 */}
-          <div className='flex flex-wrap items-center gap-3 text-base mb-4 opacity-80 flex-shrink-0'>
-            {detail?.class && (
-              <span className='text-green-600 font-semibold'>
-                {detail.class}
-              </span>
             )}
-            {(detail?.year || videoYear) && (
-              <span>{detail?.year || videoYear}</span>
-            )}
-            {detail?.source_name && (
-              <span className='border border-gray-500/60 px-2 py-[1px] rounded'>
-                {detail.source_name}
-              </span>
-            )}
-            {detail?.type_name && <span>{detail.type_name}</span>}
           </div>
-          {/* 劇情簡介 */}
-          {detail?.desc && (
-            <div
-              className='mt-0 text-base leading-relaxed opacity-90 overflow-y-auto pr-2 flex-1 min-h-0 scrollbar-hide'
-              style={{ whiteSpace: 'pre-line' }}
-            >
-              {detail.desc}
-            </div>
+        </div>
+
+        {/* 關鍵信息行 */}
+        <div className='flex flex-wrap items-center justify-center gap-2 text-sm md:justify-start'>
+          {detail?.class && (
+            <span className='rounded-md bg-green-500/10 px-2 py-0.5 font-medium text-green-600 dark:text-green-400'>
+              {detail.class}
+            </span>
+          )}
+          {(detail?.year || videoYear) && (
+            <span className='rounded-md bg-black/5 px-2 py-0.5 text-gray-600 dark:bg-white/10 dark:text-gray-300'>
+              {detail?.year || videoYear}
+            </span>
+          )}
+          {detail?.source_name && (
+            <span className='rounded-md bg-black/5 px-2 py-0.5 text-gray-600 dark:bg-white/10 dark:text-gray-300'>
+              {detail.source_name}
+            </span>
+          )}
+          {detail?.type_name && (
+            <span className='rounded-md bg-black/5 px-2 py-0.5 text-gray-600 dark:bg-white/10 dark:text-gray-300'>
+              {detail.type_name}
+            </span>
           )}
         </div>
+
+        {/* 劇情簡介 */}
+        {detail?.desc && (
+          <div
+            className='scrollbar-hide max-h-48 overflow-y-auto pr-1 text-sm leading-relaxed text-gray-600 md:max-h-none dark:text-gray-300'
+            style={{ whiteSpace: 'pre-line' }}
+          >
+            {detail.desc}
+          </div>
+        )}
       </div>
       {videoDoubanId !== 0 && (
-        <section className='px-6 pb-6'>
+        <section className='pb-6 md:col-span-2'>
           <div className='border-t border-gray-200 pt-6 dark:border-gray-800'>
             <h2 className='mb-4 text-xl font-semibold'>豆瓣短評</h2>
             <DoubanComments doubanId={videoDoubanId} />

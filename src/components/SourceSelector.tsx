@@ -1,6 +1,7 @@
 'use client';
-import { ChevronDown, Save, Settings, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Save, Settings, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { getAvailableApiSitesClient } from '@/lib/config.client';
 import { getSwal } from '@/lib/sweetalert';
@@ -11,7 +12,7 @@ interface SourceSelectorProps {
   onChange: (sources: string[]) => void;
   openFilter: string | null;
   setOpenFilter: React.Dispatch<React.SetStateAction<string | null>>;
-  size?: 'default' | 'compact'; // 可選的尺寸屬性
+  size?: 'default' | 'compact';
 }
 
 export default function SourceSelector({
@@ -29,16 +30,18 @@ export default function SourceSelector({
   const [enableSearchSuggestions, setEnableSearchSuggestions] =
     useState<boolean>(true);
 
-  // 由父組件控制是否展開
   const open = openFilter === 'sources';
 
-  const [popupStyles, setPopupStyles] = useState<React.CSSProperties>({});
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const popupRef = useRef<HTMLDivElement>(null);
-
-  // 加載可用的搜索源 - 只在客戶端執行
   useEffect(() => {
-    // 確保在客戶端執行
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpenFilter(null);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [open, setOpenFilter]);
+
+  useEffect(() => {
     if (typeof window !== 'undefined') {
       const loadSources = async () => {
         try {
@@ -52,19 +55,17 @@ export default function SourceSelector({
           setIsLoading(false);
         }
       };
-
       loadSources();
     } else {
-      // 在服務端渲染時直接設置為完成狀態
       setIsLoading(false);
     }
   }, []);
 
   const toggleOpen = () => {
     if (open) {
-      setOpenFilter(null); // 已展開 → 關閉
+      setOpenFilter(null);
     } else {
-      setOpenFilter('sources'); // 打開自己，關閉其他
+      setOpenFilter('sources');
     }
   };
 
@@ -98,15 +99,10 @@ export default function SourceSelector({
     });
   };
 
-  // 切換搜索建議開關時立即生效
   const handleToggleSearchSuggestions = () => {
     const newValue = !enableSearchSuggestions;
     setEnableSearchSuggestions(newValue);
-
-    // 立即保存到 localStorage
     localStorage.setItem('enableSearchSuggestions', newValue.toString());
-
-    // 觸發自定義事件通知其他組件設置已更改
     window.dispatchEvent(
       new CustomEvent('searchSettingsChanged', {
         detail: { enableSearchSuggestions: newValue },
@@ -114,23 +110,18 @@ export default function SourceSelector({
     );
   };
 
-  // 加載保存的搜索源，並清理不存在的源
   useEffect(() => {
     if (typeof window !== 'undefined' && availableSources.length > 0) {
       const savedSources = localStorage.getItem('savedSources');
       if (savedSources) {
         try {
           const parsedSources = JSON.parse(savedSources);
-          // 確保保存的源在可用源列表中
           const validSources = parsedSources.filter((source: string) =>
             availableSources.some((avail) => avail.key === source)
           );
-
-          // 如果保存的源中有不存在的源，更新本地存儲
           if (validSources.length !== parsedSources.length) {
             localStorage.setItem('savedSources', JSON.stringify(validSources));
           }
-
           if (validSources.length > 0) {
             onChange(validSources);
           }
@@ -139,11 +130,9 @@ export default function SourceSelector({
         }
       }
 
-      // 加載保存的超時時間
       const timeout = getRequestTimeout();
       setTimeoutSeconds(timeout);
 
-      // 加載搜索建議設置
       const savedEnableSearchSuggestions = localStorage.getItem(
         'enableSearchSuggestions'
       );
@@ -153,84 +142,61 @@ export default function SourceSelector({
     }
   }, [availableSources, onChange]);
 
-  // 計算彈窗位置，防止超出屏幕
-  useEffect(() => {
-    if (open && buttonRef.current && popupRef.current) {
-      const btnRect = buttonRef.current.getBoundingClientRect();
-      const screenWidth = window.innerWidth;
-
-      let left = btnRect.left;
-      const top = btnRect.bottom + 4; // 下方間距
-      const width = Math.min(screenWidth - 16, 400); // 彈窗最大寬度400，留一點邊距
-
-      // 如果右邊超出屏幕，向左移動
-      if (left + width > screenWidth - 8) {
-        left = Math.max(8, screenWidth - width - 8);
-      }
-
-      setPopupStyles({ left, top, width });
-    }
-  }, [open]);
-
-  const heightClass = size === 'compact' ? 'h-10' : 'h-12';
+  // 緊湊版用於導航欄，尺寸由 CSS 設計令牌控制，隨導航欄等比縮放
+  const isCompact = size === 'compact';
+  const baseButtonClass = isCompact
+    ? 'top-nav__source-btn flex items-center font-medium'
+    : 'flex items-center px-3 h-12 font-medium';
+  const iconClass = isCompact ? undefined : 'w-4 h-4';
 
   if (isLoading) {
     return (
-      <div className='relative inline-block'>
+      <div className='relative inline-flex items-center'>
         <div className='flex items-center bg-gray-200 dark:bg-gray-700 rounded-l-lg overflow-hidden'>
-          <button
-            className={`flex items-center gap-1 px-3 ${heightClass} text-sm font-medium opacity-50`}
-            disabled
-          >
-            <Settings className='w-4 h-4' />
-            <ChevronDown className='w-4 h-4' />
+          <button className={`${baseButtonClass} opacity-50`} disabled>
+            <Settings className={iconClass} />
           </button>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className='relative inline-block'>
-      <div className='flex items-center bg-gray-200 dark:bg-gray-700 rounded-l-lg overflow-hidden'>
-        <button
-          ref={buttonRef}
-          onClick={toggleOpen}
-          className={`flex items-center gap-1 px-3 ${heightClass} text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors`}
-        >
-          <Settings className='w-4 h-4' />
-          {selectedSources.length > 0 && (
-            <span className='inline-flex items-center justify-center w-5 h-5 text-xs bg-green-500 text-white rounded-full ml-1'>
-              {selectedSources.length}
-            </span>
-          )}
-          <ChevronDown
-            className={`w-4 h-4 transition-transform ${
-              open ? 'rotate-180' : 'rotate-0'
-            }`}
-          />
-        </button>
-      </div>
+  // 設置彈窗：Portal 到 body，避免導航欄的 backdrop-filter 影響 fixed 定位
+  const settingsModal = (
+    <div
+      data-source-settings-modal
+      className='fixed inset-0 z-[1000] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm'
+      onClick={() => setOpenFilter(null)}
+    >
+      <div
+        role='dialog'
+        aria-modal='true'
+        aria-label='搜索源設置'
+        onClick={(e) => e.stopPropagation()}
+        className='flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-xl dark:bg-gray-800'
+      >
+        {/* 標題欄 */}
+        <div className='flex items-center justify-between border-b border-gray-200 p-4 dark:border-gray-700'>
+          <h3 className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
+            搜索源設置
+          </h3>
+          <button
+            onClick={() => setOpenFilter(null)}
+            className='rounded p-1 transition-colors hover:bg-gray-100 dark:hover:bg-gray-700'
+            aria-label='關閉'
+          >
+            <X className='h-5 w-5 text-gray-500 dark:text-gray-400' />
+          </button>
+        </div>
 
-      {open && (
-        <div
-          ref={popupRef}
-          style={popupStyles}
-          className='
-            fixed z-50
-            bg-white dark:bg-gray-800
-            border border-gray-200 dark:border-gray-700
-            rounded-lg shadow-lg p-4
-            max-h-[50vh] overflow-auto
-          '
-        >
+        {/* 內容區 */}
+        <div className='overflow-y-auto p-4'>
           <div
             className='mb-3 grid gap-2'
             style={{
               gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
             }}
           >
-            {/* 保存按鈕 */}
             <button
               onClick={handleSaveSources}
               className='px-3 py-1 text-sm bg-green-100 text-green-700 rounded hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-800/50 flex items-center justify-center gap-1'
@@ -240,7 +206,6 @@ export default function SourceSelector({
               保存
             </button>
 
-            {/* 清空按鈕 */}
             <button
               onClick={handleClearAll}
               className='px-2 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-800/50 flex items-center justify-center gap-1'
@@ -250,7 +215,6 @@ export default function SourceSelector({
               清空
             </button>
 
-            {/* 超時時間設置 */}
             <div className='flex items-center justify-center gap-2 bg-gray-100 dark:bg-gray-700 rounded px-2 py-1'>
               <label className='text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap'>
                 超時:
@@ -273,7 +237,6 @@ export default function SourceSelector({
               </span>
             </div>
 
-            {/* 搜索建議開關 */}
             <div className='flex items-center justify-center gap-2 bg-gray-100 dark:bg-gray-700 rounded px-2 py-1'>
               <label className='text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap'>
                 搜索建議
@@ -330,7 +293,31 @@ export default function SourceSelector({
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className='relative inline-flex items-center'>
+      {/* ★ 按鈕內部只保留齒輪，寬度完全固定 */}
+      <div className='flex items-center bg-gray-200 dark:bg-gray-700 rounded-l-lg overflow-hidden'>
+        <button
+          onClick={toggleOpen}
+          className={`${baseButtonClass} hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors`}
+          title='搜索源設置'
+        >
+          <Settings className={iconClass} />
+        </button>
+      </div>
+
+      {/* ★ 數量以角標形式呈現：絕對定位在齒輪右上角，不佔按鈕寬度 */}
+      {selectedSources.length > 0 && (
+        <span className='top-nav__source-count'>
+          {selectedSources.length > 99 ? '99+' : selectedSources.length}
+        </span>
       )}
+
+      {open && createPortal(settingsModal, document.body)}
     </div>
   );
 }

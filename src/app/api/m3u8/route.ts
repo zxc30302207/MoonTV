@@ -58,6 +58,7 @@ export async function POST(request: NextRequest) {
       assertSafeUrl(targetUrl, { allowPrivateNetworks, allowedHosts });
     };
     const task = await parseM3U8(safeUrl, {
+      signal: request.signal,
       fetcher: (targetUrl, init) =>
         safeFetch(targetUrl, init, { allowPrivateNetworks, allowedHosts }),
       validateUrl,
@@ -138,25 +139,58 @@ export async function GET(request: NextRequest) {
       allowPrivateNetworks,
       allowedHosts,
     });
+    const range = request.headers.get('Range');
+    if (range) {
+      const match = /^bytes=(\d+)-(\d+)$/.exec(range);
+      const start = Number(match?.[1]);
+      const end = Number(match?.[2]);
+      if (
+        !match ||
+        !Number.isSafeInteger(start) ||
+        !Number.isSafeInteger(end) ||
+        end < start
+      ) {
+        return NextResponse.json(
+          { error: '無效的 Range 請求' },
+          { status: 400 }
+        );
+      }
+    }
     const response = await safeFetch(
       safeUrl,
-      {},
       {
-        allowPrivateNetworks,
-        allowedHosts,
-      }
-    );
-    if (!response.ok) {
-      throw new Error(`下載失敗: ${response.status}`);
-    }
-    const data = await response.arrayBuffer();
-
-    return new NextResponse(data, {
-      headers: {
-        'Content-Type': 'application/octet-stream',
-        'Cache-Control': 'private, no-store',
-        'X-MoonTV-Upstream-URL': response.url || safeUrl,
+        signal: request.signal,
+        cache: 'no-store',
+        headers: range
+          ? { Range: range, 'Accept-Encoding': 'identity' }
+          : undefined,
       },
+      { allowPrivateNetworks, allowedHosts }
+    );
+    const headers = new Headers({
+      // Never serve upstream HTML/SVG as active content on our own origin.
+      'Content-Type': 'application/octet-stream',
+      'Cache-Control': 'private, no-store',
+      'X-MoonTV-Upstream-URL': response.url || safeUrl,
+      'X-Content-Type-Options': 'nosniff',
+      Vary: 'Cookie, Range',
+    });
+    // Preserve range response metadata and status, including 416 and servers
+    // that ignore Range with 200, so clients can validate before using bytes.
+    for (const name of ['Content-Range', 'Content-Length', 'Accept-Ranges']) {
+      // fetch may transparently decode gzip; its wire length is then invalid.
+      if (
+        name === 'Content-Length' &&
+        response.headers.get('Content-Encoding') &&
+        response.headers.get('Content-Encoding') !== 'identity'
+      )
+        continue;
+      const value = response.headers.get(name);
+      if (value) headers.set(name, value);
+    }
+    return new NextResponse(response.body, {
+      status: response.status,
+      headers,
     });
   } catch (error) {
     // eslint-disable-next-line no-console

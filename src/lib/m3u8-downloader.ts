@@ -8,6 +8,13 @@ import CryptoJS from 'crypto-js';
 
 import { inferHeightFromBitrate } from './hls-quality';
 import { StreamingTransmuxer, transmuxTSToMP4 } from './mp4-transmuxer';
+import { fetchMediaUrl } from './url-guard';
+import {
+  type SegmentByteRange,
+  byteRangeHeader,
+  parseByteRange,
+  readByteRangeResponse,
+} from './video-byte-range';
 
 export type StreamSaverMode = 'disabled' | 'service-worker' | 'file-system';
 
@@ -63,6 +70,10 @@ export interface M3U8Task {
   title: string;
   type: 'TS' | 'MP4';
   tsUrlList: string[];
+  /** 未結束的播放列表可能繼續更新，不應長期復用解析結果。 */
+  isLive?: boolean;
+  segmentByteRanges?: Array<SegmentByteRange | undefined>;
+
   finishList: Array<{
     title: string;
     status: '' | 'downloading' | 'success' | 'error';
@@ -89,6 +100,7 @@ export interface M3U8Task {
 }
 
 export type M3U8ParseOptions = {
+  signal?: AbortSignal;
   fetcher?: (url: string, init?: RequestInit) => Promise<Response>;
   validateUrl?: (url: string) => void;
   transformPlaylist?: (content: string) => string;
@@ -128,6 +140,9 @@ function isMasterPlaylist(m3u8Content: string): boolean {
 export interface PreferredVariant {
   /** 期望的畫面高度（如 1080）。null / undefined 表示"最高帶寬" */
   height?: number | null;
+  signal?: AbortSignal;
+  /** Server-side parsing must also validate nested playlists and AES keys. */
+  validateUrls?: boolean;
 }
 
 /** 從 `RESOLUTION=1920x1080` 中取出高度 */
@@ -253,8 +268,12 @@ export async function parseM3U8(
   }
 
   options?.validateUrl?.(url);
-  const fetcher = options?.fetcher || fetch;
-  const response = await fetcher(url);
+  const fetcher =
+    options?.fetcher || (preferred?.validateUrls ? fetchMediaUrl : fetch);
+  const response = await fetcher(url, {
+    signal: options?.signal ?? preferred?.signal,
+  });
+  if (!response.ok) throw new Error(`M3U8 request failed: ${response.status}`);
   const resolvedUrl =
     options?.resolveResponseUrl?.(response, url) || response.url || url;
   options?.validateUrl?.(resolvedUrl);
@@ -286,6 +305,8 @@ export async function parseM3U8(
     title: extractTitleFromUrl(resolvedUrl),
     type: 'TS',
     tsUrlList: [],
+    isLive: !/^#EXT-X-ENDLIST\s*$/m.test(m3u8Str),
+    segmentByteRanges: [],
     finishList: [],
     downloadIndex: 0,
     finishNum: 0,
@@ -309,14 +330,32 @@ export async function parseM3U8(
   // 提取 ts 視頻片段地址和每個片段的時長
   const lines = m3u8Str.split('\n');
   let lastDuration: number | null = null;
-  for (const line of lines) {
+  let pendingByteRange: string | undefined;
+  let previousUrl: string | undefined;
+  let previousRange: SegmentByteRange | undefined;
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
     if (line.startsWith('#EXTINF:')) {
       lastDuration = parseFloat(line.split('#EXTINF:')[1]);
       task.durationSecond += lastDuration;
+    } else if (line.startsWith('#EXT-X-BYTERANGE:')) {
+      pendingByteRange = line.slice('#EXT-X-BYTERANGE:'.length);
     } else if (/^[^#]/.test(line) && line.trim()) {
       const tsUrl = applyURL(line.trim(), resolvedUrl);
       options?.validateUrl?.(tsUrl);
+      const range =
+        pendingByteRange === undefined
+          ? undefined
+          : parseByteRange(
+              pendingByteRange,
+              previousUrl === tsUrl ? previousRange?.end : undefined
+            );
+
       task.tsUrlList.push(tsUrl);
+      task.segmentByteRanges?.push(range);
+      previousUrl = tsUrl;
+      previousRange = range;
+      pendingByteRange = undefined;
       task.finishList.push({ title: line.trim(), status: '' });
       // 記錄每個片段的時長
       task.segmentDurations.push(lastDuration ?? 0);
@@ -330,6 +369,7 @@ export async function parseM3U8(
   // 估算總文件大小（基於時長和比特率）
   // 假設平均比特率為 2Mbps (TS 流媒體的常見值)
   const estimatedBitrate = (2 * 1024 * 1024) / 8; // 2Mbps 轉為字節/秒
+
   task.totalSize = Math.round(task.durationSecond * estimatedBitrate);
 
   // 檢測 AES 加密
@@ -345,7 +385,12 @@ export async function parseM3U8(
     // 獲取 AES key
     if (task.aesConf.uri) {
       options?.validateUrl?.(task.aesConf.uri);
-      const keyResponse = await fetcher(task.aesConf.uri);
+      const keyResponse = await fetcher(task.aesConf.uri, {
+        signal: options?.signal ?? preferred?.signal,
+      });
+      if (!keyResponse.ok)
+        throw new Error(`AES key request failed: ${keyResponse.status}`);
+
       const keyArrayBuffer = await keyResponse.arrayBuffer();
       task.aesConf.key = arrayBufferToWordArray(keyArrayBuffer);
     }
@@ -434,6 +479,7 @@ export async function downloadTsSegment(
   options?: { validateUrl?: (url: string) => void }
 ): Promise<ArrayBuffer> {
   options?.validateUrl?.(url);
+
   const response = await fetch(url, { signal });
   if (!response.ok) {
     throw new Error(`下載失敗: ${response.status}`);
@@ -465,8 +511,10 @@ async function downloadByRanges(
           headers: { Range: `bytes=${start}-${end}` },
         });
         // 必須是 206，否則說明源站忽略了 Range（會返回完整文件，導致拼接錯誤）
-        if (resp.status !== 206) throw new Error('Range not supported');
-        return { index: i, data: await resp.arrayBuffer() };
+        return {
+          index: i,
+          data: await readByteRangeResponse(resp, { start, end: end + 1 }),
+        };
       })()
     );
   }
@@ -489,8 +537,16 @@ async function downloadByRanges(
  */
 export async function downloadTsSegmentConcurrent(
   url: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  range?: SegmentByteRange
 ): Promise<ArrayBuffer> {
+  if (range) {
+    const response = await fetch(url, {
+      signal,
+      headers: { Range: byteRangeHeader(range) },
+    });
+    return readByteRangeResponse(response, range);
+  }
   // 1) 探測文件大小。注意：不支持 Range 的源會忽略請求頭、返回 200 + 完整文件，
   //    此時 probe 本身就是完整片段，必須直接返回——否則會白白下載一遍再整段重下，
   //    等於每個片段下載兩遍（曾導致下載速度直接減半）。
@@ -822,7 +878,8 @@ export async function downloadM3U8Video(
 
       let segmentData = await downloadTsSegmentConcurrent(
         task.tsUrlList[index],
-        signal
+        signal,
+        task.segmentByteRanges?.[index]
       );
 
       // 下載完成後檢查暫停狀態，如果暫停則等待恢復
@@ -907,6 +964,7 @@ export async function downloadM3U8Video(
       // 檢查是否是寫入失敗（用戶取消下載）
       const isWriteError =
         error instanceof Error && error.message.includes('寫入失敗');
+
       if (isWriteError) {
         // 寫入失敗意味著用戶可能取消了下載，不應該重試，直接拋出錯誤停止下載
         // eslint-disable-next-line no-console
