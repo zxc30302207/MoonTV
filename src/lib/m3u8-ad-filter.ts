@@ -29,6 +29,26 @@ export type M3U8AdFilterResult = {
  */
 const VERIFIED_AD_SEQUENCES = [
   {
+    // Visually verified unmarked insertion encoded in the programme directory.
+    // Only this complete ten-file sequence is an ad; neighbouring files are not.
+    prefix: '/20260819/7UghCdAN/2615kb/hls/',
+    files: [
+      'wSXIYCWB.ts',
+      'dNXxoQw8.ts',
+      '3THFwbC2.ts',
+      'bZTKdbK4.ts',
+      'UHbC83Uw.ts',
+      '2IHmVqrf.ts',
+      'r4gU4LiJ.ts',
+      'FhiI8zzH.ts',
+      'C6uzqEi9.ts',
+      'eblj9TDI.ts',
+    ],
+    durations: [
+      1.0, 2.125, 2.792, 1.667, 1.667, 2.375, 1.667, 2.167, 1.667, 2.75,
+    ],
+  },
+  {
     // Visually verified three-segment gambling insertion; never a host wildcard.
     prefix: '/20260818/JMQDkGOL/hls/',
     files: ['9OG1QJKR.ts', 'Dgaf3EqV.ts', 'Nr4MRgx5.ts'],

@@ -65,3 +65,26 @@ This follow-up recognizes only `/20260818/JMQDkGOL/hls/` with ordered `9OG1QJKR.
 Captured candidate source samples: 李熊猫 id157485, 第 04 集, media `https://play.maoyanplay.top/20260805/t3HFUELH/2201kb/hls/index.m3u8`, contains two 13.2-second inserts beginning at 690.697 and 1249.916 seconds (26.4s total); 流浪地球 id123736 contains the same complete sequence nine times (118.8s total). Exact-sequence negatives and encryption/init-state regression tests apply to this family as well. Source metadata may have incorrect year fields; that is not ad evidence.
 
 The combined release candidate adds Maoyan with explicit user approval, increasing configured sources from 14 to 15 while preserving all 14 existing source entries and their saved switches. Source addition and the narrow ad-filter compatibility patch have been reviewed together; production playback validation is still pending. No host-wide or bitrate/duration-only deletion was introduced.
+
+## Confirmed reported leak: Maoyan 李熊猫 第 06 集
+
+User screenshots show independent gambling advertising at filtered player positions about 09:33–09:52. The current production baseline already removes the known 26.4 seconds, producing 1184.573 seconds (19:44.573) from the raw 1210.973 seconds, matching the screenshots. Only the first known 13.2-second break precedes this window, so the screenshot window maps to raw 586.2–605.2 seconds, not to fixed raw player timestamps.
+
+The additional insertion is encoded under the **same programme directory** `/20260819/7UghCdAN/2615kb/hls/`, with the same active METHOD=NONE and no cue or discontinuity marking it. That is why existing verified external-asset families did not identify it. Bounded downloads of indexes 287–300 (not the full episode), each 3-fps contact sheet, and exact first/last decoded frames identify indexes 289–298 as gambling-only segments. The preceding index 288 and following index 299 retain a continuing animation dialogue scene. All ten exact ordered filenames and durations are required; the directory itself, short duration, or absent cue does not authorize deleting any other segment.
+
+The verified raw span is 586.191–606.068 seconds (19.877 seconds); on the old filtered timeline it is 572.991–592.868 seconds. Added to existing removals, the candidate removes 16 segments /46.277 seconds and retains 1164.696 seconds (19:24.696). No intro/outro, source configuration or player UI changes are made.
+
+| File        | Seconds | Downloaded TS SHA-256                                            |
+| ----------- | ------: | ---------------------------------------------------------------- |
+| wSXIYCWB.ts |     1.0 | 8a3c268404d0b8a1677db900eee84405c7ab96e4cadd48d70cb57598310f5f95 |
+| dNXxoQw8.ts |   2.125 | 9116a36c6ac0f7d991b69680276ae3915234d08bbd6d1a50e2bd62aeaa5849f2 |
+| 3THFwbC2.ts |   2.792 | c37556525d799e1a65ac8b6e6e6470cec158f787540dbee0d6173869d91d379d |
+| bZTKdbK4.ts |   1.667 | 45b2819fb560777835451144b77980d788cfaca64c414132e3e1ab4d5f7c2386 |
+| UHbC83Uw.ts |   1.667 | b127e6253ac43187601c674556ad9cf2b9601bf323b3a80aab6ac234f5fa6511 |
+| 2IHmVqrf.ts |   2.375 | caf56afcc6add6e6daee349ce1e726bc0018e57d16994d270beb1ad23d057cf8 |
+| r4gU4LiJ.ts |   1.667 | 6f5b3d42826adb9ba6202050b85474d7c314995675e86360309aa89c9b5b7dbb |
+| FhiI8zzH.ts |   2.167 | 03aad9e5a0556a2e70033fa7467d915734c01e19b25afef0b9cb6f783ab57d73 |
+| C6uzqEi9.ts |   1.667 | bda6a7415eae56576576de2920f49febf6622b106ae975d7d6619dc65f08fd02 |
+| eblj9TDI.ts |    2.75 | 1cd99b9eeeb9f8c29db23bf209e78e56d1294502b59a88b2723ab3269ac9538b |
+
+All 15 episode manifests were separately audited. They contain 31 occurrences of the already known three-file family. No other cross-directory family, repeated programme file identity (including basename-only matching), or duplicate ten-duration signature was found. **This metadata audit does not establish that the other episodes lack ads encoded in their own programme directory.** It provides no grounds for broad deletion in other episodes. New or re-encoded creative without verified identity requires audiovisual evidence; this correction must not be presented as a universal visual ad classifier.

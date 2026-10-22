@@ -3,6 +3,26 @@ import { filterAdsFromM3U8WithStats } from './m3u8-ad-filter';
 // Bounded public-source samples visually verified 2026-10-22; see evidence notes.
 describe.each([
   {
+    prefix: '/20260819/7UghCdAN/2615kb/hls/',
+    files: [
+      'wSXIYCWB.ts',
+      'dNXxoQw8.ts',
+      '3THFwbC2.ts',
+      'bZTKdbK4.ts',
+      'UHbC83Uw.ts',
+      '2IHmVqrf.ts',
+      'r4gU4LiJ.ts',
+      'FhiI8zzH.ts',
+      'C6uzqEi9.ts',
+      'eblj9TDI.ts',
+    ],
+    durations: [
+      1.0, 2.125, 2.792, 1.667, 1.667, 2.375, 1.667, 2.167, 1.667, 2.75,
+    ],
+    removedSeconds: 39.754,
+    afterIv: '15',
+  },
+  {
     prefix: '/20260818/JMQDkGOL/hls/',
     files: ['9OG1QJKR.ts', 'Dgaf3EqV.ts', 'Nr4MRgx5.ts'],
     durations: [5, 5, 3.2],
@@ -116,6 +136,22 @@ describe.each([
         content: input,
         droppedSegments: 0,
       });
+    });
+
+    test('retains unverified programme files in the exact same directory', () => {
+      const before = `${prefix}programme-before.ts`;
+      const after = `${prefix}programme-after.ts`;
+      const input = vod([
+        '#EXTINF:2,',
+        before,
+        ...sequence(),
+        '#EXTINF:2,',
+        after,
+      ]);
+      const result = filterAdsFromM3U8WithStats(input);
+      expect(result.droppedSegments).toBe(files.length);
+      expect(result.content).toContain(before);
+      expect(result.content).toContain(after);
     });
 
     test('does not empty a playlist containing only the verified advertisement', () => {
