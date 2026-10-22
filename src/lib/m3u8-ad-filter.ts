@@ -29,6 +29,26 @@ export type M3U8AdFilterResult = {
  */
 const VERIFIED_AD_SEQUENCES = [
   {
+    // Four-segment packaging of visually verified gambling creative (2026-10-22).
+    prefix: '/20261008/2DExGZYA/hls/',
+    files: ['wTYCABLc.ts', 'HJKFKNWX.ts', 'tem9H9Vu.ts', 'Y2VXzNPO.ts'],
+    durations: [5, 5, 5, 2.567],
+  },
+  {
+    // Visually verified 2026-10-22: six gambling-ad segments, not programme.
+    // Exact ordered asset identity + duration; see docs/AD_ASSET_EVIDENCE.md.
+    prefix: '/20261009/Bjf6z0RU/10152kb/hls/',
+    files: [
+      '6JFnQsqe.ts',
+      'WfGR4xIS.ts',
+      'KMplaxXV.ts',
+      '0ONtLMnT.ts',
+      'auT4G7cp.ts',
+      'j2XNBmNk.ts',
+    ],
+    durations: [3, 3, 5, 3, 3, 0.64],
+  },
+  {
     prefix: '/20260917/khKm9Z55/10110kb/hls/',
     files: [
       'ziiI7NqG.ts',

@@ -405,6 +405,16 @@ export interface AdFilterReport {
   preservedReason?: 'multiple-renditions';
 }
 
+export function formatAdFilterStatus(
+  report: AdFilterReport | null,
+  enabled = true
+): string {
+  if (!enabled) return '已關閉';
+  if (report && !report.preservedReason && report.removedSegments > 0)
+    return `已移除 ${report.removedSeconds.toFixed(1)} 秒`;
+  return '已啟用';
+}
+
 export function readAdFilterReport(content: string): AdFilterReport | null {
   const raw = content.match(/^#MOONTV-AD-FILTER:(.+)$/m)?.[1];
   if (!raw) return null;
@@ -584,6 +594,7 @@ export function createCustomHlsLoader(
               stats: any,
               ctx: any
             ) {
+              if (loadGeneration !== generation) return;
               if (response.data && typeof response.data === 'string') {
                 const isMedia = /^#EXTINF:/m.test(response.data);
                 if (isFilteredProxyUrl(ctx.url)) {

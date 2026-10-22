@@ -3,6 +3,7 @@ import { readCachedSegment, touchMeta } from '@/lib/video-cache';
 import {
   createCustomHlsLoader,
   filterAdsFromM3U8,
+  formatAdFilterStatus,
   readAdFilterReport,
 } from '../play-utils';
 
@@ -216,3 +217,61 @@ it('does not trust diagnostic comments from an external media host', () => {
     )
   ).toBeNull();
 });
+
+describe('ad-filter status wording', () => {
+  it('explains zero recognized ads without claiming the media contains no ads', () => {
+    expect(
+      formatAdFilterStatus({ removedSegments: 0, removedSeconds: 0 })
+    ).toBe('已啟用');
+  });
+  it('reports actual removed duration concisely', () => {
+    expect(
+      formatAdFilterStatus({ removedSegments: 12, removedSeconds: 35.28 })
+    ).toBe('已移除 35.3 秒');
+  });
+  it('keeps multi-rendition preservation concise without claiming removal', () => {
+    expect(
+      formatAdFilterStatus({
+        removedSegments: 0,
+        removedSeconds: 0,
+        preservedReason: 'multiple-renditions',
+      })
+    ).toBe('已啟用');
+  });
+});
+
+it('resets previous removal details to enabled for a new source and reports disabled explicitly', () => {
+  expect(
+    formatAdFilterStatus({ removedSegments: 12, removedSeconds: 35.28 })
+  ).toBe('已移除 35.3 秒');
+  expect(formatAdFilterStatus(null)).toBe('已啟用');
+  expect(formatAdFilterStatus(null, false)).toBe('已關閉');
+  expect(
+    formatAdFilterStatus({ removedSegments: 12, removedSeconds: 35.28 }, false)
+  ).toBe('已關閉');
+});
+
+it.each(['abort', 'destroy'])(
+  'ignores delayed old-source manifest reports after loader %s',
+  (operation) => {
+    let complete: (() => void) | undefined;
+    const playlist =
+      '#EXTM3U\n#MOONTV-AD-FILTER:{"removedSegments":12,"removedSeconds":35.28}\n#EXTINF:8,\n/main.ts\n#EXT-X-ENDLIST';
+    baseLoad.mockImplementationOnce((ctx, _cfg, callbacks) => {
+      complete = () => callbacks.onSuccess({ data: playlist }, {}, ctx);
+    });
+    const onAdFilter = jest.fn();
+    const onSuccess = jest.fn();
+    const Loader = createCustomHlsLoader(Hls, { onAdFilter });
+    const loader = new Loader({});
+    loader.load(
+      { type: 'level', url: '/api/m3u8/filter?url=old' },
+      {},
+      { onSuccess }
+    );
+    loader[operation]();
+    complete?.();
+    expect(onAdFilter).not.toHaveBeenCalled();
+    expect(onSuccess).not.toHaveBeenCalled();
+  }
+);

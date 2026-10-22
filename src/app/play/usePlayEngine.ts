@@ -91,6 +91,7 @@ import {
   createCustomHlsLoader,
   createDanmakuInitialConfig,
   DANMAKU_VISIBLE_RESTORE_DELAY_MS,
+  formatAdFilterStatus,
   formatTime,
   pickDanmakuSettings,
   saveDanmakuSettings,
@@ -1971,6 +1972,12 @@ export function usePlayEngine() {
       return;
     }
     const playbackUrl = getPlaybackUrl(videoUrl, blockAdEnabledRef.current);
+    // A reused player must not show removal statistics from the previous source.
+    setSettingTooltip(
+      artPlayerRef.current,
+      AD_SETTING_NAME,
+      formatAdFilterStatus(null, blockAdEnabledRef.current)
+    );
 
     // 檢測是否為WebKit瀏覽器
     const isWebkit =
@@ -2025,16 +2032,12 @@ export function usePlayEngine() {
       const CustomHlsJsLoader = createCustomHlsLoader(Hls, {
         blockAd: blockAdEnabledRef.current,
         useProxy: loadCacheSettings().useProxy,
-        onAdFilter: ({ removedSegments, removedSeconds, preservedReason }) => {
-          const message =
-            preservedReason === 'multiple-renditions'
-              ? '多畫質／多音軌時間軸未確認，保留原片'
-              : removedSegments > 0
-              ? `已移除 ${removedSegments} 段廣告（${removedSeconds.toFixed(
-                  1
-                )} 秒）`
-              : '未切除影片片段，未確認內容保留';
-          setSettingTooltip(artPlayerRef.current, AD_SETTING_NAME, message);
+        onAdFilter: (report) => {
+          setSettingTooltip(
+            artPlayerRef.current,
+            AD_SETTING_NAME,
+            formatAdFilterStatus(report, blockAdEnabledRef.current)
+          );
         },
       });
 
@@ -2327,16 +2330,6 @@ export function usePlayEngine() {
               if (video.canPlayType('application/vnd.apple.mpegurl')) {
                 video.src = url;
                 ensureVideoSource(video, url);
-                if (blockAdEnabledRef.current)
-                  setTimeout(
-                    () =>
-                      setSettingTooltip(
-                        artPlayerRef.current,
-                        AD_SETTING_NAME,
-                        '已啟用；原生 HLS 未回報移除統計'
-                      ),
-                    0
-                  );
               } else {
                 setError('此瀏覽器不支援 HLS 播放');
                 setIsVideoLoading(false);
@@ -2475,7 +2468,7 @@ export function usePlayEngine() {
             name: AD_SETTING_NAME,
             html: '去廣告',
             icon: '<text x="50%" y="50%" font-size="20" font-weight="bold" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">AD</text>',
-            tooltip: blockAdEnabled ? '已啟用，等待檢查' : '已關閉',
+            tooltip: formatAdFilterStatus(null, blockAdEnabled),
             onClick() {
               const newVal = !blockAdEnabledRef.current;
               try {
@@ -2494,7 +2487,7 @@ export function usePlayEngine() {
               setBlockAdEnabled(newVal);
               setIsDanmakuPluginReady(false);
               setIsBlockAdChanged(true);
-              return newVal ? '當前開啟' : '當前關閉';
+              return formatAdFilterStatus(null, newVal);
             },
           },
           {
