@@ -492,10 +492,10 @@ async function fetchDoubanRecommends(
 }
 
 /**
- * 豆瓣榜单类型（subject_collection 主题合集）
+ * 豆瓣榜單類型（subject_collection 主題合集）
  */
 export type DoubanCollectionId =
-  | 'movie_top250' // 豆瓣电影 Top250
+  | 'movie_top250' // 豆瓣電影 Top250
   | 'movie_weekly_best'; // 每周口碑榜
 
 interface DoubanCollectionItem {
@@ -514,11 +514,11 @@ interface DoubanCollectionResponse {
 }
 
 /**
- * 获取豆瓣榜单数据（Top250 / 每周口碑榜）。
+ * 獲取豆瓣榜單數據（Top250 / 每周口碑榜）。
  *
- * 数据源：rexxar `subject_collection/<id>/items`，条目带 rank（排名）、
- * cover_url/pic（海报）、rating.value（评分）、card_subtitle（含年份）。
- * 走与推荐接口一致的代理配置。
+ * 數據源：rexxar `subject_collection/<id>/items`，條目帶 rank（排名）、
+ * cover_url/pic（海報）、rating.value（評分）、card_subtitle（含年份）。
+ * 走與推薦接口一致的代理配置。
  */
 export async function getDoubanCollection(
   collectionId: DoubanCollectionId,
@@ -562,8 +562,130 @@ export async function getDoubanCollection(
       })
     );
 
-    return { code: 200, message: '获取成功', list };
+    return { code: 200, message: '獲取成功', list };
   } catch (error) {
-    throw new Error(`获取豆瓣榜单失败: ${(error as Error).message}`);
+    throw new Error(`獲取豆瓣榜單失敗: ${(error as Error).message}`);
   }
+}
+
+/**
+ * 豆瓣條目詳情（劇情簡介等）
+ */
+export interface DoubanSubjectDetail {
+  id: string;
+  title: string;
+  year: string;
+  rate: string;
+  intro: string;
+}
+
+interface DoubanSubjectApiResponse {
+  id?: string;
+  title?: string;
+  year?: string;
+  intro?: string;
+  rating?: { value?: number };
+}
+
+// 詳情內存緩存，避免同一卡片多次打開菜單時重復請求
+const DOUBAN_DETAIL_CACHE_LIMIT = 200;
+const doubanDetailCache = new Map<string, DoubanSubjectDetail>();
+const doubanDetailRequests = new Map<string, Promise<DoubanSubjectDetail>>();
+
+function normalizeDoubanSubjectDetail(
+  id: string,
+  data: DoubanSubjectApiResponse
+): DoubanSubjectDetail {
+  return {
+    id: data.id || id,
+    title: data.title || '',
+    year: data.year || '',
+    rate: data.rating?.value ? data.rating.value.toFixed(1) : '',
+    intro: data.intro || '',
+  };
+}
+
+/**
+ * 獲取豆瓣條目詳情（劇情簡介）。
+ * 根據代理設置選擇服務端接口或客戶端代理，並做內存緩存。
+ */
+async function requestDoubanDetail(id: string): Promise<DoubanSubjectDetail> {
+  const { proxyType, proxyUrl } = getDoubanProxyConfig();
+  const target = `https://m.douban.com/rexxar/api/v2/subject/${encodeURIComponent(
+    id
+  )}`;
+
+  let response: Response;
+  switch (proxyType) {
+    case 'cmliussss-cdn-tencent':
+      response = await fetchWithTimeout(
+        `https://m.douban.cmliussss.net/rexxar/api/v2/subject/${encodeURIComponent(
+          id
+        )}`,
+        ''
+      );
+      break;
+    case 'cmliussss-cdn-ali':
+      response = await fetchWithTimeout(
+        `https://m.douban.cmliussss.com/rexxar/api/v2/subject/${encodeURIComponent(
+          id
+        )}`,
+        ''
+      );
+      break;
+    case 'cors-proxy-zwei':
+      response = await fetchWithTimeout(target, 'https://ciao-cors.is-an.org/');
+      break;
+    case 'custom':
+      response = await fetchWithTimeout(target, proxyUrl);
+      break;
+    case 'direct':
+    default:
+      response = await fetch(
+        `/api/detail?provider=douban&id=${encodeURIComponent(id)}&fields=desc`
+      );
+      break;
+  }
+
+  if (!response.ok) {
+    throw new Error(`獲取豆瓣詳情失敗: ${response.status}`);
+  }
+
+  // 直連模式返回 { desc }，代理模式返回豆瓣條目原始結構
+  const data = (await response.json()) as DoubanSubjectApiResponse & {
+    desc?: string;
+  };
+  const detail = normalizeDoubanSubjectDetail(id, data);
+  if (!detail.intro && typeof data.desc === 'string') {
+    detail.intro = data.desc;
+  }
+  if (doubanDetailCache.size >= DOUBAN_DETAIL_CACHE_LIMIT) {
+    const oldest = doubanDetailCache.keys().next().value;
+    if (oldest !== undefined) doubanDetailCache.delete(oldest);
+  }
+  doubanDetailCache.set(id, detail);
+  return detail;
+}
+
+/** 有界 LRU 快取；重複開啟同一卡片共用進行中的請求。 */
+export function getDoubanDetail(id: string): Promise<DoubanSubjectDetail> {
+  const cached = doubanDetailCache.get(id);
+  if (cached) {
+    doubanDetailCache.delete(id);
+    doubanDetailCache.set(id, cached);
+    return Promise.resolve(cached);
+  }
+  const inflight = doubanDetailRequests.get(id);
+  if (inflight) return inflight;
+  const request = requestDoubanDetail(id);
+  doubanDetailRequests.set(id, request);
+  void request
+    .catch(() => {
+      // 呼叫端處理失敗；不保留錯誤結果，允許重新嘗試。
+    })
+    .finally(() => {
+      if (doubanDetailRequests.get(id) === request)
+        doubanDetailRequests.delete(id);
+    });
+  return request;
 }

@@ -75,6 +75,7 @@ export interface IStorage {
 
   // 用户相关
   registerUser(userName: string, password: string): Promise<void>;
+  appendRegisteredUser(userName: string): Promise<AdminConfig>;
   verifyUser(userName: string, password: string): Promise<boolean>;
   getUserPassword(userName: string): Promise<string | null>;
   // 檢查用戶是否存在（無需密碼）
@@ -95,6 +96,7 @@ export interface IStorage {
   // 管理員配置相關
   getAdminConfig(): Promise<AdminConfig | null>;
   setAdminConfig(config: AdminConfig): Promise<void>;
+  updateUserLastOnline(userName: string, timestamp: number): Promise<boolean>;
 
   // 跳過片頭片尾配置相關
   getSkipConfig(

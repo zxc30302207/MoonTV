@@ -29,7 +29,9 @@ export class TSToMP4Transmuxer {
 
     // 監聽數據事件
     this.transmuxer.on('data', (segment: any) => {
-      const data = new Uint8Array(segment.initSegment.byteLength + segment.data.byteLength);
+      const data = new Uint8Array(
+        segment.initSegment.byteLength + segment.data.byteLength
+      );
       data.set(segment.initSegment, 0);
       data.set(segment.data, segment.initSegment.byteLength);
       this.mp4Segments.push(data);
@@ -66,7 +68,10 @@ export class TSToMP4Transmuxer {
     }
 
     // 合並所有 MP4 片段
-    const totalLength = this.mp4Segments.reduce((acc, segment) => acc + segment.byteLength, 0);
+    const totalLength = this.mp4Segments.reduce(
+      (acc, segment) => acc + segment.byteLength,
+      0
+    );
     const mp4Data = new Uint8Array(totalLength);
 
     let offset = 0;
@@ -92,7 +97,9 @@ export class TSToMP4Transmuxer {
 
     // 重新綁定事件
     this.transmuxer.on('data', (segment: any) => {
-      const data = new Uint8Array(segment.initSegment.byteLength + segment.data.byteLength);
+      const data = new Uint8Array(
+        segment.initSegment.byteLength + segment.data.byteLength
+      );
       data.set(segment.initSegment, 0);
       data.set(segment.data, segment.initSegment.byteLength);
       this.mp4Segments.push(data);
@@ -123,7 +130,10 @@ export class TSToMP4Transmuxer {
  * @param duration - 視頻總時長（秒，可選）
  * @returns MP4 格式的 Blob
  */
-export function transmuxTSToMP4(tsSegments: ArrayBuffer[], duration?: number): Blob {
+export function transmuxTSToMP4(
+  tsSegments: ArrayBuffer[],
+  duration?: number
+): Blob {
   const transmuxer = new TSToMP4Transmuxer(duration);
 
   // 推送所有 TS 片段
@@ -151,7 +161,10 @@ export class StreamingTransmuxer {
   private writeError: Error | null = null; // 跟蹤寫入錯誤
   private pendingWrites: Promise<void>[] = []; // 跟蹤待完成的寫入操作
 
-  constructor(writer?: WritableStreamDefaultWriter<Uint8Array>, duration?: number) {
+  constructor(
+    writer?: WritableStreamDefaultWriter<Uint8Array>,
+    duration?: number
+  ) {
     this.writer = writer || null;
     this.duration = duration || 0;
     this.transmuxer = new muxjs.mp4.Transmuxer({
@@ -184,7 +197,8 @@ export class StreamingTransmuxer {
       } catch (error) {
         // eslint-disable-next-line no-console
         console.error('寫入 MP4 數據失敗:', error);
-        this.writeError = error instanceof Error ? error : new Error(String(error));
+        this.writeError =
+          error instanceof Error ? error : new Error(String(error));
         throw error;
       }
     });
@@ -211,7 +225,7 @@ export class StreamingTransmuxer {
 
     // 等待一小段時間，讓 data 事件有機會執行並捕獲錯誤
     // 注意：這是一個折中方案，因為 muxjs 的 data 事件是異步的
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     // 再次檢查是否有寫入錯誤
     if (this.writeError) {

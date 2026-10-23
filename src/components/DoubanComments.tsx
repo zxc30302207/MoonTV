@@ -3,7 +3,7 @@
 'use client';
 
 import { MessageCircle, RotateCcw, Star, ThumbsUp } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type {
   DoubanComment,
@@ -23,15 +23,20 @@ export default function DoubanComments({ doubanId }: DoubanCommentsProps) {
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [started, setStarted] = useState(false);
+  const requestRef = useRef<AbortController | null>(null);
 
   const fetchComments = useCallback(
     async (start: number) => {
+      requestRef.current?.abort();
+      const controller = new AbortController();
+      requestRef.current = controller;
       setLoading(true);
       setError(null);
 
       try {
         const response = await fetch(
-          `/api/douban/comments?id=${doubanId}&start=${start}&limit=${COMMENTS_LIMIT}`
+          `/api/douban/comments?id=${doubanId}&start=${start}&limit=${COMMENTS_LIMIT}`,
+          { signal: controller.signal }
         );
 
         if (!response.ok) {
@@ -40,15 +45,17 @@ export default function DoubanComments({ doubanId }: DoubanCommentsProps) {
         }
 
         const data = (await response.json()) as DoubanCommentsResult;
+        if (controller.signal.aborted) return;
         setComments((prev) =>
           start === 0 ? data.comments : [...prev, ...data.comments]
         );
         setTotal(data.total);
         setHasMore(data.hasMore);
       } catch (err) {
+        if (controller.signal.aborted) return;
         setError(err instanceof Error ? err.message : '豆瓣短評載入失敗');
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     },
     [doubanId]
@@ -61,6 +68,9 @@ export default function DoubanComments({ doubanId }: DoubanCommentsProps) {
     setTotal(0);
     setHasMore(false);
     setStarted(false);
+    return () => {
+      requestRef.current?.abort();
+    };
   }, [doubanId]);
 
   if (!doubanId) return null;

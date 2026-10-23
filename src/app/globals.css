@@ -323,6 +323,12 @@ div[data-media-provider] video {
   height: 100%;
   object-fit: contain;
 }
+/* 移動端長按視頻會觸發瀏覽器原生長按菜單（復制視頻幀 / 畫中畫），由手勢邏輯接管 */
+.art-video-player video {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
 .art-poster {
   background-size: contain !important;
   background-position: center center !important;
@@ -382,4 +388,126 @@ div[data-media-provider] video {
   .art-control-volume {
     display: none !important;
   }
+}
+
+/* 播放器內置文字提示（notice）：固定到畫面左下角，替代默認的頂部居中提示條 */
+.art-video-player .art-notice.art-notice {
+  inset: auto auto calc(var(--art-padding) + 4px) var(--art-padding);
+  width: auto;
+  max-width: calc(100% - var(--art-padding) * 2);
+  padding: 0;
+  justify-content: flex-start;
+  transition: bottom 0.2s ease;
+}
+
+/* 控制欄顯示 / 懸停時抬高一點，避免提示被進度條和按鈕遮擋 */
+.art-video-player.art-control-show .art-notice.art-notice,
+.art-video-player.art-hover .art-notice.art-notice {
+  bottom: calc(var(--art-control-height) + 12px);
+}
+
+/* 自定義堆疊提示：右上角，新提示在最上方；內置 notice 仍在左下角 */
+.art-video-player .moontv-notice-stack {
+  position: absolute;
+  z-index: 80;
+  top: calc(var(--art-padding) + 4px);
+  right: var(--art-padding);
+  display: flex;
+  /* column-reverse：DOM 末尾的最新一條顯示在最上方 */
+  flex-direction: column-reverse;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: calc(100% - var(--art-padding) * 2);
+  pointer-events: none;
+}
+
+.art-video-player .moontv-notice-stack .moontv-notice-item {
+  max-width: 100%;
+  padding: 5px 8px;
+  border-radius: var(--art-border-radius);
+  background-color: var(--art-tip-background);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.35;
+  word-break: break-word;
+  animation: moontv-notice-in 0.16s ease-out;
+}
+
+@keyframes moontv-notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 移動端手勢反饋：亮度遮罩蓋在視頻上，不擋住字幕 / 彈幕 / 控制欄 */
+.art-video-player .moontv-gesture-dim {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  background-color: #000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s linear;
+}
+
+/* 手勢 HUD：音量 / 亮度 / 雙擊快進，仿系統音量浮層的頂部橫向滑桿 */
+.art-video-player .moontv-gesture-hud {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--art-padding) + 10px);
+  z-index: 90;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: min(70%, 240px);
+  padding: 6px 12px;
+  border-radius: 999px;
+  background-color: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-50%) translateY(-4px);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s;
+}
+
+.art-video-player .moontv-gesture-hud.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+.art-video-player .moontv-gesture-hud-text {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.art-video-player .moontv-gesture-hud-track {
+  width: 100px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.28);
+}
+
+.art-video-player .moontv-gesture-hud-bar {
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background-color: #fff;
+  /* 手勢滑桿必須實時跟手，不能加過渡，否則會始終落後於手指 */
+  transition: none;
+  will-change: width;
 }

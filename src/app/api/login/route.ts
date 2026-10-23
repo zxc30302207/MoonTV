@@ -155,7 +155,10 @@ export async function POST(req: NextRequest) {
 
     const config = await getConfig();
     const user = config.UserConfig.Users.find((u) => u.username === username);
-    if (user && user.banned) {
+    if (!user) {
+      return NextResponse.json({ error: '用戶名或密碼錯誤' }, { status: 401 });
+    }
+    if (user.banned) {
       return NextResponse.json({ error: '用戶被封禁' }, { status: 401 });
     }
 
@@ -173,7 +176,7 @@ export async function POST(req: NextRequest) {
       const response = NextResponse.json({ ok: true });
       const cookieValue = await generateAuthCookie(req, {
         username,
-        role: user?.role || 'user',
+        role: user.role || 'user',
       });
       const expires = new Date();
       expires.setDate(expires.getDate() + 7); // 7天過期

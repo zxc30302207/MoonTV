@@ -44,8 +44,18 @@ describe('private session cleanup', () => {
   it('waits for both prefetch queues to finish pending writes before clearing media', async () => {
     let finishCurrent!: () => void;
     let finishNext!: () => void;
-    mockStop.mockImplementationOnce(() => new Promise<void>((resolve) => { finishCurrent = resolve; }));
-    mockStop.mockImplementationOnce(() => new Promise<void>((resolve) => { finishNext = resolve; }));
+    mockStop.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishCurrent = resolve;
+        })
+    );
+    mockStop.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishNext = resolve;
+        })
+    );
     const cleanup = clearPrivateClientState();
     for (let i = 0; i < 20; i++) await Promise.resolve();
     expect(mockStop).toHaveBeenCalledTimes(2);

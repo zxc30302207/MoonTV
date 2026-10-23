@@ -158,7 +158,11 @@ export default function SearchSuggestions({
   // 鍵盤導航
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isVisible || suggestions.length === 0) return;
+      if (!isVisible || suggestions.length === 0 || e.isComposing) return;
+      // Desktop and mobile search forms can coexist; only handle our own input.
+      const scope =
+        containerRef.current?.closest('form') || containerRef.current;
+      if (!(e.target instanceof Node) || !scope?.contains(e.target)) return;
 
       switch (e.key) {
         case 'ArrowDown':
@@ -216,6 +220,7 @@ export default function SearchSuggestions({
     >
       {suggestions.map((suggestion, index) => (
         <button
+          type='button'
           key={`suggestion-${suggestion.text}-${index}`}
           onClick={() => onSelect(suggestion.text)}
           onMouseEnter={() => setSelectedIndex(index)}

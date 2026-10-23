@@ -17,6 +17,11 @@ describe('上游相容版本', () => {
     expect(changelog[0].version).toBe(CURRENT_VERSION);
   });
   it.each([
+    '4.6.0',
+    'v4.6.0',
+    '4.6.0+fork.1',
+    '4.6.0-custom.2',
+    '4.5.1',
     '4.5.0',
     'v4.5.0',
     ' 4.5.0\n',
@@ -27,7 +32,7 @@ describe('上游相容版本', () => {
   ])('does not announce integrated or older %s', (version) => {
     expect(compareVersions(version)).toBe(UpdateStatus.NO_UPDATE);
   });
-  it.each(['4.5.1', '4.6.0', '4.10.0', '5.0.0'])(
+  it.each(['4.6.1', '4.7.0', '4.10.0', '5.0.0'])(
     'still announces newer %s',
     (version) => {
       expect(compareVersions(version)).toBe(UpdateStatus.HAS_UPDATE);

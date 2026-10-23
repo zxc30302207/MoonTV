@@ -51,19 +51,26 @@ describe('进度跳转后的缓存调度', () => {
       concurrency: 1,
     });
     (parseM3U8 as jest.Mock).mockResolvedValue({
-      tsUrlList: Array.from({ length: 10 }, (_, i) => `https://cdn.test/${i}.ts`),
+      tsUrlList: Array.from(
+        { length: 10 },
+        (_, i) => `https://cdn.test/${i}.ts`
+      ),
       segmentDurations: Array(10).fill(10),
       durationSecond: 100,
     });
-    (getCachedSegmentRecords as jest.Mock).mockImplementation(async () => records.slice());
+    (getCachedSegmentRecords as jest.Mock).mockImplementation(async () =>
+      records.slice()
+    );
     (hasCachedSegment as jest.Mock).mockImplementation(async (key) =>
       records.some((record) => record.key === key)
     );
     (putCachedSegmentResilient as jest.Mock).mockResolvedValue('ok');
-    (metaStore.put as jest.Mock).mockImplementation(async (record: SegmentMeta) => {
-      records = records.filter((existing) => existing.key !== record.key);
-      records.push(record);
-    });
+    (metaStore.put as jest.Mock).mockImplementation(
+      async (record: SegmentMeta) => {
+        records = records.filter((existing) => existing.key !== record.key);
+        records.push(record);
+      }
+    );
   });
 
   afterEach(async () => {
@@ -77,7 +84,9 @@ describe('进度跳转后的缓存调度', () => {
       if (String(url).endsWith('/1.ts')) {
         oldSignal = init?.signal as AbortSignal;
         return new Promise<Response>((_, reject) => {
-          oldSignal?.addEventListener('abort', () => reject(new Error('aborted')));
+          oldSignal?.addEventListener('abort', () =>
+            reject(new Error('aborted'))
+          );
         });
       }
       return Promise.resolve({
@@ -96,11 +105,16 @@ describe('进度跳转后的缓存调度', () => {
     await flush();
     const urls = (global.fetch as jest.Mock).mock.calls.map(([url]) => url);
     expect(urls.slice(2)).toEqual([
-      'https://cdn.test/6.ts', 'https://cdn.test/7.ts',
-      'https://cdn.test/8.ts', 'https://cdn.test/9.ts',
+      'https://cdn.test/6.ts',
+      'https://cdn.test/7.ts',
+      'https://cdn.test/8.ts',
+      'https://cdn.test/9.ts',
     ]);
     expect(updates[updates.length - 1]).toMatchObject({
-      state: 'done', cached: 5, total: 10, coverTo: 50,
+      state: 'done',
+      cached: 5,
+      total: 10,
+      coverTo: 50,
     });
     expect(mergeCachedTimeRanges(records)).toEqual([
       { startTime: 0, endTime: 10, firstIndex: 1, lastIndex: 1 },
@@ -110,28 +124,38 @@ describe('进度跳转后的缓存调度', () => {
 
   it('返回已缓存的位置时跳过本地片段，不重复下载', async () => {
     records.push({
-      key: 'https://cdn.test/9.ts', episodeKey: options.episodeKey,
-      index: 10, bytes: 8, costMs: 1, lastAccess: 0,
+      key: 'https://cdn.test/9.ts',
+      episodeKey: options.episodeKey,
+      index: 10,
+      bytes: 8,
+      costMs: 1,
+      lastAccess: 0,
     });
     global.fetch = jest.fn();
     prefetcher.ensure({ ...options, currentTime: 95 });
     await flush();
     expect(global.fetch).not.toHaveBeenCalled();
-    expect(prefetcher.getStats()).toMatchObject({ cached: 1, total: 10, coverTo: 10 });
+    expect(prefetcher.getStats()).toMatchObject({
+      cached: 1,
+      total: 10,
+      coverTo: 10,
+    });
     expect(records[0]).toMatchObject({ startTime: 90, endTime: 100 });
   });
 });
 
 describe('缓存时间段合并', () => {
   it('合并乱序的连续片段和重叠时间，不跨越未缓存间隙', () => {
-    expect(mergeCachedTimeRanges([
-      { index: 3, startTime: 20, endTime: 30 },
-      { index: 1, startTime: 0, endTime: 10 },
-      { index: 2, startTime: 10, endTime: 20 },
-      { index: 6, startTime: 50, endTime: 60 },
-      { index: 6, startTime: 50, endTime: 60 },
-      { index: 7 },
-    ])).toEqual([
+    expect(
+      mergeCachedTimeRanges([
+        { index: 3, startTime: 20, endTime: 30 },
+        { index: 1, startTime: 0, endTime: 10 },
+        { index: 2, startTime: 10, endTime: 20 },
+        { index: 6, startTime: 50, endTime: 60 },
+        { index: 6, startTime: 50, endTime: 60 },
+        { index: 7 },
+      ])
+    ).toEqual([
       { startTime: 0, endTime: 30, firstIndex: 1, lastIndex: 3 },
       { startTime: 50, endTime: 60, firstIndex: 6, lastIndex: 6 },
     ]);

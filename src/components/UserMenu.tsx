@@ -22,6 +22,7 @@ import {
   getCachedAuthInfo,
   refreshAuthInfo,
 } from '@/lib/auth-client';
+import { saveNavSettings } from '@/lib/nav-settings';
 import { checkForUpdates, CURRENT_VERSION, UpdateStatus } from '@/lib/version';
 
 import { useNavigationLoading } from './NavigationLoadingProvider';
@@ -55,6 +56,8 @@ export const UserMenu: React.FC = () => {
   const [defaultAggregateSearch, setDefaultAggregateSearch] = useState(true);
   const [defaultStreamSearch, setDefaultStreamSearch] = useState(true);
   const [simpleMode, setSimpleMode] = useState(false);
+  // 自動隱藏導覽列（類任務欄效果）
+  const [autoHideNav, setAutoHideNav] = useState(false);
   const [doubanProxyUrl, setDoubanProxyUrl] = useState('');
 
   const [doubanDataSource, setDoubanDataSource] = useState('direct');
@@ -181,6 +184,11 @@ export const UserMenu: React.FC = () => {
       const savedSimpleMode = localStorage.getItem('simpleMode');
       if (savedSimpleMode !== null) {
         setSimpleMode(JSON.parse(savedSimpleMode));
+      }
+
+      const savedAutoHideNav = localStorage.getItem('autoHideNav');
+      if (savedAutoHideNav !== null) {
+        setAutoHideNav(savedAutoHideNav === 'true');
       }
 
       const savedDoubanDataSource = localStorage.getItem('doubanDataSource');
@@ -486,6 +494,11 @@ export const UserMenu: React.FC = () => {
     }
   };
 
+  const handleAutoHideNavToggle = (value: boolean) => {
+    setAutoHideNav(value);
+    saveNavSettings({ autoHideNav: value });
+  };
+
   const handleSimpleModeToggle = (value: boolean) => {
     setSimpleMode(value);
     if (typeof window !== 'undefined') {
@@ -563,6 +576,8 @@ export const UserMenu: React.FC = () => {
     setDefaultAggregateSearch(true);
     setDefaultStreamSearch(true);
     setSimpleMode(false);
+    setAutoHideNav(false);
+    saveNavSettings({ autoHideNav: false });
 
     setDoubanProxyUrl(defaultDoubanProxy);
     setDoubanDataSource(defaultDoubanProxyType);
@@ -1247,6 +1262,30 @@ export const UserMenu: React.FC = () => {
                   className='sr-only peer'
                   checked={simpleMode}
                   onChange={(e) => handleSimpleModeToggle(e.target.checked)}
+                />
+                <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
+                <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
+              </div>
+            </label>
+          </div>
+
+          {/* 自動隱藏導覽列設置（僅桌面端生效，移動端導航欄始終顯示） */}
+          <div className='hidden md:flex items-center justify-between'>
+            <div>
+              <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                自動隱藏導覽列
+              </h4>
+              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                開啟後桌面端導覽列預設收起，滑鼠移到螢幕頂部邊緣時自動展開，頁面內容隨之上移
+              </p>
+            </div>
+            <label className='flex items-center cursor-pointer'>
+              <div className='relative'>
+                <input
+                  type='checkbox'
+                  className='sr-only peer'
+                  checked={autoHideNav}
+                  onChange={(e) => handleAutoHideNavToggle(e.target.checked)}
                 />
                 <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
                 <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
