@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import type { ReactNode } from 'react';
 
 import {
@@ -7,8 +13,20 @@ import {
   saveFollowing,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
+import { getDoubanDetail } from '@/lib/douban.client';
+import { getVideoDesc } from '@/lib/video-detail.client';
 
 import VideoCard from '../VideoCard';
+
+jest.mock('@/lib/video-detail.client', () => ({
+  getVideoDesc: jest.fn().mockResolvedValue('來源簡介'),
+}));
+jest.mock('@/lib/douban.client', () => ({
+  getDoubanDetail: jest.fn().mockResolvedValue({ intro: '豆瓣簡介' }),
+}));
+jest.mock('@/lib/bangumi.client', () => ({
+  GetBangumiSubjectDetail: jest.fn().mockResolvedValue({ summary: '動畫簡介' }),
+}));
 
 const push = jest.fn();
 const unsubscribe = jest.fn();
@@ -30,7 +48,9 @@ jest.mock('@/components/MobileActionSheet', () => ({
   default: ({
     isOpen,
     actions,
+    description,
   }: {
+    description?: string;
     isOpen: boolean;
     actions: Array<{
       id: string;
@@ -41,6 +61,7 @@ jest.mock('@/components/MobileActionSheet', () => ({
   }) =>
     isOpen ? (
       <div>
+        <p data-testid='intro'>{description}</p>
         {actions.map((action) => (
           <button key={action.id} onClick={action.onClick}>
             {action.label}
@@ -179,5 +200,65 @@ describe('VideoCard upstream gesture and URL compatibility', () => {
     ).not.toBeInTheDocument();
     fireEvent.touchEnd(card);
     jest.useRealTimers();
+  });
+});
+
+describe('VideoCard synopsis integration', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    followingStatus.mockResolvedValue(false);
+    (subscribeToDataUpdates as jest.Mock).mockReturnValue(unsubscribe);
+  });
+
+  it('loads source descriptions only when the menu opens', async () => {
+    render(<VideoCard id='v1' source='source1' title='作品' from='search' />);
+    expect(getVideoDesc).not.toHaveBeenCalled();
+    fireEvent.contextMenu(screen.getByRole('img', { name: '作品' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('intro')).toHaveTextContent('來源簡介')
+    );
+    expect(getVideoDesc).toHaveBeenCalledWith('source1', 'v1', '作品');
+  });
+
+  it('falls back to source synopsis when Douban has no synopsis', async () => {
+    (getDoubanDetail as jest.Mock).mockResolvedValueOnce({ intro: '' });
+    render(
+      <VideoCard
+        id='v1'
+        source='source1'
+        title='作品'
+        douban_id={123}
+        from='search'
+      />
+    );
+    fireEvent.contextMenu(screen.getByRole('img', { name: '作品' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('intro')).toHaveTextContent('來源簡介')
+    );
+  });
+
+  it('ignores a previous card request after the item changes', async () => {
+    let resolveOld!: (value: string) => void;
+    (getVideoDesc as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveOld = resolve;
+        })
+    );
+    const { rerender } = render(
+      <VideoCard id='v1' source='source1' title='作品一' from='search' />
+    );
+    fireEvent.contextMenu(screen.getByRole('img', { name: '作品一' }));
+    rerender(
+      <VideoCard id='v2' source='source1' title='作品二' from='search' />
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('intro')).toHaveTextContent('來源簡介')
+    );
+    await act(async () => {
+      resolveOld('舊作品簡介');
+    });
+    expect(screen.getByTestId('intro')).toHaveTextContent('來源簡介');
+    expect(screen.getByTestId('intro')).not.toHaveTextContent('舊作品簡介');
   });
 });

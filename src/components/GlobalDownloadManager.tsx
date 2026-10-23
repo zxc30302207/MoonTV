@@ -87,7 +87,9 @@ const GlobalDownloadManager = () => {
     }
 
     queuedTasks.forEach((task) => {
-      window.dispatchEvent(new CustomEvent('addDownloadTask', { detail: task }));
+      window.dispatchEvent(
+        new CustomEvent('addDownloadTask', { detail: task })
+      );
     });
     setQueuedTasks([]);
   }, [managerReady, queuedTasks]);

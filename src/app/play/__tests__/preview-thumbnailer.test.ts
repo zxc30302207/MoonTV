@@ -29,11 +29,9 @@ beforeEach(() => {
     .spyOn(HTMLMediaElement.prototype, 'pause')
     .mockImplementation(() => undefined);
   jest.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
-  jest
-    .spyOn(HTMLCanvasElement.prototype, 'getContext')
-    .mockReturnValue({
-      drawImage: jest.fn(),
-    } as unknown as CanvasRenderingContext2D);
+  jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+    drawImage: jest.fn(),
+  } as unknown as CanvasRenderingContext2D);
 });
 afterEach(() => {
   jest.restoreAllMocks();

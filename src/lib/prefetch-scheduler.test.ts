@@ -26,3 +26,24 @@ it('yields bandwidth while playing with low buffer but not while paused', () => 
   expect(shouldThrottlePrefetch({ ...video, paused: true }, true)).toBe(false);
   expect(shouldThrottlePrefetch({ ...video, seeking: true }, false)).toBe(true);
 });
+
+it('wakes queued work when the user raises the shared limit', async () => {
+  let limit = 1;
+  const limiter = new PrefetchLimiter(() => limit);
+  const releaseFirst = await limiter.acquire(new AbortController().signal);
+  let acquired = false;
+  const pending = limiter
+    .acquire(new AbortController().signal)
+    .then((release) => {
+      acquired = true;
+      return release;
+    });
+  await Promise.resolve();
+  expect(acquired).toBe(false);
+  limit = 2;
+  limiter.notifyLimitChanged();
+  const releaseSecond = await pending;
+  expect(acquired).toBe(true);
+  releaseSecond();
+  releaseFirst();
+});

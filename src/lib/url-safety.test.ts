@@ -35,6 +35,60 @@ describe('url-safety', () => {
     ).toThrow();
   });
 
+  it.each([
+    '::ffff:127.0.0.1',
+    '::ffff:7f00:1',
+    '0:0:0:0:0:ffff:a00:1',
+    '::ffff:192.168.1.1',
+    '::ffff:169.254.169.254',
+    '0:0:0:0:0:0:0:1',
+    '::',
+    'fc00::1',
+    'fdff::1',
+    'fe80::1',
+    'fe90::1',
+    'febf:ffff::1',
+  ])('rejects private IPv6 literal %s before fetch', async (address) => {
+    const url = `http://[${address}]/image.png`;
+    expect(() => assertSafeUrl(url)).toThrow();
+    await expect(assertSafeResolvedUrl(url)).rejects.toThrow();
+    const fetchSpy = jest.spyOn(globalThis, 'fetch');
+    await expect(safeFetch(url)).rejects.toThrow();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(mockLookup).not.toHaveBeenCalled();
+  });
+
+  it.each(['::ffff:8.8.8.8', '::ffff:808:808', '2001:4860:4860::8888'])(
+    'allows public IPv6 literal %s',
+    async (address) => {
+      await expect(
+        assertSafeResolvedUrl(`https://[${address}]/`)
+      ).resolves.toBeInstanceOf(URL);
+    }
+  );
+
+  it.each(['fcdn.example.com', 'fdimages.example.com'])(
+    'does not mistake a domain starting with fc/fd for a private IPv6 address: %s',
+    async (host) => {
+      await expect(
+        assertSafeResolvedUrl(`https://${host}/`)
+      ).resolves.toBeInstanceOf(URL);
+      expect(mockLookup).toHaveBeenCalledWith(host, {
+        all: true,
+        verbatim: true,
+      });
+    }
+  );
+
+  it('rejects DNS answers containing IPv4-mapped private IPv6', async () => {
+    mockLookup.mockResolvedValue([
+      { address: '::ffff:127.0.0.1', family: 6 },
+    ] as never);
+    await expect(
+      assertSafeResolvedUrl('https://media.example.com/')
+    ).rejects.toThrow();
+  });
+
   it('rejects public hostnames that resolve to private addresses', async () => {
     mockLookup.mockResolvedValue([{ address: '10.0.0.5', family: 4 }] as never);
 

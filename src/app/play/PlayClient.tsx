@@ -3,7 +3,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import AddDownloadModal from '@/components/AddDownloadModal';
@@ -75,7 +75,6 @@ export default function PlayClient() {
     handleEpisodeChange,
     // 彈幕
     showDanmakuSelector,
-    isDanmakuLoading,
     handleDanmakuSelect,
     handleDanmakuClose,
     // 緩存管理
@@ -87,6 +86,19 @@ export default function PlayClient() {
     handleToggleFavorite,
     handleToggleFollowing,
   } = usePlayEngine();
+
+  // 播放器內的彈窗（彈幕源 / 緩存管理）打開時鎖住頁面滾動，
+  // 避免移動端未全屏時手指在遮罩上滑動仍然滾動到背後的頁面內容。
+  const isPlayerModalOpen = showDanmakuSelector || showCacheManager;
+
+  useEffect(() => {
+    if (!isPlayerModalOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isPlayerModalOpen]);
 
   if (loading) {
     return (
@@ -128,7 +140,11 @@ export default function PlayClient() {
           <div className='grid grid-cols-1 md:grid-cols-4 lg:h-[500px] xl:h-[650px] 2xl:h-[750px]'>
             {/* 播放器 */}
             <div className='h-full md:col-span-3'>
-              <div className='relative isolate w-full h-[300px] lg:h-full'>
+              <div
+                className={`relative isolate w-full h-[300px] lg:h-full ${
+                  isPlayerModalOpen ? 'z-[1200]' : ''
+                }`}
+              >
                 <div
                   ref={artRef}
                   className='bg-black w-full h-full overflow-hidden shadow-lg'
@@ -205,13 +221,6 @@ export default function PlayClient() {
                           stage={videoLoadingStage}
                         />
                       </div>
-                      {isDanmakuLoading && (
-                        <div className='pointer-events-none absolute left-4 right-4 top-16 z-40 flex justify-center'>
-                          <div className='rounded-lg bg-gray-800/90 px-4 py-2 text-white shadow-lg'>
-                            正在自動加載彈幕...
-                          </div>
-                        </div>
-                      )}
                       {showCacheManager && (
                         <div
                           className='moontv-player-modal'

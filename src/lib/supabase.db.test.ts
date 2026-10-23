@@ -4,6 +4,11 @@ import { SupabaseStorage } from './supabase.db';
 import { Following, TodayUpdatedRecord } from './types';
 
 jest.mock('@supabase/supabase-js', () => ({ createClient: jest.fn() }));
+jest.mock('./password', () => ({
+  normalizePasswordForStorage: jest.fn(
+    async (password: string) => `hash:${password}`
+  ),
+}));
 
 const following: Following = {
   title: 'Test',
@@ -30,6 +35,7 @@ describe('Supabase following persistence', () => {
     order: jest.fn(),
     delete: jest.fn(),
     upsert: jest.fn(),
+    insert: jest.fn(),
     range: jest.fn(),
     maybeSingle: jest.fn(),
     then: (resolve: (value: unknown) => unknown) =>
@@ -156,6 +162,168 @@ describe('Supabase following persistence', () => {
         next
       )
     ).toBe(true);
+  });
+
+  it('inserts passwords once so competing registrations cannot overwrite the winner', async () => {
+    const passwords = new Map<string, string>();
+    query.insert.mockImplementation(
+      async (row: { key: string; value: string }) => {
+        if (passwords.has(row.key)) return { error: { code: '23505' } };
+        passwords.set(row.key, row.value);
+        return { error: null };
+      }
+    );
+    const results = await Promise.allSettled([
+      storage.registerUser('alice', 'first'),
+      storage.registerUser('alice', 'second'),
+    ]);
+    expect(results.map((result) => result.status)).toEqual([
+      'fulfilled',
+      'rejected',
+    ]);
+    expect(passwords.get('u:alice:pwd')).toBe('hash:first');
+    expect(query.upsert).not.toHaveBeenCalled();
+  });
+
+  it('retries heartbeats against the latest config without reverting concurrent settings', async () => {
+    const original = {
+      UserConfig: { Users: [{ username: 'alice', banned: false }] },
+      SiteConfig: { SiteName: 'old' },
+    };
+    const edited = { ...original, SiteConfig: { SiteName: 'new' } };
+    query.maybeSingle
+      .mockResolvedValueOnce({ data: { value: original }, error: null })
+      .mockResolvedValueOnce({ data: { value: edited }, error: null });
+    query.select.mockImplementation(() => {
+      if (query.update.mock.calls.length === 2)
+        updatedRows = [{ key: 'admin:config' }];
+      return query;
+    });
+    expect(await storage.updateUserLastOnline('alice', 100)).toBe(true);
+    expect(query.update).toHaveBeenCalledTimes(2);
+    expect(query.eq).toHaveBeenCalledWith('value', JSON.stringify(original));
+    expect(query.eq).toHaveBeenCalledWith('value', JSON.stringify(edited));
+    expect(query.update.mock.calls[1][0].value).toEqual({
+      ...edited,
+      UserConfig: {
+        Users: [{ username: 'alice', banned: false, lastOnline: 100 }],
+      },
+    });
+    expect(original.UserConfig.Users[0]).not.toHaveProperty('lastOnline');
+    expect(query.upsert).not.toHaveBeenCalled();
+  });
+
+  it('preserves another registration when appending a user races on admin config', async () => {
+    const original = {
+      UserConfig: { AllowRegister: true, Users: [] },
+      SiteConfig: { SiteName: 'site' },
+    };
+    const withBob = {
+      ...original,
+      UserConfig: {
+        AllowRegister: true,
+        Users: [{ username: 'bob', role: 'user' }],
+      },
+    };
+    query.maybeSingle
+      .mockResolvedValueOnce({ data: { value: original }, error: null })
+      .mockResolvedValueOnce({ data: { value: withBob }, error: null });
+    query.select.mockImplementation(() => {
+      if (query.update.mock.calls.length === 2)
+        updatedRows = [{ key: 'admin:config' }];
+      return query;
+    });
+    const config = await storage.appendRegisteredUser('alice');
+    expect(config.UserConfig.Users.map((user) => user.username)).toEqual([
+      'bob',
+      'alice',
+    ]);
+    expect(query.eq).toHaveBeenCalledWith('value', JSON.stringify(withBob));
+    expect(query.upsert).not.toHaveBeenCalled();
+  });
+
+  it('does not append after registration closes or overwrite an existing configured user', async () => {
+    query.maybeSingle.mockResolvedValue({
+      data: { value: { UserConfig: { AllowRegister: false, Users: [] } } },
+      error: null,
+    });
+    await expect(storage.appendRegisteredUser('alice')).rejects.toThrow(
+      'closed'
+    );
+    query.maybeSingle.mockResolvedValue({
+      data: {
+        value: {
+          UserConfig: {
+            AllowRegister: true,
+            Users: [{ username: 'alice', role: 'admin' }],
+          },
+        },
+      },
+      error: null,
+    });
+    await expect(storage.appendRegisteredUser('alice')).rejects.toThrow(
+      'already configured'
+    );
+    expect(query.update).not.toHaveBeenCalled();
+  });
+
+  it('preserves legacy env-enabled registration when the stored flag is absent', async () => {
+    const previousEnv = process.env.NEXT_PUBLIC_ENABLE_REGISTER;
+    process.env.NEXT_PUBLIC_ENABLE_REGISTER = 'true';
+    try {
+      query.maybeSingle.mockResolvedValue({
+        data: { value: { UserConfig: { Users: [] } } },
+        error: null,
+      });
+      updatedRows = [{ key: 'admin:config' }];
+      expect(
+        (await storage.appendRegisteredUser('alice')).UserConfig.Users[0]
+          .username
+      ).toBe('alice');
+    } finally {
+      if (previousEnv === undefined)
+        delete process.env.NEXT_PUBLIC_ENABLE_REGISTER;
+      else process.env.NEXT_PUBLIC_ENABLE_REGISTER = previousEnv;
+    }
+  });
+
+  it('does not undo a ban committed between heartbeat read and write', async () => {
+    query.maybeSingle
+      .mockResolvedValueOnce({
+        data: { value: { UserConfig: { Users: [{ username: 'alice' }] } } },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: {
+          value: {
+            UserConfig: { Users: [{ username: 'alice', banned: true }] },
+          },
+        },
+        error: null,
+      });
+    expect(await storage.updateUserLastOnline('alice', 100)).toBe(false);
+    expect(query.update).toHaveBeenCalledTimes(1);
+    expect(query.upsert).not.toHaveBeenCalled();
+  });
+
+  it('does not recreate a deleted config/user and bounds contention retries', async () => {
+    expect(await storage.updateUserLastOnline('alice', 100)).toBe(false);
+    expect(query.update).not.toHaveBeenCalled();
+    query.maybeSingle.mockResolvedValue({
+      data: {
+        value: {
+          UserConfig: { Users: [{ username: 'alice', lastOnline: 200 }] },
+        },
+      },
+      error: null,
+    });
+    await expect(storage.updateUserLastOnline('alice', 100)).rejects.toThrow(
+      'Concurrent'
+    );
+    expect(query.update).toHaveBeenCalledTimes(5);
+    expect(
+      query.update.mock.calls[0][0].value.UserConfig.Users[0].lastOnline
+    ).toBe(200);
   });
 
   it('preserves search-history order in a single write', async () => {

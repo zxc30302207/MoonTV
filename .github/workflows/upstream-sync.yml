@@ -1,43 +1,85 @@
-name: Upstream Sync
+name: Upstream proposal (draft PR only)
 
 on:
   schedule:
-    - cron: "0 */6 * * *" # run every 6 hours
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
-  actions: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-proposal
+  cancel-in-progress: false
 
 jobs:
-  sync_latest_from_upstream:
-    name: Sync latest commits from upstream repo
+  propose:
     runs-on: ubuntu-latest
-    if: ${{ github.event.repository.fork }}
-
     steps:
-      - name: Checkout target repo
-        uses: actions/checkout@v4
-
-      - name: Sync upstream changes
-        id: sync
-        uses: aormsby/Fork-Sync-With-Upstream-action@v3.4.1
+      - name: Check out trusted default branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          upstream_sync_repo: stardm0/MoonTV
-          upstream_sync_branch: main
-          target_sync_branch: main
-          target_repo_token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Sync check
-        if: failure()
+      - name: Prepare isolated incremental proposal
+        id: prepare
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          echo "[Error] Due to a change in the workflow file of the upstream repository, GitHub has automatically suspended the scheduled automatic update. You need to manually sync your fork."
-          exit 1
+          set -euo pipefail
+          git fetch --no-tags https://github.com/Stardm0/MoonTV.git main
+          target="$(git rev-parse FETCH_HEAD)"
+          branch="automation/upstream-${target}"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          # Never overwrite an existing proposal branch or human review edits.
+          if git ls-remote --exit-code origin "refs/heads/$branch" >/dev/null 2>&1; then
+            if [ "$(gh pr list --state all --head "$branch" --json number --jq 'length')" -gt 0 ]; then
+              echo 'status=existing' >> "$GITHUB_OUTPUT"
+              echo 'Existing proposal retained; no branch updates or force push.'
+            else
+              # Recover a prior successful push followed by a failed PR creation.
+              git fetch origin "refs/heads/$branch"
+              git show FETCH_HEAD:docs/UPSTREAM_SYNC_REPORT.md > "$RUNNER_TEMP/upstream-pr-body.md"
+              git show FETCH_HEAD:.github/upstream-base.txt > "$RUNNER_TEMP/upstream-remote-base.txt"
+              python3 scripts/upstream-sync.py "$target" --recover-report "$RUNNER_TEMP/upstream-pr-body.md" --remote-base "$RUNNER_TEMP/upstream-remote-base.txt"
+              echo 'status=recover' >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+          git switch -c "$branch"
+          python3 scripts/upstream-sync.py "$target" --output "$RUNNER_TEMP/upstream-result.json"
+          status="$(python3 -c 'import json,os; print(json.load(open(os.environ["RUNNER_TEMP"]+"/upstream-result.json"))["status"])')"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          if [ "$status" = noop ]; then exit 0; fi
+          # Do not execute proposed scripts, install dependencies, or run untrusted
+          # upstream code in this token-bearing job. CI is a separate reviewed run.
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add --all
+          git commit -m "chore: propose upstream ${target:0:12} (${status})"
+          cp docs/UPSTREAM_SYNC_REPORT.md "$RUNNER_TEMP/upstream-pr-body.md"
 
-      - name: Delete workflow runs
-        uses: Mattraks/delete-workflow-runs@main
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.repository }}
-          retain_days: 0
-          keep_minimum_runs: 2
+      - name: Publish a draft proposal, never merge
+        if: steps.prepare.outputs.status == 'clean' || steps.prepare.outputs.status == 'manual' || steps.prepare.outputs.status == 'recover'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          PROPOSAL_BRANCH: ${{ steps.prepare.outputs.branch }}
+          PROPOSAL_STATUS: ${{ steps.prepare.outputs.status }}
+        run: |
+          set -euo pipefail
+          gh auth setup-git
+          if [ "$PROPOSAL_STATUS" != recover ]; then
+            git push origin "HEAD:refs/heads/$PROPOSAL_BRANCH"
+          fi
+          gh pr create --draft --base "$BASE_BRANCH" --head "$PROPOSAL_BRANCH" \
+            --title "Upstream proposal ($PROPOSAL_STATUS): ${PROPOSAL_BRANCH#automation/upstream-}" \
+            --body-file "$RUNNER_TEMP/upstream-pr-body.md"
+          echo 'Draft created. Workflow logs are retained. A maintainer must review and dispatch CI for this exact branch/commit.'

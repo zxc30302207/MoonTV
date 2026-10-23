@@ -26,6 +26,10 @@ interface MobileActionSheetProps {
   currentEpisode?: number;
   totalEpisodes?: number;
   origin?: 'vod' | 'live';
+  /** 劇情簡介（僅傳入時展示） */
+  description?: string;
+  /** 劇情簡介加載狀態 */
+  descriptionLoading?: boolean;
 }
 
 const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
@@ -40,6 +44,8 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
   currentEpisode,
   totalEpisodes,
   origin = 'vod',
+  description,
+  descriptionLoading = false,
 }) => {
   const [isVisible, setIsVisible] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -305,6 +311,25 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
             </div>
           ))}
         </div>
+
+        {(descriptionLoading || description) && (
+          <div className='px-4 pb-4 border-t border-gray-100 dark:border-gray-800'>
+            <h4 className='mb-1 mt-3 text-sm font-medium text-gray-900 dark:text-gray-100'>
+              劇情簡介
+            </h4>
+            {descriptionLoading ? (
+              <div className='space-y-2 pt-1' aria-hidden='true'>
+                <div className='h-3 w-full rounded bg-gray-200 dark:bg-gray-800 animate-pulse' />
+                <div className='h-3 w-11/12 rounded bg-gray-200 dark:bg-gray-800 animate-pulse' />
+                <div className='h-3 w-4/5 rounded bg-gray-200 dark:bg-gray-800 animate-pulse' />
+              </div>
+            ) : (
+              <p className='scrollbar-hide max-h-32 overflow-y-auto whitespace-pre-line text-sm leading-relaxed text-gray-600 dark:text-gray-300'>
+                {description}
+              </p>
+            )}
+          </div>
+        )}
 
         {isAggregate && sources && sources.length > 0 && (
           <div className='px-4 py-3 border-t border-gray-100 dark:border-gray-800'>

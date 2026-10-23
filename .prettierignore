@@ -39,3 +39,9 @@ yarn-error.log*
 CHANGELOG.md
 
 pnpm-lock.yaml
+
+# Generated build outputs (format their generators instead)
+src/lib/runtime.ts
+public/manifest.json
+# Vendored StreamSaver worker; source of truth is scripts/assets/streamsaver-sw.js
+public/sw.js

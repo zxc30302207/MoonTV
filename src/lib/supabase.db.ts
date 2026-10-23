@@ -271,7 +271,14 @@ export class SupabaseStorage implements IStorage {
 
   async registerUser(userName: string, password: string): Promise<void> {
     const hashedPassword = await normalizePasswordForStorage(password);
-    await this.setValue(this.userPwdKey(userName), hashedPassword);
+    // The key constraint, not a prior existence check, arbitrates concurrent
+    // registrations. Never replace another registration's password.
+    const { error } = await this.client.from(tableName()).insert({
+      key: this.userPwdKey(userName),
+      value: hashedPassword,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) throw error;
   }
 
   async verifyUser(userName: string, password: string): Promise<boolean> {
@@ -384,6 +391,82 @@ export class SupabaseStorage implements IStorage {
 
   async setAdminConfig(config: AdminConfig): Promise<void> {
     await this.setValue(this.adminConfigKey(), config);
+  }
+
+  async appendRegisteredUser(userName: string): Promise<AdminConfig> {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const previous = await this.getAdminConfig();
+      const allowRegister =
+        previous &&
+        (typeof previous.UserConfig.AllowRegister === 'boolean'
+          ? previous.UserConfig.AllowRegister
+          : process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true');
+      if (!previous || !allowRegister)
+        throw new Error('Registration is closed');
+      if (
+        previous.UserConfig.Users.some((entry) => entry.username === userName)
+      )
+        throw new Error('User already configured');
+      const next: AdminConfig = {
+        ...previous,
+        UserConfig: {
+          ...previous.UserConfig,
+          Users: [
+            ...previous.UserConfig.Users,
+            { username: userName, role: 'user' },
+          ],
+        },
+      };
+      const { data, error } = await this.client
+        .from(tableName())
+        .update({ value: next, updated_at: new Date().toISOString() })
+        .eq('key', this.adminConfigKey())
+        .eq('value', JSON.stringify(previous))
+        .select('key');
+      if (error) throw error;
+      if (data?.length) return next;
+    }
+    throw new Error(
+      'Concurrent admin configuration updates; retry registration'
+    );
+  }
+
+  async updateUserLastOnline(
+    userName: string,
+    timestamp: number
+  ): Promise<boolean> {
+    // Cross-instance optimistic concurrency: heartbeat writes must not restore
+    // a stale ban, role, source list, or any other administrative setting.
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const previous = await this.getAdminConfig();
+      const user = previous?.UserConfig.Users.find(
+        (entry) => entry.username === userName
+      );
+      if (!previous || !user || user.banned) return false;
+      const next = {
+        ...previous,
+        UserConfig: {
+          ...previous.UserConfig,
+          Users: previous.UserConfig.Users.map((entry) =>
+            entry.username === userName
+              ? {
+                  ...entry,
+                  lastOnline: Math.max(entry.lastOnline || 0, timestamp),
+                }
+              : entry
+          ),
+        },
+      };
+      const { data, error } = await this.client
+        .from(tableName())
+        .update({ value: next, updated_at: new Date().toISOString() })
+        .eq('key', this.adminConfigKey())
+        .eq('value', JSON.stringify(previous))
+        .select('key');
+      if (error) throw error;
+      if (data?.length) return true;
+    }
+    throw new Error('Concurrent admin configuration updates; retry heartbeat');
   }
 
   private skipConfigKey(user: string, source: string, id: string) {

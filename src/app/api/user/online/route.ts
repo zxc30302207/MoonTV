@@ -1,9 +1,9 @@
-/* eslint-disable @typescript-eslint/no-explicit-any,no-console */
+/* eslint-disable no-console */
 
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
-import { configSelfCheck, getConfig } from '@/lib/config';
+import { getConfig } from '@/lib/config';
 import { getStorage } from '@/lib/db';
 
 export const runtime = 'nodejs';
@@ -36,12 +36,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '用戶已被封禁' }, { status: 401 });
     }
 
-    userEntry.lastOnline = Date.now();
-
+    const lastOnline = Date.now();
     const storage = getStorage();
-    if (storage && typeof (storage as any).setAdminConfig === 'function') {
-      await (storage as any).setAdminConfig(configSelfCheck(adminConfig));
+    if (!storage) throw new Error('Storage unavailable');
+    if (!(await storage.updateUserLastOnline(username, lastOnline))) {
+      return NextResponse.json(
+        { error: '用戶已停用或不存在' },
+        { status: 401 }
+      );
     }
+    // Keep the Docker in-process view fresh only after the atomic write.
+    userEntry.lastOnline = Math.max(userEntry.lastOnline || 0, lastOnline);
 
     return NextResponse.json(
       { ok: true, lastOnline: userEntry.lastOnline },

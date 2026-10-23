@@ -39,14 +39,20 @@ jobs:
       - name: Generate runtime files
         run: pnpm gen:manifest && pnpm gen:runtime
 
+      - name: Audit production dependencies
+        run: pnpm audit --prod
+
       - name: Run type check
         run: pnpm typecheck
+
+      - name: Test upstream proposal safety
+        run: python3 scripts/upstream-sync.test.py
 
       - name: Run unit tests
         run: pnpm test --runInBand
 
       - name: Run linting
-        run: pnpm run lint
+        run: pnpm run lint:strict
 
       - name: Build project
         run: pnpm run build

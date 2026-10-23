@@ -17,6 +17,7 @@ import React, {
   useState,
 } from 'react';
 
+import { GetBangumiSubjectDetail } from '@/lib/bangumi.client';
 import {
   deleteFavorite,
   deleteFollowing,
@@ -28,8 +29,10 @@ import {
   saveFollowing,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
+import { getDoubanDetail } from '@/lib/douban.client';
 import { SearchResult } from '@/lib/types';
 import { processImageUrl } from '@/lib/utils';
+import { getVideoDesc } from '@/lib/video-detail.client';
 
 import FollowingIcon from '@/components/FollowingIcon';
 import { ImagePlaceholder } from '@/components/ImagePlaceholder';
@@ -88,6 +91,9 @@ export default function VideoCard({
   const [favoriteChecked, setFavoriteChecked] = useState(false); // 是否已經檢查過收藏狀態
   const [followingChecked, setFollowingChecked] = useState(false); // 是否已經檢查過追更狀態
   const [isActionOpen, setIsActionOpen] = useState(false);
+  const [cardIntro, setCardIntro] = useState(''); // 劇情簡介（豆瓣 / Bangumi / 播放源）
+  const [cardIntroLoading, setCardIntroLoading] = useState(false); // 簡介加載狀態
+  const introLoadedRef = useRef<string | null>(null); // 已加載簡介的條目標識
   const longPressTimer = useRef<number | null>(null);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const suppressContextMenuUntil = useRef(0);
@@ -157,6 +163,88 @@ export default function VideoCard({
       ? 'movie'
       : 'tv'
     : type;
+
+  // 各類卡片打開操作菜單時拉取劇情簡介：
+  // - 豆瓣卡片：豆瓣條目簡介
+  // - 每日放送（Bangumi）：Bangumi 條目簡介
+  // - 播放記錄 / 收藏 / 搜索：優先豆瓣 ID，缺失或失敗時回退到播放源詳情
+  useEffect(() => {
+    if (!isActionOpen) return;
+
+    const vodDescFetcher =
+      from !== 'douban' && actualSource && actualId
+        ? () => getVideoDesc(actualSource, actualId, actualTitle)
+        : null;
+
+    let introKey: string | null = null;
+    if (isBangumi && actualDoubanId) {
+      introKey = `bangumi:${actualDoubanId}`;
+    } else if (actualDoubanId) {
+      introKey = `douban:${actualDoubanId}`;
+    } else if (vodDescFetcher) {
+      introKey = `vod:${actualSource}:${actualId}`;
+    }
+
+    if (!introKey) {
+      setCardIntro('');
+      setCardIntroLoading(false);
+      introLoadedRef.current = null;
+      return;
+    }
+    if (introLoadedRef.current === introKey) return;
+
+    let cancelled = false;
+    // 條目切換時先清空舊簡介，避免請求失敗時展示上一部影片的內容
+    setCardIntro('');
+    setCardIntroLoading(true);
+
+    let introPromise: Promise<string>;
+    if (isBangumi && actualDoubanId) {
+      introPromise = GetBangumiSubjectDetail(String(actualDoubanId)).then(
+        (detail) => detail.summary
+      );
+    } else if (actualDoubanId) {
+      const doubanIntroPromise = getDoubanDetail(String(actualDoubanId)).then(
+        (detail) => detail.intro
+      );
+      // 豆瓣簡介為空或請求失敗時，回退到播放源詳情中的簡介
+      introPromise = vodDescFetcher
+        ? doubanIntroPromise
+            .then((intro) => (intro ? intro : vodDescFetcher()))
+            .catch(() => vodDescFetcher())
+        : doubanIntroPromise;
+    } else if (vodDescFetcher) {
+      introPromise = vodDescFetcher();
+    } else {
+      return;
+    }
+
+    introPromise
+      .then((intro) => {
+        if (cancelled) return;
+        introLoadedRef.current = introKey;
+        setCardIntro(intro || '');
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error('獲取劇情簡介失敗', err);
+      })
+      .finally(() => {
+        if (!cancelled) setCardIntroLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isActionOpen,
+    from,
+    isBangumi,
+    actualDoubanId,
+    actualSource,
+    actualId,
+    actualTitle,
+  ]);
 
   // 檢查收藏狀態函數
   const checkFavoriteStatus = useCallback(async () => {
@@ -730,6 +818,8 @@ export default function VideoCard({
         currentEpisode={currentEpisode}
         totalEpisodes={actualEpisodes || undefined}
         origin='vod'
+        description={cardIntro || undefined}
+        descriptionLoading={cardIntroLoading}
         actions={[
           {
             id: 'play',

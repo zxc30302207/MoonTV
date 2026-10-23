@@ -37,16 +37,40 @@ function isPrivateIpv4(hostname: string): boolean {
 }
 
 function isPrivateIpv6(hostname: string): boolean {
-  const normalized = hostname
-    .replace(/^\[|\]$/g, '')
-    .split('%')[0]
-    .toLowerCase();
-  if (normalized === '::' || normalized === '::1') return true;
-  if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
-  if (normalized.startsWith('fe80:')) return true;
-  if (normalized.startsWith('::ffff:')) {
-    const mapped = normalized.replace('::ffff:', '');
-    return isPrivateIpv4(mapped);
+  const address = hostname.replace(/^\[|\]$/g, '').split('%')[0];
+  // Do not classify ordinary domain names such as fcdn.example as IPv6.
+  if (isIP(address) !== 6) return false;
+
+  // URL canonicalization converts dotted IPv4-mapped addresses into hex words.
+  const normalized = new URL(`http://[${address}]/`).hostname.replace(
+    /^\[|\]$/g,
+    ''
+  );
+  const [left, right] = normalized.split('::');
+  const leading = left ? left.split(':') : [];
+  const trailing = right ? right.split(':') : [];
+  const words = (
+    right === undefined
+      ? leading
+      : [
+          ...leading,
+          ...Array(8 - leading.length - trailing.length).fill('0'),
+          ...trailing,
+        ]
+  ).map((word) => parseInt(word, 16));
+
+  if (words.slice(0, 7).every((word) => word === 0) && words[7] <= 1)
+    return true;
+  if ((words[0] & 0xfe00) === 0xfc00) return true;
+  if ((words[0] & 0xffc0) === 0xfe80) return true;
+  if (words.slice(0, 5).every((word) => word === 0) && words[5] === 0xffff) {
+    const mapped = [
+      words[6] >> 8,
+      words[6] & 255,
+      words[7] >> 8,
+      words[7] & 255,
+    ];
+    return isPrivateIpv4(mapped.join('.'));
   }
   return false;
 }

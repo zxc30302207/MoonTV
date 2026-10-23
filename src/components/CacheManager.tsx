@@ -149,17 +149,17 @@ export default function CacheManager({ isOpen, onClose }: CacheManagerProps) {
         <div className='flex items-center justify-between gap-4 border-b border-gray-200/60 px-5 py-3 dark:border-gray-700/60'>
           <div>
             <div className='text-sm text-gray-900 dark:text-gray-100'>
-              切集自動清空
+              切集/換片自動清空
             </div>
             <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
-              切換集數時清理其他緩存，保留當前集和下一集預熱
+              切換集數或換片時清理其他緩存，保留當前集和下一集預熱
             </p>
           </div>
           <button
             type='button'
             role='switch'
             aria-checked={autoClear}
-            aria-label='切集自動清空'
+            aria-label='切集/換片自動清空'
             onClick={() => {
               const enabled = !autoClear;
               saveCacheSettings({ autoClearOnEpisodeChange: enabled });

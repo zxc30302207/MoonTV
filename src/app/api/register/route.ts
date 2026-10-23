@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { generateSignature } from '@/lib/auth-crypto';
 import { getAuthSignaturePayload } from '@/lib/auth-server';
-import { getConfig } from '@/lib/config';
-import { db } from '@/lib/db';
+import { getConfig, setCachedConfig } from '@/lib/config';
+import { db, getStorage } from '@/lib/db';
 import { getClientIp, getRateLimitHeaders, rateLimit } from '@/lib/rate-limit';
 import { normalizeUsername } from '@/lib/username';
 
@@ -98,7 +98,10 @@ export async function POST(req: NextRequest) {
     }
 
     // 檢查是否和管理員重復
-    if (username === process.env.USERNAME) {
+    if (
+      username === process.env.USERNAME ||
+      config.UserConfig.Users.some((user) => user.username === username)
+    ) {
       return NextResponse.json({ error: '用戶已存在' }, { status: 400 });
     }
 
@@ -109,14 +112,14 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: '用戶已存在' }, { status: 400 });
       }
 
-      await db.registerUser(username, password);
-
+      // Reserve membership before creating credentials: a failed config append
+      // must not leave a password-only account that cold-start repair activates.
       // 添加到配置中並保存
-      config.UserConfig.Users.push({
-        username,
-        role: 'user',
-      });
-      await db.saveAdminConfig(config);
+      const storage = getStorage();
+      if (!storage) throw new Error('Storage unavailable');
+      const registeredConfig = await storage.appendRegisteredUser(username);
+      await db.registerUser(username, password);
+      await setCachedConfig(registeredConfig);
 
       // 註冊成功，設置認證cookie
       const response = NextResponse.json({ ok: true });
@@ -128,6 +131,14 @@ export async function POST(req: NextRequest) {
 
       return response;
     } catch (err) {
+      if (
+        err &&
+        typeof err === 'object' &&
+        'code' in err &&
+        err.code === '23505'
+      ) {
+        return NextResponse.json({ error: '用戶已存在' }, { status: 409 });
+      }
       return NextResponse.json({ error: '數據庫錯誤' }, { status: 500 });
     }
   } catch (error) {

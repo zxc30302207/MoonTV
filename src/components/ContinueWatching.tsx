@@ -20,7 +20,11 @@ interface ContinueWatchingProps {
   hideHeader?: boolean; // 是否隱藏標題欄
 }
 
-export default function ContinueWatching({ className, showAll = false, hideHeader = false }: ContinueWatchingProps) {
+export default function ContinueWatching({
+  className,
+  showAll = false,
+  hideHeader = false,
+}: ContinueWatchingProps) {
   const [playRecords, setPlayRecords] = useState<
     (PlayRecord & { key: string })[]
   >([]);

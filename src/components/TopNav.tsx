@@ -34,6 +34,7 @@ import SearchSuggestions from './SearchSuggestions';
 import { useSite } from './SiteProvider';
 import SourceSelector from './SourceSelector';
 import { ThemeToggle } from './ThemeToggle';
+import useNavAutoHide from './useNavAutoHide';
 import { UserMenu } from './UserMenu';
 interface TopNavProps {
   activePath?: string;
@@ -59,6 +60,12 @@ const TopNav = ({ activePath }: TopNavProps) => {
   const [downloadTaskCount, setDownloadTaskCount] = useState(0);
   const [simpleMode, setSimpleMode] = useState(false);
   const [isClient, setIsClient] = useState(false);
+  // 自動隱藏導覽列（僅桌面端）：默認收起，指針移到屏幕頂部邊緣時展開
+  const {
+    enabled: autoHideNav,
+    hidden: autoHideNavHidden,
+    navRef,
+  } = useNavAutoHide();
   useEffect(() => {
     const updateTaskCount = () => {
       if (typeof window === 'undefined') return;
@@ -380,7 +387,20 @@ const TopNav = ({ activePath }: TopNavProps) => {
   );
   return (
     <>
-      <header className='top-nav hidden md:block sticky top-0 z-50 w-full bg-white/80 backdrop-blur-xl border-b border-gray-200/50 shadow-sm dark:bg-gray-900/80 dark:border-gray-700/50'>
+      <header
+        ref={(element) => {
+          navRef.current = element;
+        }}
+        className={`top-nav hidden md:block z-50 w-full bg-white/80 backdrop-blur-xl border-b border-gray-200/50 shadow-sm dark:bg-gray-900/80 dark:border-gray-700/50 ${
+          autoHideNav
+            ? 'fixed left-0 right-0 top-0 transition-[transform,opacity] duration-300 ease-out will-change-transform'
+            : 'sticky top-0'
+        } ${
+          autoHideNav && autoHideNavHidden
+            ? '-translate-y-full opacity-0 pointer-events-none'
+            : 'translate-y-0 opacity-100'
+        }`}
+      >
         <div className='top-nav__inner mx-auto h-full flex items-center'>
           {simpleMode ? (
             <div className='absolute left-1/2 transform -translate-x-1/2'>
@@ -487,6 +507,14 @@ const TopNav = ({ activePath }: TopNavProps) => {
           {/* ==================================== */}
         </div>
       </header>
+      {/* 自動隱藏時導航欄脫離文檔流，用佔位高度跟隨顯隱，讓頁面內容一起上移 / 下移 */}
+      {autoHideNav && (
+        <div
+          aria-hidden
+          className='hidden md:block overflow-hidden transition-[height] duration-300 ease-out'
+          style={{ height: autoHideNavHidden ? 0 : 'var(--nav-h)' }}
+        />
+      )}
     </>
   );
 };

@@ -87,7 +87,7 @@ export function createBlobWriteStream(
       if (totalSize > maxSize) {
         throw new Error(
           `文件大小超過限制 (${Math.round(maxSize / 1024 / 1024)}MB)，` +
-          '請使用支持 Service Worker 或 File System Access API 的瀏覽器'
+            '請使用支持 Service Worker 或 File System Access API 的瀏覽器'
         );
       }
 
@@ -95,7 +95,9 @@ export function createBlobWriteStream(
     },
     close() {
       // 創建 Blob 並觸發下載
-      const blob = new Blob(chunks as BlobPart[], { type: 'application/octet-stream' });
+      const blob = new Blob(chunks as BlobPart[], {
+        type: 'application/octet-stream',
+      });
       const url = URL.createObjectURL(blob);
 
       const a = document.createElement('a');
@@ -147,9 +149,7 @@ export async function createAdaptiveWriteStream(
   }
 
   // 3. 降級到 Blob 方案（有大小限制）
-  console.warn(
-    '當前環境不支持流式下載，使用 Blob 降級方案（可能有內存限制）'
-  );
+  console.warn('當前環境不支持流式下載，使用 Blob 降級方案（可能有內存限制）');
 
   // 如果文件太大，警告用戶
   if (estimatedSize && estimatedSize > 500 * 1024 * 1024) {

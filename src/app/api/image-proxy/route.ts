@@ -5,6 +5,19 @@ import { parseAllowedHosts, safeFetch } from '@/lib/url-safety';
 
 export const runtime = 'nodejs';
 
+// SVG and other document formats can execute scripts when navigated to on our
+// origin. Only stream inert raster formats, regardless of the URL extension.
+const RASTER_IMAGE_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/avif',
+  'image/bmp',
+  'image/x-icon',
+  'image/vnd.microsoft.icon',
+]);
+
 // OrionTV 兼容接口
 export async function GET(request: Request) {
   const rateLimitResult = rateLimit(getClientIp(request), {
@@ -68,7 +81,8 @@ export async function GET(request: Request) {
 
     const headers = new Headers();
     const contentType = imageResponse.headers.get('content-type');
-    if (!contentType?.toLowerCase().startsWith('image/')) {
+    const mediaType = contentType?.split(';')[0].trim().toLowerCase();
+    if (!mediaType || !RASTER_IMAGE_TYPES.has(mediaType)) {
       await imageResponse.body.cancel();
       return NextResponse.json(
         { error: 'Proxy target is not an image' },
@@ -76,11 +90,12 @@ export async function GET(request: Request) {
       );
     }
     if (contentType) {
-      headers.set('Content-Type', contentType);
+      headers.set('Content-Type', mediaType);
     }
     headers.set('Cache-Control', 'private, no-store');
     headers.set('Vary', 'Cookie');
     headers.set('X-Content-Type-Options', 'nosniff');
+    headers.set('Content-Security-Policy', "sandbox; default-src 'none'");
 
     return new Response(imageResponse.body, {
       status: 200,

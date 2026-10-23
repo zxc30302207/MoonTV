@@ -19,7 +19,7 @@ const ConditionalNav = () => {
   const hideNavPaths = ['/login', '/warning'];
 
   // 檢查當前路徑是否需要隱藏導航欄
-  const shouldHideNav = hideNavPaths.some(path => pathname.startsWith(path));
+  const shouldHideNav = hideNavPaths.some((path) => pathname.startsWith(path));
 
   // 如果需要隱藏導航欄，返回 null
   if (shouldHideNav) {

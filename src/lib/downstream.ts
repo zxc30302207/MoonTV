@@ -295,17 +295,28 @@ async function* searchApiQuery(
   }
 }
 
+export interface DetailRequestOptions {
+  timeout?: number;
+  signal?: AbortSignal;
+}
+
 /** 獲取詳情 */
 export async function getDetailFromApi(
   apiSite: ApiSite,
-  id: string
+  id: string,
+  options: DetailRequestOptions = {}
 ): Promise<SearchResult> {
-  if (apiSite.detail) return handleSpecialSourceDetail(id, apiSite);
+  if (apiSite.detail) return handleSpecialSourceDetail(id, apiSite, options);
 
   const detailUrl = `${apiSite.api}${API_CONFIG.detail.path}${id}`;
-  const response = await fetchWithTimeout(detailUrl, {
-    headers: API_CONFIG.detail.headers,
-  });
+  const response = await fetchWithTimeout(
+    detailUrl,
+    {
+      headers: API_CONFIG.detail.headers,
+      signal: options.signal,
+    },
+    options.timeout
+  );
 
   if (!response.ok) throw new Error(`詳情請求失敗: ${response.status}`);
 
@@ -339,12 +350,18 @@ export async function getDetailFromApi(
 /** 特殊站點詳情處理 */
 async function handleSpecialSourceDetail(
   id: string,
-  apiSite: ApiSite
+  apiSite: ApiSite,
+  options: DetailRequestOptions = {}
 ): Promise<SearchResult> {
   const detailUrl = `${apiSite.detail}/index.php/vod/detail/id/${id}.html`;
-  const response = await fetchWithTimeout(detailUrl, {
-    headers: API_CONFIG.detail.headers,
-  });
+  const response = await fetchWithTimeout(
+    detailUrl,
+    {
+      headers: API_CONFIG.detail.headers,
+      signal: options.signal,
+    },
+    options.timeout
+  );
 
   if (!response.ok) throw new Error(`詳情頁請求失敗: ${response.status}`);
 

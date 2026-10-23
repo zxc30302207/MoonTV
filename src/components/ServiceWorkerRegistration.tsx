@@ -66,7 +66,9 @@ export default function ServiceWorkerRegistration({
       if (capability.method === 'blob') {
         // eslint-disable-next-line no-console
         console.warn(
-          `Fallback to Blob download mode: ${capability.limitation || 'unknown limitation'}`
+          `Fallback to Blob download mode: ${
+            capability.limitation || 'unknown limitation'
+          }`
         );
       }
     };
