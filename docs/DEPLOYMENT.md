@@ -2,7 +2,7 @@
 
 [← 返回 README](../README.md)
 
-本指南對應此客製分支，採用 **Vercel + Supabase**。請勿直接套用其他分支的 Redis、D1 或資料庫設定：目前程式的儲存選項為 `supabase` 與 `localstorage`，後者只適合單機體驗，不提供完整的伺服器端帳號與管理功能。
+本指南採用 **Vercel + Supabase**。`localstorage` 僅適合單機體驗；多使用者站點請使用 Supabase。
 
 ## 1. 準備 Supabase
 
@@ -10,7 +10,7 @@
 2. 在 SQL Editor 執行 [`001_moontv_kv.sql`](../migrations/supabase/001_moontv_kv.sql)。此檔建立 `public.moontv_kv`、索引並啟用 RLS。
 3. 取得專案 URL 與伺服器端 secret key。此金鑰權限高，只能存於伺服器環境，不可提供給瀏覽器或提交到 Git。
 
-新部署建議使用 `SUPABASE_SECRET_KEY`。程式仍接受舊版 `SUPABASE_SERVICE_ROLE_KEY`；同時設定時會優先使用後者，切換時請避免殘留錯誤舊值。不要用 anon／publishable key 取代伺服器金鑰，也不要為了排錯而關閉 RLS。詳見 [Supabase 金鑰說明](https://supabase.com/docs/guides/getting-started/api-keys)。
+使用 `SUPABASE_SECRET_KEY`；既有部署也可沿用 `SUPABASE_SERVICE_ROLE_KEY`，請擇一設定。不要用 anon／publishable key 取代伺服器金鑰，也不要為了排錯而關閉 RLS。詳見 [Supabase 金鑰說明](https://supabase.com/docs/guides/getting-started/api-keys)。
 
 已有資料的站點請先備份。本指南不要求清空、重建或搬移既有資料。
 
@@ -44,7 +44,7 @@ NEXT_PUBLIC_SITE_NAME=波波的秘密基地
 NEXT_PUBLIC_ENABLE_REGISTER=false
 ```
 
-- 務必替換範本值，尤其是 `PASSWORD`。本分支以它驗證管理員並簽署登入憑證；變更後既有登入可能失效，需重新登入。
+- 務必替換範本值，尤其是 `PASSWORD`。變更後可能需要重新登入。
 - `NEXT_PUBLIC_*` 是可公開設定，不可用來存放密碼、金鑰或私密 URL。
 - 環境變數要套用到正確環境。Production 使用正式資料庫；Preview／Development 建議使用獨立測試資料庫與憑證。
 - 修改環境變數後重新部署。已有資料庫設定時，註冊等站點選項也需在 `/admin` 檢查，不能只看環境變數。
@@ -54,7 +54,7 @@ NEXT_PUBLIC_ENABLE_REGISTER=false
 
 使用自架、相容的 `danmu_api`／`misaka` 服務時，在 `/admin` 的彈幕 API 設定填入相容根地址，並確認後端實際支援本站使用的 API 路徑。
 
-**此設定會傳入瀏覽器，必須是可公開的 URL，不可包含私密 token 或金鑰。** 不要用 `NEXT_PUBLIC_DANMU_API_BASE_URL` 存放憑證。現有 `DANMU_API_BASE_URL` 只是伺服器 fallback，會受站點設定與預設值優先序影響，不應當成可靠的主要設定方式。
+**此設定會傳入瀏覽器，必須是可公開的 URL，不可包含私密 token 或金鑰。** 不要用 `NEXT_PUBLIC_DANMU_API_BASE_URL` 存放憑證。
 
 也可為內建代理設定官方 dandanplay API 憑證：
 
@@ -95,7 +95,7 @@ Vercel 會將 `CRON_SECRET` 作為 Bearer token 傳入排程請求；不要把�
 
 不要用範例整份覆蓋已有設定。只加入你有權使用的來源，保留既有來源停用狀態；更新程式不應重置站點權限或資料。
 
-卡密授權是獨立存取權限，不等於一般帳號註冊。請分別驗證一般使用者、已授權使用者與管理員；未授權帳號不應藉由直接請求 API 取得受限資料。
+若使用卡密授權功能，請確認一般帳號、已授權帳號與管理員的存取範圍符合預期。
 
 後台啟用 TVBox 後，使用系統產生的配置地址。不要公開分享個人配置 URL 或將其當成無權限限制的公共訂閱。
 
