@@ -8,8 +8,12 @@ import {
 import type { ReactNode } from 'react';
 
 import {
+  deleteFavorite,
   deleteFollowing,
+  deletePlayRecord,
+  isFavorited,
   isFollowing,
+  saveFavorite,
   saveFollowing,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
@@ -263,5 +267,128 @@ describe('VideoCard synopsis integration', () => {
     });
     expect(screen.getByTestId('intro')).toHaveTextContent('來源簡介');
     expect(screen.getByTestId('intro')).not.toHaveTextContent('舊作品簡介');
+  });
+});
+
+describe('VideoCard accessible controls', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    followingStatus.mockResolvedValue(false);
+    (subscribeToDataUpdates as jest.Mock).mockReturnValue(unsubscribe);
+  });
+
+  it('exposes named native playback and record action buttons', async () => {
+    const onDelete = jest.fn();
+    render(
+      <VideoCard
+        id='v1'
+        source='source1'
+        title='作品'
+        from='playrecord'
+        onDelete={onDelete}
+      />
+    );
+    const play = screen.getByRole('button', { name: '播放 作品' });
+    expect(play.tagName).toBe('BUTTON');
+    expect(play).toHaveAttribute('type', 'button');
+    expect(play.tabIndex).toBe(0);
+    act(() => play.focus());
+    expect(play).toHaveFocus();
+    expect(play.parentElement).toHaveClass('group-focus-within:opacity-100');
+    fireEvent.click(play);
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(push).toHaveBeenCalledWith(expect.stringContaining('/play?'));
+
+    const favorite = screen.getByRole('button', { name: '加入收藏' });
+    expect(favorite).toHaveAttribute('aria-pressed', 'false');
+    expect(favorite.tagName).toBe('BUTTON');
+    fireEvent.click(favorite);
+    await waitFor(() => expect(saveFavorite).toHaveBeenCalled());
+    expect(
+      await screen.findByRole('button', { name: '取消收藏' })
+    ).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: '刪除播放紀錄 作品' }));
+    await waitFor(() =>
+      expect(deletePlayRecord).toHaveBeenCalledWith('source1', 'v1')
+    );
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole('button', { name: '刪除播放紀錄 作品' }).tagName
+    ).toBe('BUTTON');
+  });
+
+  it('opens explicit more actions without starting playback', async () => {
+    render(<VideoCard id='v1' source='source1' title='作品' from='search' />);
+    const more = screen.getByRole('button', { name: '作品 更多操作' });
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(more);
+    expect(more).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: '播放' })).toBeInTheDocument();
+    expect(push).not.toHaveBeenCalled();
+    await waitFor(() => expect(followingStatus).toHaveBeenCalled());
+  });
+
+  it('checks initial favorite status before a direct keyboard-compatible action', async () => {
+    (isFavorited as jest.Mock).mockResolvedValueOnce(true);
+    render(<VideoCard id='v1' source='source1' title='作品' from='search' />);
+    fireEvent.click(screen.getByRole('button', { name: '加入收藏' }));
+    await waitFor(() =>
+      expect(deleteFavorite).toHaveBeenCalledWith('source1', 'v1')
+    );
+    expect(saveFavorite).not.toHaveBeenCalled();
+  });
+
+  it('ignores an older hover status response after a successful favorite mutation', async () => {
+    let resolveHover!: (value: boolean) => void;
+    (isFavorited as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveHover = resolve;
+        })
+    );
+    render(<VideoCard id='v1' source='source1' title='作品' from='search' />);
+    fireEvent.mouseEnter(screen.getByRole('img', { name: '作品' }));
+    fireEvent.click(screen.getByRole('button', { name: '加入收藏' }));
+    expect(
+      await screen.findByRole('button', { name: '取消收藏' })
+    ).toHaveAttribute('aria-pressed', 'true');
+    await act(async () => {
+      resolveHover(false);
+    });
+    expect(screen.getByRole('button', { name: '取消收藏' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+  });
+
+  it('invalidates an old favorite lookup when the card item changes', async () => {
+    let resolveHover!: (value: boolean) => void;
+    (isFavorited as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveHover = resolve;
+        })
+    );
+    const { rerender } = render(
+      <VideoCard id='v1' source='source1' title='作品一' from='search' />
+    );
+    fireEvent.mouseEnter(screen.getByRole('img', { name: '作品一' }));
+    rerender(
+      <VideoCard id='v2' source='source1' title='作品二' from='search' />
+    );
+    await act(async () => {
+      resolveHover(true);
+    });
+    expect(screen.getByRole('button', { name: '加入收藏' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+  });
+
+  it('provides an accessible external information control', () => {
+    render(<VideoCard title='作品' from='douban' douban_id={123} />);
+    expect(screen.getByRole('button', { name: '跳轉到豆瓣' }).tagName).toBe(
+      'BUTTON'
+    );
   });
 });
