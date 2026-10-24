@@ -55,47 +55,90 @@ function AdultPageClient() {
   const [error, setError] = useState('');
   const [authorizationChecked, setAuthorizationChecked] = useState(false);
   const [adultAuthorized, setAdultAuthorized] = useState(false);
-  const [authExpiresAt, setAuthExpiresAt] = useState<number | null>(null);
+  const [authExpiresAt, setAuthExpiresAt] = useState<number | null | undefined>(
+    undefined
+  );
   const [refreshKey, setRefreshKey] = useState('');
   const [cardCode, setCardCode] = useState('');
   const [authError, setAuthError] = useState('');
   const [redeeming, setRedeeming] = useState(false);
+  const [showCardCode, setShowCardCode] = useState(false);
+  const [authUnavailable, setAuthUnavailable] = useState(false);
+  const authRequestRef = useRef(0);
+  const controllersRef = useRef(new Set<AbortController>());
   const loadingRef = useRef<HTMLDivElement | null>(null);
   const requestIdRef = useRef(0);
 
+  const invalidateRequests = useCallback(() => {
+    authRequestRef.current += 1;
+    requestIdRef.current += 1;
+    controllersRef.current.forEach((controller) => controller.abort());
+    controllersRef.current.clear();
+  }, []);
+
+  const clearProtectedState = useCallback(() => {
+    setAdultAuthorized(false);
+    setAuthExpiresAt(undefined);
+    setItems([]);
+    setSources([]);
+    setRefreshKey('');
+    setHasMore(false);
+    setIsLoadingMore(false);
+  }, []);
+
   const checkAuthorization = useCallback(async () => {
+    invalidateRequests();
+    const authRequestId = authRequestRef.current;
+    const controller = new AbortController();
+    controllersRef.current.add(controller);
+    clearProtectedState();
     setAuthorizationChecked(false);
     setLoading(true);
     setAuthError('');
+    setAuthUnavailable(false);
+    setRedeeming(false);
 
     try {
       const response = await fetch('/api/adult/authorization', {
         cache: 'no-store',
+        signal: controller.signal,
       });
-
-      if (!response.ok) {
-        setAdultAuthorized(false);
-        setAuthExpiresAt(null);
+      if (authRequestId !== authRequestRef.current) return;
+      if (response.status === 401 || response.status === 403) {
+        setAuthError(
+          response.status === 401
+            ? '登入已失效，請重新登入'
+            : '目前帳號尚未取得授權'
+        );
         return;
       }
-
+      if (!response.ok) throw new Error('授權服務暫時無法使用，請重新檢查');
       const data = (await response.json()) as AdultAuthorizationResponse;
+      if (authRequestId !== authRequestRef.current) return;
       setAdultAuthorized(Boolean(data.authorized));
-      setAuthExpiresAt(data.expiresAt ?? null);
+      setAuthExpiresAt(data.expiresAt);
+      if (!data.authorized && data.reason === 'expired') {
+        setAuthError('授權已到期，請輸入新的授權卡號');
+      }
     } catch {
-      setAdultAuthorized(false);
-      setAuthExpiresAt(null);
-      setAuthError('授權狀態檢查失敗，請稍後重試');
+      if (authRequestId !== authRequestRef.current) return;
+      setAuthUnavailable(true);
+      setAuthError('授權服務暫時無法使用，請重新檢查');
     } finally {
-      setAuthorizationChecked(true);
-      setLoading(false);
+      controllersRef.current.delete(controller);
+      if (authRequestId === authRequestRef.current) {
+        setAuthorizationChecked(true);
+        setLoading(false);
+      }
     }
-  }, []);
+  }, [clearProtectedState, invalidateRequests]);
 
   const loadPage = useCallback(
     async (targetPage: number, source: string, replace: boolean) => {
       const requestId = requestIdRef.current + 1;
       requestIdRef.current = requestId;
+      const controller = new AbortController();
+      controllersRef.current.add(controller);
 
       if (replace) {
         setLoading(true);
@@ -112,14 +155,19 @@ function AdultPageClient() {
         });
         const response = await fetch(`/api/adult/recommends?${params}`, {
           cache: 'no-store',
+          signal: controller.signal,
         });
+        if (requestId !== requestIdRef.current) return;
 
-        if (response.status === 403) {
-          setAdultAuthorized(false);
-          setAuthExpiresAt(null);
-          setItems([]);
-          setHasMore(false);
-          setAuthError('請先輸入管理員提供的成人授權卡號');
+        if (response.status === 401 || response.status === 403) {
+          invalidateRequests();
+          clearProtectedState();
+          setLoading(false);
+          setAuthError(
+            response.status === 401
+              ? '登入已失效，請重新登入'
+              : '授權已失效，請重新檢查或輸入授權卡號'
+          );
           return;
         }
 
@@ -131,7 +179,7 @@ function AdultPageClient() {
         if (requestId !== requestIdRef.current) return;
 
         setSources(data.sources || []);
-        setAuthExpiresAt(data.expiresAt ?? null);
+        setAuthExpiresAt(data.expiresAt);
         setRefreshKey(data.refreshKey || '');
         setItems((prev) =>
           replace ? data.list || [] : appendUniqueItems(prev, data.list || [])
@@ -147,18 +195,35 @@ function AdultPageClient() {
           }
         }
       } finally {
+        controllersRef.current.delete(controller);
         if (requestId === requestIdRef.current) {
           setLoading(false);
           setIsLoadingMore(false);
         }
       }
     },
-    []
+    [clearProtectedState, invalidateRequests]
   );
 
   useEffect(() => {
     checkAuthorization();
-  }, [checkAuthorization]);
+    const handleLogout = () => {
+      invalidateRequests();
+      clearProtectedState();
+      setCardCode('');
+      setShowCardCode(false);
+      setAuthUnavailable(false);
+      setRedeeming(false);
+      setLoading(false);
+      setAuthorizationChecked(true);
+      setAuthError('登入已失效，請重新登入');
+    };
+    window.addEventListener('moontv:logout', handleLogout);
+    return () => {
+      window.removeEventListener('moontv:logout', handleLogout);
+      invalidateRequests();
+    };
+  }, [checkAuthorization, clearProtectedState, invalidateRequests]);
 
   useEffect(() => {
     if (!authorizationChecked || !adultAuthorized) return;
@@ -206,30 +271,41 @@ function AdultPageClient() {
       return;
     }
 
+    if (redeeming) return;
+    invalidateRequests();
+    const authRequestId = authRequestRef.current;
+    const controller = new AbortController();
+    controllersRef.current.add(controller);
     setRedeeming(true);
+    setAuthUnavailable(false);
     setAuthError('');
     try {
       const response = await fetch('/api/adult/authorization', {
         method: 'POST',
+        signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: normalizedCode }),
       });
       const data = await response.json().catch(() => ({}));
+      if (authRequestId !== authRequestRef.current) return;
 
       if (!response.ok) {
         throw new Error(data.error || '授權失敗');
       }
 
       setCardCode('');
+      setShowCardCode(false);
       setAdultAuthorized(true);
-      setAuthExpiresAt(data.expiresAt ?? null);
+      setAuthExpiresAt(data.expiresAt);
       setItems([]);
       setPage(1);
       setHasMore(true);
     } catch (err) {
+      if (authRequestId !== authRequestRef.current) return;
       setAuthError(err instanceof Error ? err.message : '授權失敗');
     } finally {
-      setRedeeming(false);
+      controllersRef.current.delete(controller);
+      if (authRequestId === authRequestRef.current) setRedeeming(false);
     }
   };
 
@@ -260,7 +336,7 @@ function AdultPageClient() {
 
           {!authorizationChecked ? (
             <div className='rounded-xl border border-gray-200 bg-white/70 px-5 py-8 text-center text-gray-500 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-400'>
-              正在檢查成人內容授權...
+              <span role='status'>正在檢查授權狀態...</span>
             </div>
           ) : !adultAuthorized ? (
             <div className='mx-auto max-w-xl rounded-xl border border-gray-200 bg-white/70 p-6 shadow-sm dark:border-gray-700 dark:bg-gray-900/40'>
@@ -270,7 +346,7 @@ function AdultPageClient() {
                 </div>
                 <div>
                   <h2 className='text-lg font-semibold text-gray-900 dark:text-gray-100'>
-                    需要成人內容授權
+                    {authUnavailable ? '暫時無法確認授權' : '需要成人內容授權'}
                   </h2>
                   <p className='mt-1 text-sm leading-6 text-gray-600 dark:text-gray-400'>
                     請輸入管理員提供的授權卡號。未授權帳號不會載入成人推薦內容。
@@ -279,15 +355,41 @@ function AdultPageClient() {
               </div>
 
               <form onSubmit={handleRedeemCard} className='space-y-3'>
+                <label
+                  htmlFor='authorization-code'
+                  className='block text-sm font-medium text-gray-900 dark:text-gray-100'
+                >
+                  授權卡號
+                </label>
                 <input
-                  type='text'
+                  id='authorization-code'
+                  type={showCardCode ? 'text' : 'password'}
+                  autoComplete='off'
+                  spellCheck={false}
+                  autoCapitalize='none'
+                  aria-invalid={Boolean(authError)}
+                  aria-describedby={
+                    authError ? 'authorization-error' : undefined
+                  }
                   value={cardCode}
                   onChange={(event) => setCardCode(event.target.value)}
                   placeholder='ADULT-XXXX-XXXX-XXXX-XXXXXX'
                   className='w-full rounded-lg border border-gray-300 bg-white px-3 py-2 font-mono text-sm text-gray-900 outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-500/30 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100'
                 />
+                <button
+                  type='button'
+                  aria-pressed={showCardCode}
+                  onClick={() => setShowCardCode(!showCardCode)}
+                  className='min-h-11 text-sm text-gray-600 underline dark:text-gray-300'
+                >
+                  {showCardCode ? '隱藏卡號' : '顯示卡號'}
+                </button>
                 {authError && (
-                  <div className='rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-300'>
+                  <div
+                    id='authorization-error'
+                    role='alert'
+                    className='rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-300'
+                  >
                     {authError}
                   </div>
                 )}
@@ -302,6 +404,7 @@ function AdultPageClient() {
                   <button
                     type='submit'
                     disabled={redeeming}
+                    aria-busy={redeeming}
                     className='rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-gray-400'
                   >
                     {redeeming ? '授權中...' : '啟用授權'}
@@ -312,7 +415,9 @@ function AdultPageClient() {
           ) : (
             <>
               <div className='mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500 dark:text-gray-400'>
-                <span>授權到期：{formatAdultAuthExpiry(authExpiresAt)}</span>
+                {authExpiresAt !== undefined && (
+                  <span>授權到期：{formatAdultAuthExpiry(authExpiresAt)}</span>
+                )}
                 {refreshKey && <span>每日更新：{refreshKey}</span>}
               </div>
 

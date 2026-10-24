@@ -4,6 +4,7 @@ import {
   ExternalLink,
   Heart,
   Link,
+  MoreHorizontal,
   PlayCircleIcon,
   Trash2,
 } from 'lucide-react';
@@ -82,6 +83,8 @@ export default function VideoCard({
   const router = useRouter();
   const { startLoading } = useNavigationLoading();
   const [favorited, setFavorited] = useState(false);
+  const favoriteMutationRef = useRef(false);
+  const favoriteCheckVersionRef = useRef(0);
   const [following, setFollowing] = useState(false);
   const followingMutationRef = useRef(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -221,9 +224,17 @@ export default function VideoCard({
 
   // 檢查收藏狀態函數
   const checkFavoriteStatus = useCallback(async () => {
-    if (from === 'douban' || !actualSource || !actualId) return;
+    if (
+      from === 'douban' ||
+      !actualSource ||
+      !actualId ||
+      favoriteMutationRef.current
+    )
+      return;
+    const version = favoriteCheckVersionRef.current;
     try {
       const fav = await isFavorited(actualSource, actualId);
+      if (version !== favoriteCheckVersionRef.current) return;
       setFavorited(fav);
       setFavoriteChecked(true);
     } catch (err) {
@@ -236,10 +247,23 @@ export default function VideoCard({
     async (e?: React.MouseEvent) => {
       e?.preventDefault();
       e?.stopPropagation();
-      if (from === 'douban' || !actualSource || !actualId) return;
+      if (
+        from === 'douban' ||
+        !actualSource ||
+        !actualId ||
+        favoriteMutationRef.current
+      )
+        return;
+      favoriteMutationRef.current = true;
+      const version = ++favoriteCheckVersionRef.current;
       try {
-        if (favorited) {
+        const currentlyFavorited = favoriteChecked
+          ? favorited
+          : await isFavorited(actualSource, actualId);
+        if (version !== favoriteCheckVersionRef.current) return;
+        if (currentlyFavorited) {
           await deleteFavorite(actualSource, actualId);
+          if (version !== favoriteCheckVersionRef.current) return;
           setFavorited(false);
         } else {
           await saveFavorite(actualSource, actualId, {
@@ -251,11 +275,15 @@ export default function VideoCard({
             save_time: Date.now(),
             search_title: sanitizedQuery,
           });
+          if (version !== favoriteCheckVersionRef.current) return;
           setFavorited(true);
         }
+        setFavoriteChecked(true);
       } catch (err) {
         // eslint-disable-next-line no-console
         console.error('切換收藏狀態失敗', err);
+      } finally {
+        favoriteMutationRef.current = false;
       }
     },
     [
@@ -269,6 +297,7 @@ export default function VideoCard({
       actualEpisodes,
       sanitizedQuery,
       favorited,
+      favoriteChecked,
     ]
   );
 
@@ -289,6 +318,14 @@ export default function VideoCard({
     setFavoriteChecked(from === 'favorite');
     setFollowing(false);
     setFollowingChecked(false);
+    const invalidateFavorite = () => {
+      favoriteCheckVersionRef.current += 1;
+    };
+    window.addEventListener('moontv:logout', invalidateFavorite);
+    return () => {
+      invalidateFavorite();
+      window.removeEventListener('moontv:logout', invalidateFavorite);
+    };
   }, [from, actualSource, actualId]);
 
   useEffect(() => {
@@ -579,50 +616,69 @@ export default function VideoCard({
           }}
         />
 
-        <div className='absolute inset-0 bg-gradient-to-t from-black/80 via-black-20 to-transparent opacity-0 transition-opacity duration-300 ease-in-out group-hover:opacity-100' />
+        <div className='absolute inset-0 bg-gradient-to-t from-black/80 via-black-20 to-transparent opacity-0 transition-opacity duration-300 ease-in-out group-hover:opacity-100 group-focus-within:opacity-100' />
 
         {/* 播放按鈕 */}
         {config.showPlayButton && (
-          <div className='absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition'>
-            <PlayCircleIcon
-              size={50}
-              strokeWidth={0.8}
-              className='text-white fill-transparent hover:fill-green-500 hover:scale-[1.1] transition'
+          <div className='absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition'>
+            <button
+              type='button'
+              aria-label={`播放 ${actualTitle}`}
+              className='rounded-full text-white outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-green-600'
               onClick={(e) => {
                 e.stopPropagation(); // 阻止冒泡
                 handleClick(); // 只在點擊按鈕時觸發播放
               }}
-            />
+            >
+              <PlayCircleIcon
+                aria-hidden='true'
+                size={50}
+                strokeWidth={0.8}
+                className='fill-transparent hover:fill-green-500 hover:scale-[1.1] transition'
+              />
+            </button>
           </div>
         )}
 
         {(config.showHeart ||
           config.showFollowButton ||
           config.showCheckCircle) && (
-          <div className='absolute bottom-3 inset-x-3 flex items-center justify-end opacity-0 translate-y-2 transition-all duration-300 ease-in-out group-hover:opacity-100 group-hover:translate-y-0 [gap:clamp(0px,4cqi,0.75rem)]'>
+          <div className='absolute bottom-3 inset-x-3 flex items-center justify-end opacity-0 translate-y-2 transition-all duration-300 ease-in-out group-hover:opacity-100 group-focus-within:opacity-100 group-hover:translate-y-0 group-focus-within:translate-y-0 [gap:clamp(0px,4cqi,0.75rem)]'>
             {config.showCheckCircle && onDelete && (
-              <Trash2
+              <button
+                type='button'
+                aria-label={`刪除播放紀錄 ${actualTitle}`}
                 onClick={handleDeleteRecord}
-                size={20}
-                className='flex-shrink-0 text-white transition-all duration-300 ease-out hover:stroke-red-500 hover:scale-[1.1]'
-              />
+                className='flex-shrink-0 rounded text-white outline-none hover:text-red-500 focus-visible:ring-2 focus-visible:ring-white'
+              >
+                <Trash2 aria-hidden='true' size={20} />
+              </button>
             )}
             {config.showHeart && (
-              <Heart
+              <button
+                type='button'
+                aria-label={favorited ? '取消收藏' : '加入收藏'}
+                aria-pressed={favorited}
                 onClick={handleToggleFavorite}
-                size={20}
-                className={`flex-shrink-0 transition-all duration-300 ease-out ${
-                  favorited
-                    ? 'fill-red-600 stroke-red-600'
-                    : 'fill-transparent stroke-white hover:stroke-red-400'
-                } hover:scale-[1.1]`}
-              />
+                className='flex-shrink-0 rounded outline-none focus-visible:ring-2 focus-visible:ring-white'
+              >
+                <Heart
+                  aria-hidden='true'
+                  size={20}
+                  className={`transition-all duration-300 ease-out ${
+                    favorited
+                      ? 'fill-red-600 stroke-red-600'
+                      : 'fill-transparent stroke-white hover:stroke-red-400'
+                  } hover:scale-[1.1]`}
+                />
+              </button>
             )}
             {config.showFollowButton && (
               <button
                 type='button'
                 onClick={handleToggleFollowing}
-                className='flex-shrink-0 transition-all duration-300 ease-out hover:scale-[1.1]'
+                className='flex-shrink-0 rounded outline-none transition-all duration-300 ease-out hover:scale-[1.1] focus-visible:ring-2 focus-visible:ring-white'
+                aria-pressed={following}
                 title={following ? '取消追更' : '加入追更'}
                 aria-label={following ? '取消追更' : '加入追更'}
               >
@@ -654,7 +710,9 @@ export default function VideoCard({
 
         {/* 🔗 豆瓣/Bangumi跳轉鏈接（左下角） */}
         {config.showDoubanLink && actualDoubanId && (
-          <div
+          <button
+            type='button'
+            aria-label={isBangumi ? '跳轉到 Bangumi' : '跳轉到豆瓣'}
             onClick={(e) => {
               e.stopPropagation(); // 阻止觸發卡片點擊
 
@@ -672,7 +730,7 @@ export default function VideoCard({
                 );
               }
             }}
-            className='absolute bottom-2 left-2 bg-green-500 text-white text-xs font-bold w-8 h-8 rounded-full flex items-center justify-center shadow-md hover:bg-green-600 hover:scale-[1.1] transition-all duration-300 ease-out opacity-0 group-hover:opacity-100 cursor-pointer'
+            className='absolute bottom-2 left-2 bg-green-500 text-white text-xs font-bold w-8 h-8 rounded-full flex items-center justify-center shadow-md hover:bg-green-600 hover:scale-[1.1] transition-all duration-300 ease-out opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-white'
             title={isBangumi ? '跳轉到 Bangumi' : '跳轉到豆瓣'}
           >
             <svg
@@ -688,7 +746,7 @@ export default function VideoCard({
               <path d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'></path>
               <path d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'></path>
             </svg>
-          </div>
+          </button>
         )}
 
         {/* 集數 */}
@@ -705,15 +763,18 @@ export default function VideoCard({
           <div className='absolute bottom-2 right-2 flex flex-col items-end'>
             <div className='relative group/sources'>
               {/* 小圓圈按鈕：默認顯示 */}
-              <div
-                className='bg-gray-700 text-white text-xs sm:text-xs w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center shadow-md hover:bg-gray-600 hover:scale-[1.1] transition-all duration-300 ease-out cursor-pointer'
+              <button
+                type='button'
+                aria-label={`查看 ${items.length} 個播放源`}
+                aria-expanded={showSources}
+                className='bg-gray-700 text-white text-xs sm:text-xs w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center shadow-md hover:bg-gray-600 hover:scale-[1.1] transition-all duration-300 ease-out cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-green-500'
                 onClick={(e) => {
                   e.stopPropagation();
                   setShowSources((prev) => !prev); // 點擊切換列表顯示
                 }}
               >
                 {items.length}
-              </div>
+              </button>
 
               {/* 播放源列表彈窗 */}
               {showSources && (
@@ -774,6 +835,23 @@ export default function VideoCard({
           </span>
         )}
       </div>
+
+      <button
+        type='button'
+        aria-label={`${actualTitle} 更多操作`}
+        aria-haspopup='dialog'
+        aria-expanded={isActionOpen}
+        onTouchStart={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          cancelLongPress();
+          setIsActionOpen(true);
+        }}
+        className='mt-1 flex min-h-11 w-full items-center justify-center gap-1 rounded-lg text-xs text-gray-600 outline-none hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-green-500 dark:text-gray-400 dark:hover:bg-gray-800'
+      >
+        <MoreHorizontal size={16} aria-hidden='true' />
+        更多
+      </button>
 
       {/* 右鍵 / 長按 操作面板 */}
       <MobileActionSheet
