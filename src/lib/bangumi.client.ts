@@ -1,4 +1,6 @@
 'use client';
+
+import { memoizeAsync } from './async-cache';
 export interface BangumiCalendarData {
   weekday: {
     en: string;
@@ -62,23 +64,6 @@ export interface BangumiSubjectDetail {
   summary: string;
 }
 
-// 詳情內存緩存，避免同一卡片多次打開菜單時重復請求
-const BANGUMI_SUBJECT_CACHE_LIMIT = 200;
-const bangumiSubjectCache = new Map<string, BangumiSubjectDetail>();
-// 並發去重：同一 id 在請求返回前只發起一次網絡請求
-const bangumiSubjectRequests = new Map<string, Promise<BangumiSubjectDetail>>();
-
-function cacheSubjectDetail(id: string, detail: BangumiSubjectDetail): void {
-  if (bangumiSubjectCache.size >= BANGUMI_SUBJECT_CACHE_LIMIT) {
-    // 簡單的 FIFO 淘汰，防止長時間瀏覽後緩存無限增長
-    const oldestKey = bangumiSubjectCache.keys().next().value;
-    if (oldestKey !== undefined) {
-      bangumiSubjectCache.delete(oldestKey);
-    }
-  }
-  bangumiSubjectCache.set(id, detail);
-}
-
 async function requestSubjectDetail(id: string): Promise<BangumiSubjectDetail> {
   const response = await fetch(
     `/api/detail?provider=bangumi&id=${encodeURIComponent(id)}&fields=desc`,
@@ -100,7 +85,6 @@ async function requestSubjectDetail(id: string): Promise<BangumiSubjectDetail> {
     rate: '',
     summary: typeof data.desc === 'string' ? data.desc : '',
   };
-  cacheSubjectDetail(id, detail);
   return detail;
 }
 
@@ -109,32 +93,11 @@ async function requestSubjectDetail(id: string): Promise<BangumiSubjectDetail> {
  * 通過服務端 /api/detail?provider=bangumi 獲取，復用站點配置的 Bangumi 代理。
  * 失敗時向調用方拋出異常，由調用方決定降級方式。
  */
-export function GetBangumiSubjectDetail(
-  id: string
-): Promise<BangumiSubjectDetail> {
-  const cached = bangumiSubjectCache.get(id);
-  if (cached) {
-    // 命中緩存後刷新順序，實現近似 LRU 的淘汰順序
-    bangumiSubjectCache.delete(id);
-    bangumiSubjectCache.set(id, cached);
-    return Promise.resolve(cached);
-  }
+export const GetBangumiSubjectDetail = memoizeAsync(
+  (id: string) => id,
+  requestSubjectDetail
+);
 
-  const inflight = bangumiSubjectRequests.get(id);
-  if (inflight) {
-    return inflight;
-  }
-
-  const request = requestSubjectDetail(id);
-  bangumiSubjectRequests.set(id, request);
-
-  void request
-    .catch(() => {
-      // 失敗結果由調用方處理，此處僅避免 promises 未被消費導致的未處理拒絕
-    })
-    .finally(() => {
-      bangumiSubjectRequests.delete(id);
-    });
-
-  return request;
+export async function getBangumiSubjectIntro(id: string): Promise<string> {
+  return (await GetBangumiSubjectDetail(id)).summary;
 }

@@ -61,20 +61,67 @@ export function filterAdsFromM3U8(m3u8Content: string): string {
   return filterAdsFromM3U8WithStats(m3u8Content).content;
 }
 
+/** 弹幕密度挡位 */
+export type DanmakuDensity = 'sparse' | 'normal' | 'dense';
+
+/** 弹幕密度挡位文案 */
+export const DANMAKU_DENSITY_LABELS: Record<DanmakuDensity, string> = {
+  sparse: '疏鬆',
+  normal: '標準',
+  dense: '密集',
+};
+
 /**
- * 彈幕密度限制參數。
+ * 各挡位的密度参数。
  *
- * 用時間補償的方式平滑削峰，避免硬窗口把某個時間段直接掏空。
+ * 密度以「每轨每秒放行条数」为基准，实际速率随当前可用轨道数动态变化：
+ *
+ *   interval = perInterval / (ratePerLane × 当前轨道数)
+ *
+ * - sparse：每轨 0.2 条/秒（约每轨 5 秒 1 条）；
+ * - normal：每轨 0.5 条/秒；
+ * - dense：每轨 1 条/秒。
+ *
+ * 这样手机横屏（轨道少）和桌面全屏（轨道多）的观感一致，也不会在高屏上
+ * 浪费轨道。以 15 轨为例：疏松约 3 条/秒、标准约 7.5 条/秒、密集约
+ * 15 条/秒，与此前固定参数基本一致。
+ *
+ * 旧实现是容量 28 的令牌桶：密集时段的前 28 条会被瞬间全部放行，之后长时间
+ * 没有弹幕（额度被同一时刻吃光）。这些同时放行的弹幕又会挤在第一条轨道右侧
+ * 排队，导致时间和轨道分布都不均匀。改为时间槽采样后，放行量被均匀摊到整条
+ * 时间轴上，配合轨道分配即可铺满所有开放轨道。
  */
-const DANMAKU_REFILL_RATE = 14 / 5;
-const DANMAKU_BUCKET_CAPACITY = 28;
-const DANMAKU_MAX_TOTAL = 8000;
+export const DANMAKU_DENSITY_PRESETS: Record<
+  DanmakuDensity,
+  { ratePerLane: number; perInterval: number }
+> = {
+  sparse: { ratePerLane: 0.2, perInterval: 2 },
+  normal: { ratePerLane: 0.5, perInterval: 2 },
+  dense: { ratePerLane: 1, perInterval: 3 },
+};
 
-function createDanmakuFilter() {
-  let credits = DANMAKU_BUCKET_CAPACITY;
-  let lastTime = -Infinity;
-  let acceptedCount = 0;
+let activeDanmakuDensity: DanmakuDensity = 'sparse';
 
+/** 设置弹幕密度挡位；非法值回落到疏松。 */
+export function setDanmakuDensity(density: unknown): DanmakuDensity {
+  activeDanmakuDensity =
+    density === 'dense' || density === 'normal' ? density : 'sparse';
+  return activeDanmakuDensity;
+}
+
+/** 读取当前弹幕密度挡位。 */
+export function getDanmakuDensity(): DanmakuDensity {
+  return activeDanmakuDensity;
+}
+
+/**
+ * 基礎過濾：只校驗物件與文字長度，不截斷單集總量，以保留後段彈幕。
+ *
+ * 密度節流與每幀預算限制上屏速率及 DOM 測量量，不是總記憶體上限；
+ * 插件仍會遍歷 wait，因此載入層會對超量來源做全時間軸取樣以限制佇列成本。
+ * 勿恢復「只保留前 N 條」的限制，否則長片後段將永久失去彈幕。
+ */
+export function createDanmakuFilter() {
   return (danmu: any) => {
     if (!danmu || typeof danmu !== 'object') return false;
 
@@ -82,40 +129,59 @@ function createDanmakuFilter() {
       return false;
     }
 
-    const rawTime =
-      typeof danmu.time === 'number'
-        ? danmu.time
-        : typeof danmu.time === 'string'
-        ? Number(danmu.time)
-        : NaN;
+    return true;
+  };
+}
 
-    if (!Number.isFinite(rawTime)) {
-      return true;
+/**
+ * 密度节流器：按当前挡位限制弹幕上屏速率。
+ *
+ * 返回 true 表示当前时间槽还有配额，调用方可以让一条弹幕上屏；返回 false
+ * 时调用方应把轨道结果置为 undefined，让官方把弹幕放回 ready 队列，下一帧
+ * 再试。
+ *
+ * 为什么不直接在 `beforeVisible` 里丢弃：官方只会处理时间窗口（当前时间
+ * ±0.1 秒）内的 wait 弹幕，同一时刻成簇的弹幕一旦在这里被拒就会永久丢失，
+ * 实测每秒只能上屏几条。放回 ready 队列后，积压弹幕会按挡位速率陆续上屏，
+ * 既不丢弹幕也不会瞬间爆量。
+ *
+ * 采样按真实时钟（上屏时刻）而不是弹幕自身时间，因此切换挡位后立即生效，
+ * 且切回疏松时积压弹幕也只会按新速率慢慢放出。
+ */
+export function createDanmakuDensityThrottle(
+  now: () => number = () => Date.now() / 1000
+) {
+  let currentSlot = -1;
+  let usedInSlot = 0;
+  let lastDensity = activeDanmakuDensity;
+  let lastInterval = -1;
+
+  return (laneCount = 1): boolean => {
+    if (lastDensity !== activeDanmakuDensity) {
+      lastDensity = activeDanmakuDensity;
+      currentSlot = -1;
+      usedInSlot = 0;
     }
 
-    if (rawTime + 0.5 < lastTime) {
-      credits = DANMAKU_BUCKET_CAPACITY;
-      acceptedCount = 0;
-      lastTime = rawTime;
-    } else {
-      const elapsed = Math.max(0, rawTime - lastTime);
-      credits = Math.min(
-        DANMAKU_BUCKET_CAPACITY,
-        credits + elapsed * DANMAKU_REFILL_RATE
-      );
-      lastTime = rawTime;
+    const preset = DANMAKU_DENSITY_PRESETS[activeDanmakuDensity];
+    const lanes = Math.max(1, Math.floor(Number(laneCount) || 1));
+    // 轨道数变化（全屏、字号调整）时重新计算时间槽长度
+    const interval = preset.perInterval / (lanes * preset.ratePerLane);
+    if (interval !== lastInterval) {
+      lastInterval = interval;
+      currentSlot = -1;
+      usedInSlot = 0;
     }
 
-    if (acceptedCount >= DANMAKU_MAX_TOTAL) {
-      return false;
+    const slot = Math.floor(now() / interval);
+    if (slot !== currentSlot) {
+      currentSlot = slot;
+      usedInSlot = 0;
     }
 
-    if (credits < 1) {
-      return false;
-    }
+    if (usedInSlot >= preset.perInterval) return false;
 
-    credits -= 1;
-    acceptedCount += 1;
+    usedInSlot += 1;
     return true;
   };
 }
@@ -270,6 +336,8 @@ export interface DanmakuSettings {
   synchronousPlayback: boolean;
   /** 默認彈幕顏色 */
   color: string;
+  /** 彈幕密度（僅用於限流器） */
+  density: DanmakuDensity;
 }
 
 /** 將數值限制在 [min, max] 區間內，非法值返回 undefined */
@@ -347,6 +415,14 @@ export function pickDanmakuSettings(config: any): Partial<DanmakuSettings> {
     result.color = config.color;
   }
 
+  if (
+    config.density === 'sparse' ||
+    config.density === 'normal' ||
+    config.density === 'dense'
+  ) {
+    result.density = config.density;
+  }
+
   return result;
 }
 
@@ -393,9 +469,11 @@ export function saveDanmakuSettings(
  * 創建彈幕插件初始配置：默認配置疊加本地已保存的設置，刷新後可自動恢復。
  */
 export function createDanmakuInitialConfig(): any {
+  const { density, ...saved } = loadDanmakuSettings();
+  setDanmakuDensity(density);
   return {
     ...createDanmakuDefaultConfig(),
-    ...loadDanmakuSettings(),
+    ...saved,
   };
 }
 
@@ -625,10 +703,15 @@ export function createCustomHlsLoader(
         const looksLikeFragment =
           /\.(ts|m4s|m4v|mp4|webm|aac|mp3)(\?|$)/i.test(url) ||
           /segment|fragment|clip|part|chunk|frag|plist/i.test(url);
+        // hls.js 的 frag 可識別偽裝為圖片的片段，但文字資源不能走片段快取。
+        const looksLikeTextResource = /\.(m3u8|m3u|vtt|webvtt)(\?|$)/i.test(
+          url
+        );
         const treatAsFragment =
-          type === 'fragment' ||
-          (context?.frag && context.responseType === 'arraybuffer') ||
-          (!type && looksLikeFragment);
+          !looksLikeTextResource &&
+          (type === 'fragment' ||
+            Boolean(context?.frag) ||
+            (!type && looksLikeFragment));
         const range = normalizeByteRange(rangeStart, rangeEnd);
         const invalidRange = !range && (rangeStart > 0 || rangeEnd > 0);
 

@@ -191,7 +191,7 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
       />
 
       <div
-        className='relative w-full max-w-lg mx-4 mb-4 bg-white dark:bg-gray-900 rounded-2xl shadow-2xl transition-all duration-200 ease-out'
+        className='relative w-full max-w-lg mx-4 mb-4 max-h-[85vh] overflow-y-auto overscroll-contain bg-white dark:bg-gray-900 rounded-2xl shadow-2xl transition-all duration-200 ease-out'
         onTouchMove={(e) => {
           e.stopPropagation();
         }}

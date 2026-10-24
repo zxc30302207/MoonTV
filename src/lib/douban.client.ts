@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any,no-console,no-case-declarations */
 
+import { memoizeAsync } from './async-cache';
 import { DoubanItem, DoubanResult } from './types';
 import { toSimplified } from './zh';
 
@@ -587,11 +588,6 @@ interface DoubanSubjectApiResponse {
   rating?: { value?: number };
 }
 
-// 詳情內存緩存，避免同一卡片多次打開菜單時重復請求
-const DOUBAN_DETAIL_CACHE_LIMIT = 200;
-const doubanDetailCache = new Map<string, DoubanSubjectDetail>();
-const doubanDetailRequests = new Map<string, Promise<DoubanSubjectDetail>>();
-
 function normalizeDoubanSubjectDetail(
   id: string,
   data: DoubanSubjectApiResponse
@@ -659,33 +655,15 @@ async function requestDoubanDetail(id: string): Promise<DoubanSubjectDetail> {
   if (!detail.intro && typeof data.desc === 'string') {
     detail.intro = data.desc;
   }
-  if (doubanDetailCache.size >= DOUBAN_DETAIL_CACHE_LIMIT) {
-    const oldest = doubanDetailCache.keys().next().value;
-    if (oldest !== undefined) doubanDetailCache.delete(oldest);
-  }
-  doubanDetailCache.set(id, detail);
   return detail;
 }
 
-/** 有界 LRU 快取；重複開啟同一卡片共用進行中的請求。 */
-export function getDoubanDetail(id: string): Promise<DoubanSubjectDetail> {
-  const cached = doubanDetailCache.get(id);
-  if (cached) {
-    doubanDetailCache.delete(id);
-    doubanDetailCache.set(id, cached);
-    return Promise.resolve(cached);
-  }
-  const inflight = doubanDetailRequests.get(id);
-  if (inflight) return inflight;
-  const request = requestDoubanDetail(id);
-  doubanDetailRequests.set(id, request);
-  void request
-    .catch(() => {
-      // 呼叫端處理失敗；不保留錯誤結果，允許重新嘗試。
-    })
-    .finally(() => {
-      if (doubanDetailRequests.get(id) === request)
-        doubanDetailRequests.delete(id);
-    });
-  return request;
+/** 有界快取、並發去重；失敗與登出後皆可重新請求。 */
+export const getDoubanDetail = memoizeAsync(
+  (id: string) => id,
+  requestDoubanDetail
+);
+
+export async function getDoubanIntro(id: string): Promise<string> {
+  return (await getDoubanDetail(id)).intro;
 }

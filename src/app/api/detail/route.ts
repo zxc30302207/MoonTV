@@ -48,7 +48,10 @@ export async function GET(request: NextRequest) {
         { headers }
       );
     } catch {
-      return NextResponse.json({ desc: '' }, { headers });
+      return NextResponse.json(
+        { error: '獲取簡介失敗' },
+        { status: 502, headers }
+      );
     }
   }
   if (provider !== 'vod') {
@@ -87,6 +90,7 @@ export async function GET(request: NextRequest) {
       if (request.signal.aborted) abort();
       const deadline = setTimeout(abort, 12000);
       let desc = '';
+      let searchMatched = false;
       try {
         if (title && !controller.signal.aborted) {
           const searchController = new AbortController();
@@ -104,9 +108,12 @@ export async function GET(request: NextRequest) {
               searchController.signal
             )) {
               const match = batch.find((item) => String(item.id) === id);
-              if (match?.desc) {
-                desc = match.desc;
-                break;
+              if (match) {
+                searchMatched = true;
+                if (match.desc) {
+                  desc = match.desc;
+                  break;
+                }
               }
             }
           } catch {
@@ -127,8 +134,20 @@ export async function GET(request: NextRequest) {
                 })
               ).desc || '';
           } catch {
-            // 簡介失敗不影響卡片其他功能。
+            // 暫態失敗不能當成成功的空簡介，否則客戶端無法重試。
+            if (!searchMatched && !controller.signal.aborted) {
+              return NextResponse.json(
+                { error: '獲取簡介失敗' },
+                { status: 502, headers }
+              );
+            }
           }
+        }
+        if (controller.signal.aborted && !request.signal.aborted && !desc) {
+          return NextResponse.json(
+            { error: '獲取簡介逾時' },
+            { status: 502, headers }
+          );
         }
         return NextResponse.json({ desc }, { headers });
       } finally {

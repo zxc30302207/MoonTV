@@ -12,7 +12,7 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { changelog, ChangelogEntry } from '@/lib/changelog';
@@ -35,6 +35,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
   isOpen,
   onClose,
 }) => {
+  const requestGeneration = useRef(0);
   const [mounted, setMounted] = useState(false);
   const [remoteChangelog, setRemoteChangelog] = useState<ChangelogEntry[]>([]);
   const [hasUpdate, setIsHasUpdate] = useState(false);
@@ -53,10 +54,14 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
     if (isOpen) {
       fetchRemoteChangelog();
     }
+    return () => {
+      requestGeneration.current += 1;
+    };
   }, [isOpen]);
 
   // 獲取遠程變更日誌
   const fetchRemoteChangelog = async () => {
+    const generation = ++requestGeneration.current;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
     setIsHasUpdate(false);
@@ -71,6 +76,7 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
       if (!response.ok) throw new Error('無法讀取上游變更日誌');
       const parsed = parseChangelog(await response.text());
       if (!parsed.length) throw new Error('上游變更日誌格式無效');
+      if (generation !== requestGeneration.current) return;
       const latest = parsed[0];
       const status = compareVersions(latest.version);
       setRemoteChangelog(parsed);
@@ -78,7 +84,9 @@ export const VersionPanel: React.FC<VersionPanelProps> = ({
       setUpdateStatus(status);
       setIsHasUpdate(status === UpdateStatus.HAS_UPDATE);
     } catch {
-      setUpdateStatus(UpdateStatus.FETCH_FAILED);
+      if (generation === requestGeneration.current) {
+        setUpdateStatus(UpdateStatus.FETCH_FAILED);
+      }
     } finally {
       clearTimeout(timeout);
     }

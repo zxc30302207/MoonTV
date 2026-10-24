@@ -1,7 +1,9 @@
 import { NextRequest } from 'next/server';
 
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
+import { clampSearchConcurrency, mapWithConcurrency } from '@/lib/concurrency';
 import {
+  ApiSite,
   canAccessAdultContent,
   getAvailableApiSites,
   getConfig,
@@ -38,25 +40,14 @@ export async function GET(request: NextRequest) {
   const timeoutParam = searchParams.get('timeout');
   const timeout = timeoutParam ? parseInt(timeoutParam, 10) * 1000 : undefined; // 轉換為毫秒
 
-  const config = await getConfig();
-  const shouldFilterYellow = !canAccessAdultContent(config, authInfo?.username);
-
-  // 獲取用戶可用的搜索源
-  let apiSites = await getAvailableApiSites(authInfo?.username);
-
-  // 如果指定了搜索源，只使用選中的搜索源
-  const selectedSourcesParam = searchParams.get('sources');
-  if (selectedSourcesParam) {
-    const selectedSources = selectedSourcesParam.split(',');
-    apiSites = apiSites.filter((site) => selectedSources.includes(site.key));
-  }
-
-  const encoder = new TextEncoder();
-  const { readable, writable } = new TransformStream();
-  const writer = writable.getWriter();
+  // 单次搜索同时查询的上游源数量，由前端搜索设置传入。
+  // 服务端再做一次收敛，避免被构造请求放大到不受控的并发。
+  const searchConcurrency = clampSearchConcurrency(
+    searchParams.get('concurrency')
+  );
 
   if (!query) {
-    // 空查詢，明確不緩存
+    // 空查询无需读取配置，也无需创建流，明确不缓存
     return new Response(JSON.stringify({ results: [] }), {
       headers: {
         'Content-Type': 'application/json',
@@ -67,30 +58,24 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // 安全寫入與斷連處理
-  let shouldStop = false;
-  const abortSignal = request.signal as AbortSignal | undefined;
-  abortSignal?.addEventListener('abort', () => {
-    shouldStop = true;
-    void writer.abort().catch(() => undefined);
-  });
+  const config = await getConfig();
+  const shouldFilterYellow = !canAccessAdultContent(config, authInfo?.username);
 
-  const safeWrite = async (obj: unknown) => {
-    if (shouldStop || abortSignal?.aborted) return false;
-    try {
-      await writer.write(encoder.encode(JSON.stringify(obj) + '\n'));
-      return true;
-    } catch {
-      shouldStop = true;
-      return false;
-    }
-  };
+  // 获取用户可用的搜索源
+  let apiSites = await getAvailableApiSites(authInfo?.username);
+
+  // 如果指定了搜索源，只使用选中的搜索源
+  const selectedSourcesParam = searchParams.get('sources');
+  if (selectedSourcesParam) {
+    const selectedSources = selectedSourcesParam.split(',');
+    apiSites = apiSites.filter((site) => selectedSources.includes(site.key));
+  }
 
   // -------------------------
   // 非流式：並發
   // -------------------------
   if (!enableStream) {
-    const tasks = apiSites.map(async (site) => {
+    const searchSite = async (site: ApiSite) => {
       const siteResults: SearchResult[] = [];
       let hasResults = false;
       try {
@@ -121,17 +106,18 @@ export async function GET(request: NextRequest) {
         }
         return { siteResults, failed: null };
       } catch (err: unknown) {
-        let errorMessage = (err as Error).message || '未知的錯誤';
+        const error = err instanceof Error ? err : new Error(String(err));
+        let errorMessage = error.message || '未知的錯誤';
 
         // 根據錯誤類型提供更具體的錯誤信息
-        if ((err as Error).message === '請求超時') {
+        if (error.message === '請求超時') {
           errorMessage = '請求超時';
         } else if (
-          (err as Error).message === '請求失敗' ||
-          (err as Error).message === '網絡連接失敗'
+          error.message === '請求失敗' ||
+          error.message === '網絡連接失敗'
         ) {
           errorMessage = '請求失敗';
-        } else if ((err as Error).message.includes('網絡錯誤')) {
+        } else if (error.message.includes('網絡錯誤')) {
           errorMessage = '網絡錯誤';
         }
 
@@ -140,9 +126,13 @@ export async function GET(request: NextRequest) {
           failed: { name: site.name, key: site.key, error: errorMessage },
         };
       }
-    });
+    };
 
-    const results = await Promise.all(tasks);
+    const results = await mapWithConcurrency(
+      apiSites,
+      searchConcurrency,
+      searchSite
+    );
     const aggregatedResults = results.flatMap((r) => r.siteResults);
     const failedSources = results.filter((r) => r.failed).map((r) => r.failed);
 
@@ -170,11 +160,35 @@ export async function GET(request: NextRequest) {
   // -------------------------
   // 流式：並發
   // -------------------------
+  // 只有流式响应才需要创建 TransformStream 与 writer
+  const encoder = new TextEncoder();
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+
+  // 安全写入与断连处理
+  let shouldStop = false;
+  const abortSignal = request.signal as AbortSignal | undefined;
+  abortSignal?.addEventListener('abort', () => {
+    shouldStop = true;
+    void writer.abort().catch(() => undefined);
+  });
+
+  const safeWrite = async (obj: unknown) => {
+    if (shouldStop || abortSignal?.aborted) return false;
+    try {
+      await writer.write(encoder.encode(JSON.stringify(obj) + '\n'));
+      return true;
+    } catch {
+      shouldStop = true;
+      return false;
+    }
+  };
+
   (async () => {
-    const aggregatedResults: SearchResult[] = [];
     const failedSources: { name: string; key: string; error: string }[] = [];
 
-    const tasks = apiSites.map(async (site) => {
+    const searchSite = async (site: ApiSite) => {
+      if (shouldStop || abortSignal?.aborted) return;
       try {
         const generator = searchFromApiStream(
           site,
@@ -206,7 +220,6 @@ export async function GET(request: NextRequest) {
             return;
           }
 
-          aggregatedResults.push(...filteredResults);
           if (
             !(await safeWrite({ site: site.key, pageResults: filteredResults }))
           ) {
@@ -223,14 +236,15 @@ export async function GET(request: NextRequest) {
           await safeWrite({ failedSources });
         }
       } catch (err: unknown) {
-        let errorMessage = (err as Error).message || '未知的錯誤';
+        const error = err instanceof Error ? err : new Error(String(err));
+        let errorMessage = error.message || '未知的錯誤';
 
         // 根據錯誤類型提供更具體的錯誤信息
-        if ((err as Error).message === '請求超時') {
+        if (error.message === '請求超時') {
           errorMessage = '請求超時';
-        } else if ((err as Error).message === '請求失敗') {
+        } else if (error.message === '請求失敗') {
           errorMessage = '請求失敗';
-        } else if ((err as Error).message.includes('網絡錯誤')) {
+        } else if (error.message.includes('網絡錯誤')) {
           errorMessage = '網絡錯誤';
         }
 
@@ -241,22 +255,22 @@ export async function GET(request: NextRequest) {
         });
         await safeWrite({ failedSources });
       }
-    });
-
-    // 等所有 site 跑完
-    await Promise.allSettled(tasks);
-
-    if (failedSources.length > 0) {
-      await safeWrite({ failedSources });
-    }
-    await safeWrite({ aggregatedResults });
+    };
 
     try {
-      await writer.close();
-    } catch {
-      // ignore
+      // 等所有來源完成；斷線後不再啟動佇列中的查詢。
+      await mapWithConcurrency(apiSites, searchConcurrency, searchSite);
+      if (failedSources.length > 0) {
+        await safeWrite({ failedSources });
+      }
+    } finally {
+      try {
+        await writer.close();
+      } catch {
+        // The reader may already have disconnected.
+      }
     }
-  })();
+  })().catch(() => undefined);
 
   return new Response(readable, {
     headers: {

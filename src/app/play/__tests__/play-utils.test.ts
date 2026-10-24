@@ -275,3 +275,35 @@ it.each(['abort', 'destroy'])(
     expect(onSuccess).not.toHaveBeenCalled();
   }
 );
+
+it('recognizes image-suffixed HLS fragments without requiring a responseType hint', async () => {
+  (readCachedSegment as jest.Mock).mockResolvedValue({
+    fragment: { data: new ArrayBuffer(2), costMs: 3 },
+    matchedKey: 'image-fragment',
+  });
+  const Loader = createCustomHlsLoader(Hls);
+  const onSuccess = jest.fn();
+  new Loader({}).load(
+    { frag: { sn: 1 }, url: 'https://cdn.example.com/123.jpg' },
+    {},
+    { onSuccess }
+  );
+  await flush();
+  expect(onSuccess).toHaveBeenCalledTimes(1);
+  expect(baseLoad).not.toHaveBeenCalled();
+});
+
+it.each(['m3u8', 'm3u', 'vtt', 'webvtt'])(
+  'never serves %s text resources from the fragment cache',
+  (extension) => {
+    const Loader = createCustomHlsLoader(Hls);
+    const ctx = {
+      ...context,
+      url: `https://cdn.example.com/segment.${extension}?v=1`,
+    };
+    const callbacks = { onSuccess: jest.fn() };
+    new Loader({}).load(ctx, {}, callbacks);
+    expect(baseLoad).toHaveBeenCalledWith(ctx, {}, callbacks);
+    expect(readCachedSegment).not.toHaveBeenCalled();
+  }
+);

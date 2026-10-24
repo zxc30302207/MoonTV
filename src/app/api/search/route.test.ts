@@ -36,6 +36,8 @@ describe('/api/search', () => {
   beforeAll(() => {
     const { MessageChannel, MessagePort } = require('worker_threads');
     Object.assign(globalThis, { MessageChannel, MessagePort });
+    const { TransformStream } = require('stream/web');
+    Object.assign(globalThis, { TransformStream });
     const { Headers, Request, Response } = require('undici');
     Object.assign(globalThis, { Headers, Request, Response });
   });
@@ -134,6 +136,75 @@ describe('/api/search', () => {
         title: 'NBA Highlights',
       }),
     ]);
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+  });
+  it('bounds source concurrency without weakening authorization or private caching', async () => {
+    mockGetAvailableApiSites.mockResolvedValue(
+      Array.from({ length: 5 }, (_, i) => ({
+        key: `s${i}`,
+        name: `Source ${i}`,
+        api: 'https://source.example/api',
+      }))
+    );
+    let active = 0;
+    let peak = 0;
+    mockSearchFromApiStream.mockImplementation(async function* (site) {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      active -= 1;
+      yield [{ id: site.key, title: 'Normal', source: site.key }];
+    });
+    const { GET } = await import('./route');
+    const response = await GET(
+      new Request(
+        'http://localhost/api/search?q=normal&concurrency=2'
+      ) as unknown as NextRequest
+    );
+    expect((await response.json()).results).toHaveLength(5);
+    expect(peak).toBe(2);
+    expect(mockGetVerifiedAuthInfo).toHaveBeenCalled();
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+  });
+
+  it('rejects an unverified user before starting any source search', async () => {
+    mockGetVerifiedAuthInfo.mockResolvedValue(null);
+    const { GET } = await import('./route');
+    const response = await GET(
+      new Request(
+        'http://localhost/api/search?q=normal&concurrency=20'
+      ) as unknown as NextRequest
+    );
+    expect(response.status).toBe(401);
+    expect(mockSearchFromApiStream).not.toHaveBeenCalled();
+  });
+
+  it('finishes streaming after a non-Error source failure and preserves other sources', async () => {
+    mockGetAvailableApiSites.mockResolvedValue([
+      { key: 'bad', name: 'Bad', api: 'https://bad.example/' },
+      { key: 'good', name: 'Good', api: 'https://good.example/' },
+    ]);
+    mockSearchFromApiStream.mockImplementation(async function* (site) {
+      if (site.key === 'bad') throw null;
+      yield [{ id: 'ok', title: 'Normal', source: 'good' }];
+    });
+    const { GET } = await import('./route');
+    const response = await GET(
+      new Request(
+        'http://localhost/api/search?q=normal&stream=1&concurrency=1'
+      ) as unknown as NextRequest
+    );
+    const lines = (await response.text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(lines).toContainEqual({
+      site: 'good',
+      pageResults: [{ id: 'ok', title: 'Normal', source: 'good' }],
+    });
+    expect(lines.some((line) => line.failedSources?.[0]?.key === 'bad')).toBe(
+      true
+    );
     expect(response.headers.get('Cache-Control')).toBe('private, no-store');
   });
 });

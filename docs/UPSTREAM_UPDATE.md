@@ -1,20 +1,48 @@
-# MoonTV 4.6.0 update
+# MoonTV 4.7.0 相容整合
 
-This update integrates upstream v4.6.0 and subsequent improvements through commit `12a4b9a50849b350846acebecc58af72e55f8a9b`.
+## 整合基準
 
-## Highlights
+- 原正式分支：`9870e323c035abe4b5d608c0c4bb1b3292296438`（4.6.0）
+- 已整合上游：`12a4b9a50849b350846acebecc58af72e55f8a9b`
+- 本次上游：`Stardm0/MoonTV`，`e4c0732`（完整 SHA 見 `.github/upstream-base.txt`）
+- 僅整合兩個上游基準間的增量；沒有以整個上游覆蓋客製分支。
 
-- Mobile player gestures, queued notices, improved seeking and quality selection.
-- Cache scheduling improvements, optional navigation auto-hide, and on-demand descriptions.
-- Existing custom interface, playback options, source preferences, subtitles, comments, and storage integration retained.
-- Dependency maintenance, request lifecycle improvements, and additional regression coverage.
-- Upstream automation now creates draft proposals for review instead of changing the default branch directly. Conflicting updates require manual integration. Execution logs are retained.
+## 更新與相容性
 
-## Validation
+- 搜尋來源併發可設定，伺服器限制範圍；串流中斷後不再排程後續來源。
+- 完整標題／副標題搜尋及查詢變更時清空舊篩選，保留繁簡搜尋與版本排除規則。
+- 統一簡介非同步快取：有界 LRU、同請求去重、失敗可重試；額外保留登出世代隔離，避免舊帳號請求污染新帳號。
+- 彈幕密度三檔與均勻軌道分配，保留手動彈幕來源、簽名代理、載入競態防護；超過 8000 條時按全時間軸等距取樣，避免外掛平方級載入成本失控或截斷後段。
+- HLS 分片識別改善，保留原安全去廣告與報告、請求取消及帶寬單位換算。
+- 版號由 CHANGELOG 同步並校驗，生成結果與 Prettier 一致且可重複執行。
 
-- Node 22, pnpm 10.14, Next.js 15.5.28.
-- Type checking, strict lint, formatting, and production build passed.
-- 79 Jest suites / 534 tests and 6 isolated upstream proposal tests passed.
-- Isolated local HTTP smoke checks passed. Browser playback checks are separate deployment verification.
+## 明確保留
 
-Review each future proposal and run CI on its exact commit before merging. Token-created proposals may require manual CI dispatch. No automatic merge is configured.
+繁體介面、Supabase KV 儲存、來源清單及停用狀態、成人授權與隔離、HttpOnly 簽名登入、同源寫入與 SSRF 防護、私人 API no-store、豆瓣評論、外部播放器、來源偏好及所有已驗證廣告素材規則均保留。`config.json`、資料庫 schema、廣告素材資料與現有環境設定沒有更動；沒有清空或遷移正式資料。
+
+## 有據清理
+
+三套重複簡介快取集中到共用工具，保留既有公開函式相容性；搜尋來源映射集中驗證單筆異常資料；避免非串流搜尋建立無用 stream，移除串流尾端重複傳輸整份聚合資料。版本面板增加請求世代隔離，避免關閉重開時舊檢查把新版通知錯誤變綠。未做全庫重新格式化或無關功能重寫。
+
+## 相依安全修補
+
+稽核發現 Zod、undici、fast-uri 新公告：更新 undici 6.29.1 / 8.12.3、fast-uri 3.1.9；Zod 公告修復線為 >=4.6.6（無 3.x 修補版），升級 4.6.7，僅用於管理者備份匯入驗證，20 項完整備份及損壞資料回歸測試確認格式保留與錯誤拒絕。配合 Zod 宣告語法最低需求，開發工具 TypeScript 更新至 5.5.4，將型別檢查 target 調整為 ES2017 以符合既有 Unicode 使用者名稱正則；不修改資料庫或備份格式。
+
+## 工作流程差異
+
+上游 Version Manager 會直接寫入 main。本分支改成唯讀版本校驗，使用 commit hook／`pnpm gen:version` 事先產生檔案，再由正常審查與 CI 進正式分支。不需要 PAT，也不繞過分支保護或觸發第二次不必要的 Vercel 正式部署。上游提案自動化維持 draft PR only。
+
+## 驗證
+
+Node 22.23.4／pnpm 10.14.0：
+
+- Jest：84 套、596 項全過（包含版本面板狀態／競態、備份格式、安全去廣告既有回歸、彈幕清空生命週期）。
+- TypeScript 無錯誤、strict ESLint 零警告。
+- `pnpm audit` 全依賴零漏洞（2026-10-24 本次鎖定版本）。
+- 版本同步校驗、生成器 Node 測試、6 項上游提案安全 Python 測試通過。
+- Next.js 正式 build 通過；不以此宣稱正式站真人登入、所有第三方來源或完整播放端到端均已驗證。
+- 版本面板向真實 Stardm0 上游查詢；相同 4.7.0 顯示綠色，未來版本仍顯示有更新，錯誤不誤報綠色。
+
+## 回復
+
+需要回復時回退程式提交或選用先前 Vercel 部署；不清空資料庫。

@@ -39,6 +39,12 @@ jobs:
       - name: Generate runtime files
         run: pnpm gen:manifest && pnpm gen:runtime
 
+      - name: Check version synchronization
+        run: pnpm check:version
+
+      - name: Test version generation
+        run: node --test scripts/convert-changelog.test.cjs
+
       - name: Audit production dependencies
         run: pnpm audit --prod
 

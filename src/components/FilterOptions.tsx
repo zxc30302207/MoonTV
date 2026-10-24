@@ -4,8 +4,10 @@ import React, { useState } from 'react';
 interface FilterOptionsProps {
   openFilter: string | null;
   setOpenFilter: React.Dispatch<React.SetStateAction<string | null>>;
+  /** 清空所有筛选条件，由搜索页统一实现，避免重复维护 */
+  onClearFilters: () => void;
 
-  // 來源
+  // 来源
   sourceOptions: string[];
   filterSources: string[];
   setFilterSources: (opts: string[]) => void;
@@ -31,6 +33,7 @@ interface FilterOptionsProps {
 const FilterOptions: React.FC<FilterOptionsProps> = ({
   openFilter,
   setOpenFilter,
+  onClearFilters,
   sourceOptions,
   filterSources,
   setFilterSources,
@@ -79,12 +82,6 @@ const FilterOptions: React.FC<FilterOptionsProps> = ({
           : [...selectedYears, option]
       );
     }
-  };
-
-  const clearAllFilters = () => {
-    setFilterSources([]);
-    setSelectedTitles([]);
-    setSelectedYears([]);
   };
 
   const renderFilterOptions = () => {
@@ -227,7 +224,7 @@ const FilterOptions: React.FC<FilterOptionsProps> = ({
           {activeTab === '篩選' && (
             <>
               <button
-                onClick={clearAllFilters}
+                onClick={onClearFilters}
                 className='text-sm text-blue-600 hover:underline dark:text-blue-400'
               >
                 清空篩選

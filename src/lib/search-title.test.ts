@@ -36,3 +36,19 @@ describe('search titles with punctuation', () => {
     expect(matchesSearchTitle('Movie（2026）', 'Movie', true)).toBe(true);
   });
 });
+
+describe('4.7 title relevance with custom Chinese normalization', () => {
+  it('matches subtitles without confusing release years for a title', () => {
+    expect(matchesSearchTitle('名侦探柯南：黑铁的鱼影', '黑鐵的魚影')).toBe(
+      true
+    );
+    expect(matchesSearchTitle('三体（2024）', '三體', true)).toBe(true);
+    expect(matchesSearchTitle('三體（2024）', '2024')).toBe(false);
+    expect(matchesSearchTitle('2024', '2024', true)).toBe(true);
+  });
+  it('preserves the custom edition-note exclusion and full source identity', () => {
+    expect(getFallbackSearchQuery('三體（電視動畫完整版）')).toBe('三體');
+    expect(matchesFullSearchTitle('三体（2024）', '三體（2025）')).toBe(false);
+    expect(matchesFullSearchTitle('三体（完整版）', '三體')).toBe(false);
+  });
+});

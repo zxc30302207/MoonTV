@@ -3,8 +3,16 @@
 
 import { ChevronUp, Search, X } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
+import { getSearchConcurrency } from '@/lib/concurrency';
 import {
   addSearchHistory,
   clearSearchHistory,
@@ -308,9 +316,10 @@ function SearchPageClient() {
         params.set('sources', searchSources.join(','));
       }
 
-      // 添加超時時間參數
+      // 添加超时时间与并发数参数
       const timeoutSeconds = getRequestTimeout();
       params.set('timeout', timeoutSeconds.toString());
+      params.set('concurrency', getSearchConcurrency().toString());
 
       const response = await fetch(`/api/search?${params.toString()}`, {
         signal: controller.signal,
@@ -492,11 +501,36 @@ function SearchPageClient() {
     }
   }, [currentQuery]);
 
-  // 同步搜索源配置（當 sources 參數變化時）
+  // 统一的“清空筛选”逻辑：既供筛选面板的“清空筛选”按钮使用，
+  // 也用于切换查询时自动清理上一次搜索遗留的筛选条件。
+  const handleClearFilters = useCallback(() => {
+    setFilterSources([]);
+    setSelectedTitles([]);
+    setSelectedYears([]);
+    setOpenFilter(null);
+  }, []);
+
+  // 查询变化时清空上一次搜索遗留的结果筛选条件。
+  // 否则旧的来源/标题/年份筛选可能把新结果全部过滤掉，页面会误显示“未找到相关结果”。
+  // 首次渲染不触发，URL 中携带的筛选参数（分享链接）仍然生效。
+  const filterQueryRef = useRef<string | null>(currentQuery);
   useEffect(() => {
-    if (currentSources) {
-      setSearchSources(currentSources.split(','));
-    }
+    if (filterQueryRef.current === currentQuery) return;
+    filterQueryRef.current = currentQuery;
+    handleClearFilters();
+  }, [currentQuery, handleClearFilters]);
+
+  // 同步搜索源配置（当 sources 参数变化时）
+  // 内容一致时保持原数组引用，避免多余的渲染与 URL 回写
+  useEffect(() => {
+    if (!currentSources) return;
+    const nextSources = currentSources.split(',');
+    setSearchSources((prev) =>
+      prev.length === nextSources.length &&
+      prev.every((source, index) => source === nextSources[index])
+        ? prev
+        : nextSources
+    );
   }, [currentSources]);
 
   // 監聽查詢參數 q 的變化並觸發搜索（只在 q 變化時觸發）
@@ -507,7 +541,6 @@ function SearchPageClient() {
       setIsLoading(true);
       setShowResults(true);
       fetchSearchResults(currentQuery);
-      addSearchHistory(currentQuery);
     } else {
       // 沒有搜索參數時，聚焦輸入框
       document.getElementById('searchInput')?.focus();
@@ -543,58 +576,47 @@ function SearchPageClient() {
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  // 更新篩選狀態到 URL
+  // 更新筛选状态到 URL
+  // 显式依赖所有参与序列化的状态，且写入前先比较当前 URL，
+  // 避免 replaceState 触发 searchParams 更新后反复执行。
   useEffect(() => {
-    const params = new URLSearchParams(searchParams);
+    if (!currentQuery) return;
 
+    const params = new URLSearchParams();
+    params.set('q', currentQuery);
     if (searchSources.length > 0) {
       params.set('sources', searchSources.join(','));
-    } else {
-      params.delete('sources');
     }
-
     if (filterSources.length > 0) {
       params.set('filter_sources', filterSources.join(','));
-    } else {
-      params.delete('filter_sources');
     }
-
     if (selectedTitles.length > 0) {
       params.set('titles', selectedTitles.join(','));
-    } else {
-      params.delete('titles');
     }
-
     if (selectedYears.length > 0) {
       params.set('years', selectedYears.join(','));
-    } else {
-      params.delete('years');
     }
-
-    // 排序字段與順序
     if (sortField) {
       params.set('sort', sortField);
-    } else {
-      params.delete('sort');
     }
     if (sortOrder) {
       params.set('order', sortOrder);
-    } else {
-      params.delete('order');
     }
 
-    // 只在有搜索查詢時才更新 URL
-    if (searchParams.get('q')) {
-      window.history.replaceState({}, '', `/search?${params.toString()}`);
+    const nextUrl = `/search?${params.toString()}`;
+    if (nextUrl === `${window.location.pathname}${window.location.search}`) {
+      return;
     }
+    window.history.replaceState({}, '', nextUrl);
   }, [
+    currentQuery,
+    searchSources,
     filterSources,
     selectedTitles,
     selectedYears,
     sortField,
     sortOrder,
-    searchParams,
-  ]); // 移除 selectedSources 依賴，避免選擇搜索源時觸發重新搜索
+  ]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -612,7 +634,9 @@ function SearchPageClient() {
     if (!trimmed) return;
 
     setShowSuggestions(false);
-    // 更新URL，由useEffect監聽觸發搜索
+    // 仅用户主动提交时写入搜索历史，避免前进/后退或直接打开链接污染历史
+    addSearchHistory(trimmed);
+    // 更新URL，由useEffect监听触发搜索
     const urlParams = new URLSearchParams();
     urlParams.set('q', trimmed);
     if (searchSources.length > 0) {
@@ -626,7 +650,8 @@ function SearchPageClient() {
 
   const handleSuggestionSelect = (suggestion: string) => {
     setShowSuggestions(false);
-    // 更新URL，由useEffect監聽觸發搜索
+    addSearchHistory(suggestion);
+    // 更新URL，由useEffect监听触发搜索
     const urlParams = new URLSearchParams();
     urlParams.set('q', suggestion);
     if (searchSources.length > 0) {
@@ -757,6 +782,7 @@ function SearchPageClient() {
                   <FilterOptions
                     openFilter={openFilter}
                     setOpenFilter={setOpenFilter}
+                    onClearFilters={handleClearFilters}
                     sourceOptions={sourceOptions}
                     filterSources={filterSources}
                     setFilterSources={setFilterSources}

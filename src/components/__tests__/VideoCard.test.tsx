@@ -13,7 +13,7 @@ import {
   saveFollowing,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
-import { getDoubanDetail } from '@/lib/douban.client';
+import { getDoubanIntro } from '@/lib/douban.client';
 import { getVideoDesc } from '@/lib/video-detail.client';
 
 import VideoCard from '../VideoCard';
@@ -22,10 +22,10 @@ jest.mock('@/lib/video-detail.client', () => ({
   getVideoDesc: jest.fn().mockResolvedValue('來源簡介'),
 }));
 jest.mock('@/lib/douban.client', () => ({
-  getDoubanDetail: jest.fn().mockResolvedValue({ intro: '豆瓣簡介' }),
+  getDoubanIntro: jest.fn().mockResolvedValue('豆瓣簡介'),
 }));
 jest.mock('@/lib/bangumi.client', () => ({
-  GetBangumiSubjectDetail: jest.fn().mockResolvedValue({ summary: '動畫簡介' }),
+  getBangumiSubjectIntro: jest.fn().mockResolvedValue('動畫簡介'),
 }));
 
 const push = jest.fn();
@@ -87,6 +87,7 @@ const followingStatus = isFollowing as jest.MockedFunction<typeof isFollowing>;
 describe('VideoCard following actions', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    window.dispatchEvent(new Event('moontv:logout'));
     followingStatus.mockResolvedValue(false);
     (subscribeToDataUpdates as jest.Mock).mockReturnValue(unsubscribe);
   });
@@ -153,6 +154,7 @@ describe('VideoCard following actions', () => {
 describe('VideoCard upstream gesture and URL compatibility', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    window.dispatchEvent(new Event('moontv:logout'));
     followingStatus.mockResolvedValue(false);
     (subscribeToDataUpdates as jest.Mock).mockReturnValue(unsubscribe);
   });
@@ -206,6 +208,7 @@ describe('VideoCard upstream gesture and URL compatibility', () => {
 describe('VideoCard synopsis integration', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    window.dispatchEvent(new Event('moontv:logout'));
     followingStatus.mockResolvedValue(false);
     (subscribeToDataUpdates as jest.Mock).mockReturnValue(unsubscribe);
   });
@@ -221,7 +224,7 @@ describe('VideoCard synopsis integration', () => {
   });
 
   it('falls back to source synopsis when Douban has no synopsis', async () => {
-    (getDoubanDetail as jest.Mock).mockResolvedValueOnce({ intro: '' });
+    (getDoubanIntro as jest.Mock).mockResolvedValueOnce('');
     render(
       <VideoCard
         id='v1'
