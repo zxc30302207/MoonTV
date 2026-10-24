@@ -61,4 +61,57 @@ describe('upstream search integration', () => {
     expect(results).toEqual([]);
     expect(global.fetch).not.toHaveBeenCalled();
   });
+  it('drops malformed items while preserving valid signed playback URLs', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        list: [
+          null,
+          {},
+          { vod_id: 1 },
+          { vod_id: 2, vod_name: '  ' },
+          {
+            vod_id: 3,
+            vod_name: '三體',
+            vod_year: 2024,
+            vod_play_url:
+              '第一集$https://cdn.example/show.m3u8?token=signed#fragment',
+          },
+        ],
+      }),
+    });
+    const results = [];
+    for await (const page of searchFromApiStream(source, '三體'))
+      results.push(...page);
+    expect(results).toHaveLength(1);
+    expect(results[0]).toEqual(
+      expect.objectContaining({
+        id: '3',
+        title: '三體',
+        year: '2024',
+        poster: '',
+        episodes: ['https://cdn.example/show.m3u8?token=signed#fragment'],
+      })
+    );
+  });
+
+  it('reports HTTP failures instead of silently treating them as empty results', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 503 });
+    const search = searchFromApiStream(source, 'Title');
+    await expect(search.next()).rejects.toThrow('HTTP 503');
+  });
+
+  it('keeps sequential results when a later page has malformed JSON', async () => {
+    global.fetch = jest.fn(async (url: string) => ({
+      ok: true,
+      json: async () => {
+        if (url.includes('pg=2')) throw new SyntaxError('invalid JSON');
+        return { list: [item(url.includes('pg=3') ? '3' : '1')], pagecount: 3 };
+      },
+    })) as unknown as typeof fetch;
+    const results = [];
+    for await (const page of searchFromApiStream(source, 'Title', false))
+      results.push(...page);
+    expect(results.map((result) => result.id)).toEqual(['1', '3']);
+  });
 });

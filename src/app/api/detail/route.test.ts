@@ -98,6 +98,37 @@ describe('/api/detail', () => {
     }
   );
 
+  it.each(['douban', 'bangumi'])(
+    'returns retryable errors for transient %s description failures',
+    async (provider) => {
+      mockFetchDoubanData.mockRejectedValue(new Error('network'));
+      mockFetchBangumiSubjectDetail.mockRejectedValue(new Error('network'));
+      const { GET } = await import('./route');
+      const response = await GET(
+        new Request(
+          `http://localhost/api/detail?provider=${provider}&fields=desc&id=1`
+        ) as never
+      );
+      expect(response.status).toBe(502);
+      expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+    }
+  );
+
+  it('does not cache failed source lookups as successful empty descriptions', async () => {
+    mockSearchFromApiStream.mockImplementation(async function* () {
+      yield [];
+    });
+    mockGetDetailFromApi.mockRejectedValue(new Error('network'));
+    const { GET } = await import('./route');
+    const response = await GET(
+      new Request(
+        'http://localhost/api/detail?fields=desc&id=1&source=ffzynew&title=test'
+      ) as never
+    );
+    expect(response.status).toBe(502);
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+  });
+
   it('checks user source access before description lookup', async () => {
     mockGetAvailableApiSites.mockResolvedValue([]);
     const { GET } = await import('./route');

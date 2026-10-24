@@ -17,7 +17,6 @@ import React, {
   useState,
 } from 'react';
 
-import { GetBangumiSubjectDetail } from '@/lib/bangumi.client';
 import {
   deleteFavorite,
   deleteFollowing,
@@ -29,10 +28,9 @@ import {
   saveFollowing,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
-import { getDoubanDetail } from '@/lib/douban.client';
+import { getIntro, introKey } from '@/lib/intro.client';
 import { SearchResult } from '@/lib/types';
 import { processImageUrl } from '@/lib/utils';
-import { getVideoDesc } from '@/lib/video-detail.client';
 
 import FollowingIcon from '@/components/FollowingIcon';
 import { ImagePlaceholder } from '@/components/ImagePlaceholder';
@@ -171,58 +169,33 @@ export default function VideoCard({
   useEffect(() => {
     if (!isActionOpen) return;
 
-    const vodDescFetcher =
-      from !== 'douban' && actualSource && actualId
-        ? () => getVideoDesc(actualSource, actualId, actualTitle)
-        : null;
-
-    let introKey: string | null = null;
-    if (isBangumi && actualDoubanId) {
-      introKey = `bangumi:${actualDoubanId}`;
-    } else if (actualDoubanId) {
-      introKey = `douban:${actualDoubanId}`;
-    } else if (vodDescFetcher) {
-      introKey = `vod:${actualSource}:${actualId}`;
-    }
-
-    if (!introKey) {
+    const target = {
+      bangumiId: isBangumi ? actualDoubanId : undefined,
+      doubanId: isBangumi ? undefined : actualDoubanId,
+      source: from !== 'douban' ? actualSource : undefined,
+      id: from !== 'douban' ? actualId : undefined,
+      title: actualTitle,
+    };
+    if (
+      !(target.bangumiId || target.doubanId || (target.source && target.id))
+    ) {
       setCardIntro('');
       setCardIntroLoading(false);
       introLoadedRef.current = null;
       return;
     }
-    if (introLoadedRef.current === introKey) return;
+    const key = introKey(target);
+    if (introLoadedRef.current === key) return;
 
     let cancelled = false;
     // 條目切換時先清空舊簡介，避免請求失敗時展示上一部影片的內容
     setCardIntro('');
     setCardIntroLoading(true);
 
-    let introPromise: Promise<string>;
-    if (isBangumi && actualDoubanId) {
-      introPromise = GetBangumiSubjectDetail(String(actualDoubanId)).then(
-        (detail) => detail.summary
-      );
-    } else if (actualDoubanId) {
-      const doubanIntroPromise = getDoubanDetail(String(actualDoubanId)).then(
-        (detail) => detail.intro
-      );
-      // 豆瓣簡介為空或請求失敗時，回退到播放源詳情中的簡介
-      introPromise = vodDescFetcher
-        ? doubanIntroPromise
-            .then((intro) => (intro ? intro : vodDescFetcher()))
-            .catch(() => vodDescFetcher())
-        : doubanIntroPromise;
-    } else if (vodDescFetcher) {
-      introPromise = vodDescFetcher();
-    } else {
-      return;
-    }
-
-    introPromise
+    getIntro(target)
       .then((intro) => {
         if (cancelled) return;
-        introLoadedRef.current = introKey;
+        introLoadedRef.current = key;
         setCardIntro(intro || '');
       })
       .catch((err) => {

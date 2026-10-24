@@ -10,6 +10,7 @@ import {
   setSettingTooltip,
   updateSettingPreservingPanel,
 } from '@/lib/artplayer-setting';
+import { getSearchConcurrency } from '@/lib/concurrency';
 import {
   AnimeMatch,
   AnimeOption,
@@ -96,11 +97,14 @@ import { bindMobileGestures } from './mobile-gestures';
 import {
   createCustomHlsLoader,
   createDanmakuInitialConfig,
+  DANMAKU_DENSITY_LABELS,
   DANMAKU_VISIBLE_RESTORE_DELAY_MS,
   formatAdFilterStatus,
   formatTime,
+  getDanmakuDensity,
   pickDanmakuSettings,
   saveDanmakuSettings,
+  setDanmakuDensity,
   SkipConfig,
 } from './play-utils';
 import { clearPlayerNotices, pushPlayerNotice } from './player-notice';
@@ -459,7 +463,8 @@ export function usePlayEngine() {
         if (cancelled || plugin !== danmukuPluginInstanceRef.current) return;
         if (plugin && url !== lastDanmakuUrlRef.current) {
           plugin.config({ danmuku: url });
-          plugin.load();
+          await plugin.load();
+          if (cancelled || plugin !== danmukuPluginInstanceRef.current) return;
           lastDanmakuUrlRef.current = url;
         }
         setSettingTooltip(
@@ -471,7 +476,11 @@ export function usePlayEngine() {
         restoreDanmakuVisibility();
         clearGlobalError();
       } catch (error) {
-        if (!cancelled) console.error('獲取彈幕 URL 失敗:', error);
+        if (!cancelled && plugin === danmukuPluginInstanceRef.current) {
+          console.error('獲取彈幕 URL 失敗:', error);
+          plugin?.clear?.();
+          // 失敗時保持切集期間的隱藏狀態，成功手選新來源後才還原。
+        }
       } finally {
         if (!cancelled) setSelectedState(false);
       }
@@ -680,10 +689,16 @@ export function usePlayEngine() {
     }
 
     const inst = danmukuPluginInstanceRef.current as any;
+
+    // reset() 只會重排舊彈幕；真正清空並讓舊 XML 請求失效。
+    inst?.clear?.();
+    lastDanmakuUrlRef.current = '';
+
     const currentVisible =
-      typeof inst?.visible === 'boolean'
+      pendingDanmakuVisibleRestoreRef.current ??
+      (typeof inst?.visible === 'boolean'
         ? inst.visible
-        : !!danmakuConfigRef.current.visible;
+        : !!danmakuConfigRef.current.visible);
 
     pendingDanmakuVisibleRestoreRef.current = currentVisible;
     danmakuConfigRef.current.visible = false;
@@ -1040,10 +1055,11 @@ export function usePlayEngine() {
       try {
         // 發起流式搜索請求
         const timeoutSeconds = getRequestTimeout();
+        const searchConcurrency = getSearchConcurrency();
         const response = await fetch(
           `/api/search?q=${encodeURIComponent(
             query.trim()
-          )}&timeout=${timeoutSeconds}&stream=1`
+          )}&timeout=${timeoutSeconds}&stream=1&concurrency=${searchConcurrency}`
         );
         if (!response.ok) throw new Error('搜索失敗');
 
@@ -1262,10 +1278,14 @@ export function usePlayEngine() {
   // 視頻初始化後即可匹配彈幕
   useEffect(() => {
     if (isDanmakuPluginReady && isBlockAdChanged) {
-      danmukuPluginInstanceRef.current.config({
-        danmuku: lastDanmakuUrlRef.current,
-      });
-      danmukuPluginInstanceRef.current.load();
+      // 没有弹幕源时不要调用 load()：空地址会发起一次必然失败的请求
+      const url = lastDanmakuUrlRef.current;
+      if (url) {
+        danmukuPluginInstanceRef.current.config({ danmuku: url });
+        danmukuPluginInstanceRef.current.load().catch((e: unknown) => {
+          console.error('載入彈幕失敗:', e);
+        });
+      }
       setIsBlockAdChanged(false);
       return;
     }
@@ -1352,7 +1372,8 @@ export function usePlayEngine() {
               url !== lastDanmakuUrlRef.current
             ) {
               danmukuPluginInstanceRef.current.config({ danmuku: url });
-              danmukuPluginInstanceRef.current.load();
+              await danmukuPluginInstanceRef.current.load();
+              if (abortController.signal.aborted) return;
               lastDanmakuUrlRef.current = url;
             }
             const tooltip =
@@ -1405,7 +1426,8 @@ export function usePlayEngine() {
               url !== lastDanmakuUrlRef.current
             ) {
               danmukuPluginInstanceRef.current.config({ danmuku: url });
-              danmukuPluginInstanceRef.current.load();
+              await danmukuPluginInstanceRef.current.load();
+              if (abortController.signal.aborted) return;
               lastDanmakuUrlRef.current = url;
             }
             const tooltip = m.episodeTitle || `${m.animeTitle} EP${epNum}`;
@@ -2782,6 +2804,23 @@ export function usePlayEngine() {
             tooltip: currentTooltip || '未選擇',
             onClick: function () {
               setShowDanmakuSelector(true);
+            },
+          },
+          {
+            name: '彈幕密度',
+            html: '彈幕密度',
+            tooltip: DANMAKU_DENSITY_LABELS[getDanmakuDensity()],
+            selector: (['sparse', 'normal', 'dense'] as const).map(
+              (density) => ({
+                html: DANMAKU_DENSITY_LABELS[density],
+                value: density,
+                default: density === getDanmakuDensity(),
+              })
+            ),
+            onSelect: function (item: any) {
+              const density = setDanmakuDensity(item.value);
+              saveDanmakuSettings({ density });
+              return DANMAKU_DENSITY_LABELS[density];
             },
           },
           {

@@ -42,3 +42,17 @@ it('reopens the portal settings dialog after Close and Escape without losing sou
   fireEvent.click(toggle);
   expect(screen.getByRole('dialog')).toBeInTheDocument();
 });
+
+it('persists a bounded source concurrency setting without replacing source choices', async () => {
+  localStorage.clear();
+  localStorage.setItem('savedSources', JSON.stringify(['source1']));
+  render(<Harness />);
+  fireEvent.click(await screen.findByTitle('搜索源設置'));
+  const input = screen.getByRole('spinbutton', { name: '搜索源並行數' });
+  fireEvent.change(input, { target: { value: '99' } });
+  expect(localStorage.getItem('searchConcurrency')).toBe('20');
+  expect(localStorage.getItem('savedSources')).toBe('["source1"]');
+  fireEvent.change(input, { target: { value: '2' } });
+  expect(localStorage.getItem('searchConcurrency')).toBe('2');
+  fireEvent.click(screen.getByRole('button', { name: '關閉' }));
+});

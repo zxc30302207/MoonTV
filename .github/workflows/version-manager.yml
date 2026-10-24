@@ -1,66 +1,36 @@
 name: Version Manager
 
 on:
-  workflow_dispatch: # 手动触发
   push:
-    tags:
-      - 'v*' # 当推送版本标签时触发
+    branches: [main]
+    paths:
+      - CHANGELOG
+      - scripts/convert-changelog.js
+      - src/lib/changelog.ts
+      - src/lib/version.ts
+      - VERSION.txt
+  workflow_dispatch:
+
+# Generate locally before committing; never auto-push to the deployed branch.
+permissions:
+  contents: read
+
+concurrency:
+  group: version-manager
+  cancel-in-progress: true
 
 jobs:
-  update-version:
+  verify-version:
     runs-on: ubuntu-latest
-
     steps:
-      # 检出代码，使用 Personal Access Token 解决 push 权限问题
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.PAT_TOKEN }} # 必须在仓库 secrets 中添加 PAT_TOKEN
-          fetch-depth: 0
-
-      # 安装 Node.js
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+          persist-credentials: false
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
-
-      # 安装 pnpm
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
+      - uses: pnpm/action-setup@v3
         with:
           version: 10.14.0
-
-      # 安装依赖
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      # 禁用 husky 钩子，避免 commit 被阻止
-      - name: Disable husky hooks
-        run: git config core.hooksPath /dev/null
-
-      # 执行 changelog 转换脚本
-      - name: Run convert-changelog script
-        run: node scripts/convert-changelog.js
-        env:
-          GITHUB_ACTIONS: 'true'
-
-      # 提交版本更新
-      - name: Commit version updates
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git checkout main  # 确保在主分支
-          git add .
-          git diff --quiet && git diff --staged --quiet || git commit -m "chore: update version files for ${{ github.ref_name }}"
-          git push origin main
-
-      # 显示版本信息
-      - name: Show version statistics
-        run: |
-          echo "📊 版本更新完成:"
-          echo "当前版本: ${{ github.ref_name }}"
-          echo "VERSION.txt 内容:"
-          cat VERSION.txt
-          echo ""
-          echo "version.ts 中的 CURRENT_VERSION:"
-          grep "CURRENT_VERSION" src/lib/version.ts
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check:version

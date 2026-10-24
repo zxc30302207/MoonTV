@@ -3,6 +3,12 @@ import { Save, Settings, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import {
+  clampSearchConcurrency,
+  DEFAULT_SEARCH_CONCURRENCY,
+  getSearchConcurrency,
+  MAX_SEARCH_CONCURRENCY,
+} from '@/lib/concurrency';
 import { getAvailableApiSitesClient } from '@/lib/config.client';
 import { getSwal } from '@/lib/sweetalert';
 import { getRequestTimeout } from '@/lib/utils';
@@ -27,6 +33,9 @@ export default function SourceSelector({
   >([]);
   const [isLoading, setIsLoading] = useState(true);
   const [timeoutSeconds, setTimeoutSeconds] = useState<number>(30);
+  const [searchConcurrency, setSearchConcurrency] = useState<number>(
+    DEFAULT_SEARCH_CONCURRENCY
+  );
   const [enableSearchSuggestions, setEnableSearchSuggestions] =
     useState<boolean>(true);
 
@@ -84,6 +93,7 @@ export default function SourceSelector({
   const handleSaveSources = async () => {
     localStorage.setItem('savedSources', JSON.stringify(selectedSources));
     localStorage.setItem('requestTimeout', timeoutSeconds.toString());
+    localStorage.setItem('searchConcurrency', searchConcurrency.toString());
 
     // 顯示保存成功提示
     const Swal = await getSwal();
@@ -97,6 +107,13 @@ export default function SourceSelector({
       timer: 2000,
       timerProgressBar: true,
     });
+  };
+
+  const handleConcurrencyChange = (value: string) => {
+    const next = clampSearchConcurrency(value);
+    setSearchConcurrency(next);
+    // 即时生效：下一次搜索会直接读取 localStorage
+    localStorage.setItem('searchConcurrency', next.toString());
   };
 
   const handleToggleSearchSuggestions = () => {
@@ -132,6 +149,8 @@ export default function SourceSelector({
 
       const timeout = getRequestTimeout();
       setTimeoutSeconds(timeout);
+
+      setSearchConcurrency(getSearchConcurrency());
 
       const savedEnableSearchSuggestions = localStorage.getItem(
         'enableSearchSuggestions'
@@ -200,7 +219,7 @@ export default function SourceSelector({
             <button
               onClick={handleSaveSources}
               className='px-3 py-1 text-sm bg-green-100 text-green-700 rounded hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-800/50 flex items-center justify-center gap-1'
-              title='保存當前選中的搜索源和超時設置'
+              title='保存當前選中的搜索源、超時和並行設定'
             >
               <Save className='w-3 h-3' />
               保存
@@ -234,6 +253,25 @@ export default function SourceSelector({
               />
               <span className='text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap'>
                 秒
+              </span>
+            </div>
+
+            <div className='flex items-center justify-center gap-2 bg-gray-100 dark:bg-gray-700 rounded px-2 py-1'>
+              <label className='text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap'>
+                並行:
+              </label>
+              <input
+                type='number'
+                min={1}
+                max={MAX_SEARCH_CONCURRENCY}
+                aria-label='搜索源並行數'
+                value={searchConcurrency}
+                onChange={(e) => handleConcurrencyChange(e.target.value)}
+                className='w-12 px-1 py-0.5 text-sm bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-green-400'
+                title={`同時查詢的搜索源數量（1-${MAX_SEARCH_CONCURRENCY}），立即生效`}
+              />
+              <span className='text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap'>
+                個源
               </span>
             </div>
 
