@@ -21,6 +21,42 @@ import {
   touchMeta,
 } from '@/lib/video-cache';
 
+interface ManualDanmakuLoadOptions {
+  plugin: {
+    config: (options: { danmuku: string }) => unknown;
+    load: () => Promise<unknown>;
+    clear?: () => void;
+  };
+  getUrl: () => Promise<string>;
+  isCurrent: () => boolean;
+  onStart: () => void;
+  onLoaded: (url: string) => void;
+  onError: (error: unknown) => void;
+  onFinish: () => void;
+}
+
+/** 手選請求的完成回呼只屬於當前選擇；重選相同來源也會重新載入。 */
+export async function loadManualDanmaku(
+  options: ManualDanmakuLoadOptions
+): Promise<void> {
+  if (!options.isCurrent()) return;
+  options.onStart();
+  try {
+    const url = await options.getUrl();
+    if (!options.isCurrent()) return;
+    options.plugin.config({ danmuku: url });
+    await options.plugin.load();
+    if (!options.isCurrent()) return;
+    options.onLoaded(url);
+  } catch (error) {
+    if (!options.isCurrent()) return;
+    options.plugin.clear?.();
+    options.onError(error);
+  } finally {
+    if (options.isCurrent()) options.onFinish();
+  }
+}
+
 /** 切集後延遲恢復彈幕可見性的毫秒數 */
 export const DANMAKU_VISIBLE_RESTORE_DELAY_MS = 1500;
 
@@ -61,7 +97,7 @@ export function filterAdsFromM3U8(m3u8Content: string): string {
   return filterAdsFromM3U8WithStats(m3u8Content).content;
 }
 
-/** 弹幕密度挡位 */
+/** 弹幕密度挡位；默认挡位为 `normal`（标准） */
 export type DanmakuDensity = 'sparse' | 'normal' | 'dense';
 
 /** 弹幕密度挡位文案 */
@@ -100,12 +136,12 @@ export const DANMAKU_DENSITY_PRESETS: Record<
   dense: { ratePerLane: 1, perInterval: 3 },
 };
 
-let activeDanmakuDensity: DanmakuDensity = 'sparse';
+let activeDanmakuDensity: DanmakuDensity = 'normal';
 
-/** 设置弹幕密度挡位；非法值回落到疏松。 */
+/** 设置弹幕密度挡位；未设置 / 非法值回落到标准。 */
 export function setDanmakuDensity(density: unknown): DanmakuDensity {
   activeDanmakuDensity =
-    density === 'dense' || density === 'normal' ? density : 'sparse';
+    density === 'sparse' || density === 'dense' ? density : 'normal';
   return activeDanmakuDensity;
 }
 
@@ -477,6 +513,214 @@ export function createDanmakuInitialConfig(): any {
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* HLS 内存缓冲预算                                                     */
+/* ------------------------------------------------------------------ */
+
+/** 1MB，按 1024 进制，和浏览器 MSE 的统计口径一致 */
+const MB = 1024 * 1024;
+
+/**
+ * 字节预算的安全系数。
+ *
+ * 播放列表里的 BANDWIDTH 是平均码率，实际分片（尤其是高动态画面）会短暂
+ * 高于它；留 15% 余量，避免"刚好算满"时先撞 SourceBuffer 配额。
+ */
+const BUFFER_SAFETY = 1.15;
+
+/** 前向缓冲的最小有效时长：再短就不足以抗抖动 */
+const MIN_FORWARD_SECONDS = 1;
+
+/** 单个 SourceBuffer 的最小字节预算，避免低码率时算出过小的值 */
+const MIN_BUFFER_BYTES = 32 * MB;
+
+/** 设备档位：0 宽裕 / 1 中等 / 2 紧张 */
+type DeviceTier = 0 | 1 | 2;
+
+/**
+ * 各档设备可安全占用的 MSE 字节预算。
+ *
+ * 取值参考 Chrome 桌面端与移动端 SourceBuffer 的常见配额，并给视频 + 音频
+ * 两个 SourceBuffer 留出余量；超出这个值更容易触发 `bufferFullError`。
+ */
+const DEVICE_BYTE_BUDGET: Record<DeviceTier, number> = {
+  0: 192 * MB,
+  1: 128 * MB,
+  2: 72 * MB,
+};
+
+/** 时长目标：[前向目标, 前向硬上限, 回看时长]（秒） */
+const TIME_TARGETS: Record<
+  'cacheOff' | 'cacheOn',
+  Record<DeviceTier, readonly [number, number, number]>
+> = {
+  // 未开缓存：内存缓冲就是抗抖动的资本，尽量拉长
+  cacheOff: {
+    0: [120, 600, 30],
+    1: [90, 360, 20],
+    2: [60, 180, 15],
+  },
+  // 已开缓存：Cache Storage 读出来几乎零延迟，内存缓冲只需保证平滑
+  cacheOn: {
+    0: [60, 300, 20],
+    1: [45, 240, 15],
+    2: [30, 120, 10],
+  },
+};
+
+export interface HlsBufferPlan {
+  /** 前向缓冲目标（秒） */
+  maxBufferLength: number;
+  /** 前向缓冲硬上限（秒） */
+  maxMaxBufferLength: number;
+  /** 已播放内容的保留时长（秒） */
+  backBufferLength: number;
+  /** MSE 单 SourceBuffer 字节预算（字节） */
+  maxBufferSize: number;
+  /** 目标时长装不进字节预算，已按字节预算回压时长（排查用） */
+  limitedByBytes: boolean;
+}
+
+export interface HlsBufferPlanInput {
+  /** 当前档位码率（bit/s）。未知时只按设备预算给出时长目标 */
+  levelBitrate?: number | null;
+  cacheEnabled?: boolean;
+  /** navigator.deviceMemory（GB，Chrome 上限 8） */
+  deviceMemory?: number;
+  hardwareConcurrency?: number;
+  /** 移动端 / 平板：MSE 配额通常比桌面紧张 */
+  mobile?: boolean;
+  saveData?: boolean;
+}
+
+function resolveDeviceTier(input: HlsBufferPlanInput): DeviceTier {
+  const memory = input.deviceMemory ?? 0;
+  const cores = input.hardwareConcurrency ?? 0;
+  if (
+    input.mobile ||
+    (memory > 0 && memory <= 2) ||
+    (cores > 0 && cores <= 2)
+  ) {
+    return 2;
+  }
+  if ((memory > 0 && memory <= 4) || (cores > 0 && cores <= 4)) return 1;
+  return 0;
+}
+
+/**
+ * 依碼率及設備容量估算 HLS 緩衝預算。
+ * hls.js 1.6 的實際目標是 min(max(size / bytesPerSecond, length), maxLength)，
+ * 所以 maxBufferSize 不是硬性的記憶體上限；已知碼率時也要限制 maxMaxBufferLength。
+ * 同時預留回看與碼率波動空間。這只是估算，單一分片仍可能超出預算。
+ */
+export function planHlsBuffer(input: HlsBufferPlanInput = {}): HlsBufferPlan {
+  const tier = resolveDeviceTier(input);
+  const [targetForward, targetMax, targetBack] =
+    TIME_TARGETS[input.cacheEnabled ? 'cacheOn' : 'cacheOff'][tier];
+
+  let maxBufferLength = targetForward;
+  let maxMaxBufferLength = targetMax;
+  let backBufferLength = targetBack;
+  if (input.saveData) {
+    maxBufferLength = Math.min(maxBufferLength, 45);
+    maxMaxBufferLength = Math.min(maxMaxBufferLength, 240);
+  }
+
+  const byteBudget = DEVICE_BYTE_BUDGET[tier];
+  const bitrate = Number(input.levelBitrate);
+  if (!Number.isFinite(bitrate) || bitrate <= 0) {
+    return {
+      maxBufferLength,
+      maxMaxBufferLength,
+      backBufferLength,
+      maxBufferSize: byteBudget,
+      limitedByBytes: false,
+    };
+  }
+
+  const bytesPerSecond = bitrate / 8;
+  const desired = Math.ceil(
+    (maxBufferLength + backBufferLength) * bytesPerSecond * BUFFER_SAFETY
+  );
+  if (desired <= byteBudget) {
+    return {
+      maxBufferLength,
+      maxMaxBufferLength: Math.min(
+        maxMaxBufferLength,
+        Math.floor(
+          byteBudget / BUFFER_SAFETY / bytesPerSecond - backBufferLength
+        )
+      ),
+      backBufferLength,
+      // 依碼率給予預算，maxMaxBufferLength 另外約束 HLS 的實際前向目標。
+      maxBufferSize: Math.max(MIN_BUFFER_BYTES, desired),
+      limitedByBytes: false,
+    };
+  }
+
+  // 字节预算装不下目标时长：回压时长，避免留下一个永远达不成的目标
+  const affordableTotal = byteBudget / BUFFER_SAFETY / bytesPerSecond;
+  // 高碼率下優先保留前向播放，不讓 30 秒的下限再次突破設備預算。
+  backBufferLength = Math.min(
+    backBufferLength,
+    Math.floor(affordableTotal / 4)
+  );
+  const affordable = Math.floor(affordableTotal - backBufferLength);
+  maxBufferLength = Math.max(
+    MIN_FORWARD_SECONDS,
+    Math.min(maxBufferLength, affordable)
+  );
+  maxMaxBufferLength = Math.max(
+    maxBufferLength,
+    Math.min(maxMaxBufferLength, affordable)
+  );
+  return {
+    maxBufferLength,
+    maxMaxBufferLength,
+    backBufferLength,
+    maxBufferSize: byteBudget,
+    limitedByBytes: true,
+  };
+}
+
+/** 读取当前设备能力并计算缓冲计划 */
+export function planCurrentHlsBuffer(
+  input: HlsBufferPlanInput = {}
+): HlsBufferPlan {
+  if (typeof navigator === 'undefined') return planHlsBuffer(input);
+  const nav = navigator as Navigator & {
+    deviceMemory?: number;
+    connection?: { saveData?: boolean };
+  };
+  return planHlsBuffer({
+    ...input,
+    deviceMemory: nav.deviceMemory,
+    hardwareConcurrency: nav.hardwareConcurrency,
+    saveData: nav.connection?.saveData,
+    mobile: /Android|iPhone|iPad|iPod|Mobile|HarmonyOS/i.test(
+      nav.userAgent || ''
+    ),
+  });
+}
+
+/** 写回 hls 实例；hls.js 每个 tick 都会读 config，运行期修改立即生效 */
+export function applyHlsBufferPlan(hls: any, plan: HlsBufferPlan): void {
+  const config = hls?.config;
+  if (!config) return;
+  for (const key of [
+    'maxBufferLength',
+    'maxMaxBufferLength',
+    'backBufferLength',
+    'maxBufferSize',
+  ] as const) {
+    const previous = Number(config[key]);
+    config[key] =
+      hls.__moontvQuotaDegraded && Number.isFinite(previous) && previous >= 0
+        ? Math.min(previous, plan[key])
+        : plan[key];
+  }
+}
+
 export interface AdFilterReport {
   removedSegments: number;
   removedSeconds: number;
@@ -552,9 +796,9 @@ function buildCachedStats(
   bytes: number
 ): Record<string, unknown> {
   const end = performance.now();
-  const span = Math.max(1, costMs);
+  const span = Number.isFinite(costMs) ? Math.max(1, costMs) : 1;
   const start = end - span;
-  const zero = { start: 0, first: 0, end: 0 };
+  const downloadEnd = start + span * 0.8;
   return {
     aborted: false,
     loaded: bytes,
@@ -562,9 +806,9 @@ function buildCachedStats(
     total: bytes,
     chunkCount: 1,
     bwEstimate: (bytes / span) * 8000,
-    loading: { start, first: start + span * 0.6, end },
-    parsing: { ...zero },
-    buffering: { ...zero },
+    loading: { start, first: start + span * 0.2, end: downloadEnd },
+    parsing: { start: downloadEnd, first: downloadEnd, end },
+    buffering: { start: end, first: end, end },
   };
 }
 
@@ -580,6 +824,7 @@ export function createCustomHlsLoader(
   options: HlsLoaderOptions = {}
 ): any {
   const BaseLoader = Hls.DefaultConfig.loader;
+  // 关闭时不改写播放列表，行为与默认 loader 完全一致
   const useAdFilter = options.blockAd !== false;
   const onProbe = options.onProbe ?? recordSegmentProbe;
 

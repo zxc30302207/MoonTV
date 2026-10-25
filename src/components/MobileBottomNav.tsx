@@ -15,7 +15,7 @@ import {
   Tv,
 } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { memo, useEffect, useRef, useState } from 'react';
 
 import { getCustomCategories } from '@/lib/config.client';
@@ -31,6 +31,7 @@ interface MobileBottomNavProps {
 
 const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const listRef = useRef<HTMLUListElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -50,8 +51,10 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
   };
   const { startLoading } = useNavigationLoading();
 
-  // 當前激活路徑：優先使用傳入的 activePath，否則回退到瀏覽器地址
-  const currentActive = activePath ?? pathname;
+  // 保留查詢參數，讓同一路徑的不同分類也能正確高亮。
+  const query = searchParams?.toString();
+  const currentActive =
+    activePath ?? (query ? `${pathname}?${query}` : pathname);
 
   const [navItems, setNavItems] = useState([
     { icon: Home, label: '首頁', href: '/' },
@@ -119,17 +122,15 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
   }, []);
 
   const isActive = (href: string) => {
-    const typeMatch = href.match(/type=([^&]+)/)?.[1];
-
-    // 解碼URL以進行正確的比較
-    const decodedActive = decodeURIComponent(currentActive);
-    const decodedItemHref = decodeURIComponent(href);
-
-    return (
-      decodedActive === decodedItemHref ||
-      (decodedActive.startsWith('/douban') &&
-        decodedActive.includes(`type=${typeMatch}`))
-    );
+    const [itemPath, itemQuery = ''] = href.split('?');
+    const [currentPath, currentQuery = ''] = currentActive.split('?');
+    if (currentPath !== itemPath) return false;
+    if (!itemQuery) return true;
+    const itemType = new URLSearchParams(itemQuery).get('type');
+    const currentType =
+      new URLSearchParams(currentQuery).get('type') ??
+      (itemPath === '/douban' ? 'movie' : null);
+    return itemType !== null && itemType === currentType;
   };
 
   useEffect(() => {

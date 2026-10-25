@@ -9,6 +9,9 @@ import {
   UpdateStatus,
 } from './version';
 
+const [major, minor, patch] = CURRENT_VERSION.split('.').map(Number);
+const NEXT_PATCH = `${major}.${minor}.${patch + 1}`;
+
 describe('上游相容版本', () => {
   it('keeps the UI, VERSION.txt and changelog synchronized', () => {
     expect(
@@ -17,6 +20,10 @@ describe('上游相容版本', () => {
     expect(changelog[0].version).toBe(CURRENT_VERSION);
   });
   it.each([
+    CURRENT_VERSION,
+    `v${CURRENT_VERSION}`,
+    `${CURRENT_VERSION}+fork.1`,
+    `${CURRENT_VERSION}-custom.2`,
     '4.7.0',
     'v4.7.0',
     '4.7.0+fork.1',
@@ -37,12 +44,14 @@ describe('上游相容版本', () => {
   ])('does not announce integrated or older %s', (version) => {
     expect(compareVersions(version)).toBe(UpdateStatus.NO_UPDATE);
   });
-  it.each(['4.7.1', '4.8.0', '4.10.0', '5.0.0'])(
-    'still announces newer %s',
-    (version) => {
-      expect(compareVersions(version)).toBe(UpdateStatus.HAS_UPDATE);
-    }
-  );
+  it.each([
+    NEXT_PATCH,
+    `${major}.${minor + 1}.0`,
+    `${major}.${minor + 3}.0`,
+    `${major + 1}.0.0`,
+  ])('still announces newer %s', (version) => {
+    expect(compareVersions(version)).toBe(UpdateStatus.HAS_UPDATE);
+  });
   it('compares upstream against a custom build suffix', () => {
     expect(compareVersions('4.5.0', '4.5.0-custom.1')).toBe(
       UpdateStatus.NO_UPDATE
@@ -71,7 +80,7 @@ describe('fresh version fetch', () => {
   it('bypasses HTTP cache and compares the response', async () => {
     global.fetch = jest
       .fn()
-      .mockResolvedValue({ ok: true, text: async () => '4.7.0' });
+      .mockResolvedValue({ ok: true, text: async () => CURRENT_VERSION });
     await expect(checkForUpdates()).resolves.toBe(UpdateStatus.NO_UPDATE);
     expect(global.fetch).toHaveBeenCalledWith(
       expect.stringMatching(
@@ -88,14 +97,14 @@ describe('fresh version fetch', () => {
   it('fetches again instead of retaining a stale update status', async () => {
     global.fetch = jest
       .fn()
-      .mockResolvedValueOnce({ ok: true, text: async () => '4.7.0' })
-      .mockResolvedValueOnce({ ok: true, text: async () => '4.7.1' });
+      .mockResolvedValueOnce({ ok: true, text: async () => CURRENT_VERSION })
+      .mockResolvedValueOnce({ ok: true, text: async () => NEXT_PATCH });
     await expect(checkForUpdates()).resolves.toBe(UpdateStatus.NO_UPDATE);
     await expect(checkForUpdates()).resolves.toBe(UpdateStatus.HAS_UPDATE);
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });
   it.each([
-    { ok: false, text: async () => '4.7.0' },
+    { ok: false, text: async () => CURRENT_VERSION },
     { ok: true, text: async () => '<html>gateway error</html>' },
   ])('does not turn an HTTP or malformed response green', async (response) => {
     global.fetch = jest.fn().mockResolvedValue(response);

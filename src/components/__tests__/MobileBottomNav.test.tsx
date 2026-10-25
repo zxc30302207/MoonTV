@@ -5,7 +5,12 @@ import { getCustomCategories } from '@/lib/config.client';
 import MobileBottomNav from '../MobileBottomNav';
 
 const startLoading = jest.fn();
-jest.mock('next/navigation', () => ({ usePathname: () => '/' }));
+let mockPathname = '/';
+let mockQuery = '';
+jest.mock('next/navigation', () => ({
+  usePathname: () => mockPathname,
+  useSearchParams: () => new URLSearchParams(mockQuery),
+}));
 jest.mock('../NavigationLoadingProvider', () => ({
   useNavigationLoading: () => ({ startLoading }),
 }));
@@ -13,6 +18,8 @@ jest.mock('@/lib/config.client', () => ({ getCustomCategories: jest.fn() }));
 
 beforeEach(() => {
   localStorage.clear();
+  mockPathname = '/';
+  mockQuery = '';
   jest.clearAllMocks();
   (getCustomCategories as jest.Mock).mockResolvedValue([]);
 });
@@ -78,6 +85,56 @@ it('retains simple mode without overflow controls and supports custom categories
   });
   expect(screen.getAllByRole('link')).toHaveLength(10);
   expect(screen.getByRole('link', { name: '自定義' })).toHaveAttribute(
+    'aria-current',
+    'page'
+  );
+});
+
+it.each([
+  ['type=tv&sort=rating', '劇集'],
+  ['sort=rating&type=movie', '電影'],
+  ['', '電影'],
+  ['type=movie-extra', null],
+  ['notype=tv', '電影'],
+  ['type=%74v', '劇集'],
+  ['type=%E0%A4%A', null],
+])(
+  'matches exact category from query %s without substring or decoding errors',
+  async (query, label) => {
+    mockPathname = '/douban';
+    mockQuery = query;
+    await act(async () => {
+      render(<MobileBottomNav />);
+    });
+    const active = screen
+      .getAllByRole('link')
+      .filter((link) => link.getAttribute('aria-current') === 'page');
+    expect(active).toHaveLength(label ? 1 : 0);
+    if (label) expect(active[0]).toHaveTextContent(label);
+  }
+);
+
+it('updates selected category on query-only navigation and retains explicit overrides', async () => {
+  mockPathname = '/douban';
+  mockQuery = 'type=tv';
+  const view = render(<MobileBottomNav />);
+  await act(async () => undefined);
+  expect(screen.getByRole('link', { name: '劇集' })).toHaveAttribute(
+    'aria-current',
+    'page'
+  );
+  mockQuery = 'type=movie';
+  view.rerender(<MobileBottomNav activePath={undefined} key='movie' />);
+  await act(async () => undefined);
+  expect(screen.getByRole('link', { name: '電影' })).toHaveAttribute(
+    'aria-current',
+    'page'
+  );
+  expect(screen.getByRole('link', { name: '劇集' })).not.toHaveAttribute(
+    'aria-current'
+  );
+  view.rerender(<MobileBottomNav activePath='/ranking?sort=rating' />);
+  expect(screen.getByRole('link', { name: '榜單' })).toHaveAttribute(
     'aria-current',
     'page'
   );
