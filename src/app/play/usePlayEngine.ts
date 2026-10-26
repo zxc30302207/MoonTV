@@ -95,6 +95,7 @@ import { useVideoActions } from './hooks/useVideoActions';
 import { useWakeLock } from './hooks/useWakeLock';
 import { bindMobileGestures } from './mobile-gestures';
 import {
+  applyHlsBufferPlan,
   createCustomHlsLoader,
   createDanmakuInitialConfig,
   DANMAKU_DENSITY_LABELS,
@@ -102,7 +103,9 @@ import {
   formatAdFilterStatus,
   formatTime,
   getDanmakuDensity,
+  loadManualDanmaku,
   pickDanmakuSettings,
+  planCurrentHlsBuffer,
   saveDanmakuSettings,
   setDanmakuDensity,
   SkipConfig,
@@ -202,6 +205,9 @@ const DANMAKU_SETTING_NAME = '彈幕源';
 
 /** 自動加載彈幕的常駐提示文案 */
 const DANMAKU_LOADING_NOTICE_TEXT = '正在自動加載彈幕…';
+
+/** 手动选择弹幕源时的常驻提示文案 */
+const DANMAKU_MANUAL_LOADING_NOTICE_TEXT = '正在載入彈幕…';
 
 /**
  * 下一集預熱的覆蓋時長（秒）。
@@ -309,6 +315,10 @@ export function usePlayEngine() {
   const [detail, setDetail] = useState<SearchResult | null>(null);
   const [isDanmakuPluginReady, setIsDanmakuPluginReady] = useState(false);
   const [isDanmakuLoading, setIsDanmakuLoading] = useState(false);
+  /** 弹幕加载来源：自动匹配 / 手动选择，决定加载提示文案 */
+  const [danmakuLoadingKind, setDanmakuLoadingKind] = useState<
+    'auto' | 'manual'
+  >('auto');
 
   // 跳過片頭片尾配置
   const [skipConfig, setSkipConfig] = useState<SkipConfig>({
@@ -390,6 +400,8 @@ export function usePlayEngine() {
     number | undefined
   >(undefined);
   const [showDanmakuSelector, setShowDanmakuSelector] = useState(false);
+  /** 手动选择弹幕源的版本号：即使重复选中同一番剧/集数也重新走一遍加载流程 */
+  const [danmakuSelectNonce, setDanmakuSelectNonce] = useState(0);
   const [showCacheManager, setShowCacheManager] = useState(false);
   const selectedDanmakuSourceRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -452,21 +464,18 @@ export function usePlayEngine() {
       return;
     }
     let cancelled = false;
+    let completed = false;
     const plugin = danmukuPluginInstanceRef.current;
-    (async () => {
-      try {
-        const url = await getDanmakuBySelectedAnime(
-          selectedDanmakuAnime,
-          episodeNumber,
-          'xml'
-        );
-        if (cancelled || plugin !== danmukuPluginInstanceRef.current) return;
-        if (plugin && url !== lastDanmakuUrlRef.current) {
-          plugin.config({ danmuku: url });
-          await plugin.load();
-          if (cancelled || plugin !== danmukuPluginInstanceRef.current) return;
-          lastDanmakuUrlRef.current = url;
-        }
+    if (!plugin) return;
+    void loadManualDanmaku({
+      plugin,
+      getUrl: () =>
+        getDanmakuBySelectedAnime(selectedDanmakuAnime, episodeNumber, 'xml'),
+      isCurrent: () =>
+        !cancelled && plugin === danmukuPluginInstanceRef.current,
+      onStart: beginManualDanmakuLoad,
+      onLoaded: (url) => {
+        lastDanmakuUrlRef.current = url;
         setSettingTooltip(
           artPlayerRef.current,
           DANMAKU_SETTING_NAME,
@@ -475,18 +484,23 @@ export function usePlayEngine() {
         setCurrentTooltip(episode.episodeTitle);
         restoreDanmakuVisibility();
         clearGlobalError();
-      } catch (error) {
-        if (!cancelled && plugin === danmukuPluginInstanceRef.current) {
-          console.error('獲取彈幕 URL 失敗:', error);
-          plugin?.clear?.();
-          // 失敗時保持切集期間的隱藏狀態，成功手選新來源後才還原。
-        }
-      } finally {
-        if (!cancelled) setSelectedState(false);
-      }
-    })();
+      },
+      onError: (error) => {
+        console.error('獲取彈幕 URL 失敗:', error);
+        // 舊佇列已清空；下次成功選擇前保持隱藏，不能恢復錯集彈幕。
+      },
+      onFinish: () => {
+        completed = true;
+        setIsDanmakuLoading(false);
+        setSelectedState(false);
+      },
+    });
     return () => {
       cancelled = true;
+      // 讓已發出的 XML 請求失效；完成後的 state 更新不應清掉新彈幕。
+      if (!completed && plugin === danmukuPluginInstanceRef.current) {
+        plugin.clear?.();
+      }
     };
   }, [
     currentEpisodeIndex,
@@ -494,6 +508,7 @@ export function usePlayEngine() {
     selectedDanmakuEpisode,
     selectedState,
     isDanmakuPluginReady,
+    danmakuSelectNonce,
   ]);
 
   // 同步最新值到 refs
@@ -731,6 +746,14 @@ export function usePlayEngine() {
       pendingDanmakuVisibleRestoreRef.current = null;
       danmakuVisibleRestoreTimerRef.current = null;
     }, DANMAKU_VISIBLE_RESTORE_DELAY_MS);
+  };
+
+  /** 手選沿用切集的清空與可見性保存，保留取消舊 XML 請求的保護。 */
+  const beginManualDanmakuLoad = () => {
+    abortControllerRef.current?.abort();
+    setDanmakuLoadingKind('manual');
+    hideDanmakuDuringEpisodeSwitch();
+    setIsDanmakuLoading(true);
   };
 
   // -----------------------------------------------------------------------------
@@ -1318,6 +1341,7 @@ export function usePlayEngine() {
       retryCount === -1 ? 2 : Math.max(1, Math.min(retryCount + 1, 2));
 
     const fetchDanmaku = async () => {
+      setDanmakuLoadingKind('auto');
       setIsDanmakuLoading(true);
       while (
         !success &&
@@ -1518,15 +1542,21 @@ export function usePlayEngine() {
       return;
     }
 
-    pushPlayerNotice(art, DANMAKU_LOADING_NOTICE_TEXT, {
-      key: 'danmaku-loading',
-      durationMs: 0,
-    });
+    pushPlayerNotice(
+      art,
+      danmakuLoadingKind === 'manual'
+        ? DANMAKU_MANUAL_LOADING_NOTICE_TEXT
+        : DANMAKU_LOADING_NOTICE_TEXT,
+      {
+        key: 'danmaku-loading',
+        durationMs: 0,
+      }
+    );
 
     return () => {
       clearPlayerNotices(art, 'danmaku-loading');
     };
-  }, [isDanmakuLoading, playerHost]);
+  }, [isDanmakuLoading, danmakuLoadingKind, playerHost]);
 
   // -----------------------------------------------------------------------------
   // 播放記錄與跳過配置恢復
@@ -1917,8 +1947,9 @@ export function usePlayEngine() {
       }
     }
 
-    // 空格 = 播放/暫停
-    if (e.key === ' ') {
+    // 空格 = 播放/暂停
+    // 用 e.code 判定，避免中文输入法等场景下 e.key 不是 ' ' 导致失效
+    if (e.code === 'Space' || e.key === ' ') {
       if (artPlayerRef.current) {
         artPlayerRef.current.toggle();
         e.preventDefault();
@@ -2228,6 +2259,27 @@ export function usePlayEngine() {
         }
       };
 
+      // 清單解析、換畫質及快取開關變動時，依目前碼率重算前向/回看預算。
+      const syncHlsBufferBudget = (
+        target?: any,
+        cacheEnabled?: boolean
+      ): void => {
+        const hls = target || artPlayerRef.current?.video?.hls;
+        if (!hls?.config) return;
+        const levelIndex =
+          Number.isInteger(hls.currentLevel) && hls.currentLevel >= 0
+            ? hls.currentLevel
+            : Number.isInteger(hls.loadLevel) && hls.loadLevel >= 0
+            ? hls.loadLevel
+            : 0;
+        const level = Array.isArray(hls.levels) ? hls.levels[levelIndex] : null;
+        const plan = planCurrentHlsBuffer({
+          cacheEnabled: cacheEnabled ?? loadCacheSettings().enabled,
+          levelBitrate: Number(level?.bitrate) || null,
+        });
+        applyHlsBufferPlan(hls, plan);
+      };
+
       let cacheBandwidthThrottled = false;
       let lastBufferCheckAt = 0;
       const setCacheBandwidthThrottled = (value: boolean) => {
@@ -2386,7 +2438,9 @@ export function usePlayEngine() {
           currentIdRef.current
         }:${nextIndex}:${
           preferred ?? 'auto'
-        }:${skipIntroSeconds}:${skipOutroSeconds}`;
+        }:${skipIntroSeconds}:${skipOutroSeconds}:${
+          blockAdEnabledRef.current ? 'noads' : 'ads'
+        }`;
         if (nextWarmupKeyRef.current === key) return;
         nextWarmupKeyRef.current = key;
 
@@ -2567,6 +2621,9 @@ export function usePlayEngine() {
               }
               return;
             }
+            // hls.js 的 byte 設定不是硬上限，時間上限也需依設備與碼率調整。
+            const cacheEnabled = loadCacheSettings().enabled;
+            const bufferPlan = planCurrentHlsBuffer({ cacheEnabled });
             const hls = new Hls({
               debug: false, // 關閉日志
               // 分片處理移到 Worker；自定義 loader 仍在主線程讀取緩存。
@@ -2575,17 +2632,15 @@ export function usePlayEngine() {
               // VOD 場景關閉低延遲模式：LL-HLS 會主動壓縮前向緩沖，與"多緩存"目標相悖
               lowLatencyMode: false,
 
-              /* 緩沖/內存相關 */
-              // 真正的"緩存後面的"由 VideoPrefetcher 寫入 Cache Storage 承擔，
-              // 這裡只需一個適度的內存緩沖，避免移動端內存壓力。
-              // 弱網優化：緩沖拉長到 2 分鐘，網絡抖動時不容易轉圈；
-              // 實際內存佔用仍由 maxBufferSize（90MB）兜底。
-              maxBufferLength: 120, // 前向緩沖目標 120s
-              maxMaxBufferLength: 600, // 前向緩沖硬上限 600s
-              backBufferLength: 30, // 僅保留 30s 已播放內容，避免內存佔用
-              maxBufferSize: 90 * 1000 * 1000, // 約 90MB，超出後觸發清理
+              /* 缓冲/内存相关 */
+              // 真正的"缓存后面的"由 VideoPrefetcher 写入 Cache Storage 承担，
+              // 这里只需一个适度的内存缓冲，避免移动端内存压力。
+              maxBufferLength: bufferPlan.maxBufferLength, // 前向缓冲目标（按码率兑现）
+              maxMaxBufferLength: bufferPlan.maxMaxBufferLength,
+              backBufferLength: bufferPlan.backBufferLength, // 已播放内容的保留时长
+              maxBufferSize: bufferPlan.maxBufferSize, // 字节预算，与目标时长自洽
 
-              /* 自定義 loader：去廣告 + 緩存優先 */
+              /* 自定义 loader：去广告 + 缓存优先 */
               loader: CustomHlsJsLoader,
             });
 
@@ -2618,6 +2673,8 @@ export function usePlayEngine() {
             hls.on(Hls.Events.MANIFEST_PARSED, function () {
               recovery.markHealthy();
               syncQualitySetting(hls);
+              // 拿到 levels 的 BANDWIDTH 后才能按真实码率换算字节预算
+              syncHlsBufferBudget(hls);
             });
 
             hls.on(
@@ -2634,6 +2691,8 @@ export function usePlayEngine() {
                     ? `自動${level ? ` · ${describeLevel(level)}` : ''}`
                     : describeLevel(level)
                 );
+                // 换档后码率变了：字节预算与时长目标要重新对齐
+                syncHlsBufferBudget(hls);
 
                 // 暫停狀態下切換檔位時，瀏覽器不會自動重繪新解碼的幀，
                 // 畫面會停在舊檔位，用戶容易誤判成"切了沒反應"。
@@ -2657,7 +2716,40 @@ export function usePlayEngine() {
 
             hls.on(Hls.Events.ERROR, function (event: any, data: any) {
               if (!data?.fatal) {
-                // 非致命錯誤 hls.js 會自行重試，這裡只留痕便於排障
+                // MSE 配額不足時同時縮小時間與位元組預算，不主動 flush 播放中緩衝。
+                if (data?.details === 'bufferFullError') {
+                  // 记录降级，避免后续换档时 syncHlsBufferBudget 把上限又放宽
+                  hls.__moontvQuotaDegraded = true;
+                  const config = hls.config;
+                  // 重複不足時繼續縮小；不可放寬已較小的執行期預算。
+                  const previousSize =
+                    Number(config.maxBufferSize) || 64 * 1024 * 1024;
+                  config.maxBufferSize = Math.min(
+                    previousSize,
+                    Math.max(32 * 1024 * 1024, Math.floor(previousSize * 0.75))
+                  );
+                  const previousLength = Number(config.maxBufferLength) || 60;
+                  config.maxBufferLength = Math.min(
+                    previousLength,
+                    Math.max(1, Math.floor(previousLength * 0.75))
+                  );
+                  config.maxMaxBufferLength = Math.min(
+                    Number(config.maxMaxBufferLength) || 300,
+                    config.maxBufferLength * 2
+                  );
+                  // 回看缓冲同样占用 MSE 配额，先收紧让下一次 trim 立刻释放空间
+                  if (Number(config.backBufferLength) > 20) {
+                    config.backBufferLength = 20;
+                  }
+                  console.info(
+                    `MSE 緩衝已滿，前向緩衝縮小為 ${Math.round(
+                      config.maxBufferSize / 1024 / 1024
+                    )}MB / ${config.maxBufferLength}s，回看 ${
+                      config.backBufferLength
+                    }s`
+                  );
+                }
+                // 非致命错误 hls.js 会自行重试，这里只留痕便于排障
                 console.warn(
                   'HLS 非致命錯誤:',
                   describeHlsError(data?.type, data?.details),
@@ -2899,6 +2991,8 @@ export function usePlayEngine() {
             onSwitch: function (item: any) {
               const enabled = !item.switch;
               saveCacheSettings({ enabled });
+              // 缓存开关会改变内存缓冲目标（本地读取 vs 网络抗抖动），立即生效
+              syncHlsBufferBudget(undefined, enabled);
               if (enabled) {
                 cacheNoticeRef.current = null;
                 cacheEnabledNoticeShownRef.current = true;
@@ -3610,6 +3704,8 @@ export function usePlayEngine() {
     setSelectedDanmakuAnime(anime);
     setSelectedDanmakuEpisode(episodeNumber);
     setSelectedState(true);
+    // 重复确认同一来源时依赖项不会变化，这里显式触发一次加载流程
+    setDanmakuSelectNonce((n) => n + 1);
   };
 
   const handleDanmakuClose = () => {

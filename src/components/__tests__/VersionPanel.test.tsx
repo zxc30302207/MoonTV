@@ -1,6 +1,11 @@
 import { act, render, screen } from '@testing-library/react';
 
+import { CURRENT_VERSION } from '@/lib/version';
+
 import { VersionPanel } from '../VersionPanel';
+
+const [major, minor, patch] = CURRENT_VERSION.split('.').map(Number);
+const NEXT_PATCH = `${major}.${minor}.${patch + 1}`;
 
 const response = (version: string) => ({
   ok: true,
@@ -14,11 +19,13 @@ describe('VersionPanel upstream status', () => {
   });
 
   it('shows green only after the actual upstream matches the integrated version', async () => {
-    global.fetch = jest.fn().mockResolvedValue(response('4.7.0'));
+    global.fetch = jest.fn().mockResolvedValue(response(CURRENT_VERSION));
     render(<VersionPanel isOpen onClose={jest.fn()} />);
     const status = await screen.findByText('當前為最新版本');
     expect(status).toHaveClass('text-green-800');
-    expect(screen.getByText('已是最新版本 v4.7.0')).toBeInTheDocument();
+    expect(
+      screen.getByText(`已是最新版本 v${CURRENT_VERSION}`)
+    ).toBeInTheDocument();
     expect(global.fetch).toHaveBeenCalledWith(
       expect.stringMatching(
         /^https:\/\/raw\.githubusercontent\.com\/Stardm0\/MoonTV\/main\/CHANGELOG\?_t=\d+$/
@@ -28,12 +35,14 @@ describe('VersionPanel upstream status', () => {
   });
 
   it('continues announcing future upstream versions', async () => {
-    global.fetch = jest.fn().mockResolvedValue(response('4.7.1'));
+    global.fetch = jest.fn().mockResolvedValue(response(NEXT_PATCH));
     render(<VersionPanel isOpen onClose={jest.fn()} />);
     expect(await screen.findByText('發現新版本')).toHaveClass(
       'text-yellow-800'
     );
-    expect(screen.getByText('v4.7.0 → v4.7.1')).toBeInTheDocument();
+    expect(
+      screen.getByText(`v${CURRENT_VERSION} → v${NEXT_PATCH}`)
+    ).toBeInTheDocument();
     expect(screen.queryByText('當前為最新版本')).not.toBeInTheDocument();
   });
 
@@ -56,13 +65,13 @@ describe('VersionPanel upstream status', () => {
             resolveOld = resolve;
           })
       )
-      .mockResolvedValueOnce(response('4.7.1'));
+      .mockResolvedValueOnce(response(NEXT_PATCH));
     const { rerender } = render(<VersionPanel isOpen onClose={jest.fn()} />);
     rerender(<VersionPanel isOpen={false} onClose={jest.fn()} />);
     rerender(<VersionPanel isOpen onClose={jest.fn()} />);
     await screen.findByText('發現新版本');
     await act(async () => {
-      resolveOld(response('4.7.0'));
+      resolveOld(response(CURRENT_VERSION));
     });
     expect(screen.getByText('發現新版本')).toBeInTheDocument();
     expect(screen.queryByText('當前為最新版本')).not.toBeInTheDocument();

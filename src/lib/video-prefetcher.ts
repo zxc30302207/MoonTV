@@ -160,7 +160,13 @@ async function retrySegmentDownload<T>(
     try {
       return await download();
     } catch (error) {
-      if (signal.aborted || attempt >= SEGMENT_RETRY_DELAYS_MS.length) {
+      // CORS / DNS / 403 不反覆重試同一路徑，直接讓代理兜底。
+      const noRetry = (error as { noRetry?: boolean } | null)?.noRetry === true;
+      if (
+        signal.aborted ||
+        noRetry ||
+        attempt >= SEGMENT_RETRY_DELAYS_MS.length
+      ) {
         throw error;
       }
       // 重試等待與分片請求使用同一信號，切集時不會留下延遲下載。
@@ -542,12 +548,14 @@ export class VideoPrefetcher {
           0,
           { height: options.preferredHeight ?? null }
         );
-      } catch {
+      } catch (error) {
         if (signal.aborted) return;
         this.controller = null;
+        const reason =
+          error instanceof Error && error.message ? `：${error.message}` : '';
         this.emit(
           options,
-          { state: 'error', message: '播放列表解析失敗' },
+          { state: 'error', message: `播放列表解析失敗${reason}` },
           true
         );
         return;
@@ -850,7 +858,14 @@ export class VideoPrefetcher {
                   });
                   if (!response.ok) {
                     await response.body?.cancel();
-                    throw new Error(`HTTP ${response.status}`);
+                    const httpError = new Error(
+                      `HTTP ${response.status}`
+                    ) as Error & { noRetry?: boolean };
+                    // 權限、禁止存取或不存在：換路由才有意義
+                    if ([401, 403, 404, 410].includes(response.status)) {
+                      httpError.noRetry = true;
+                    }
+                    throw httpError;
                   }
                   const expectedBytes = range
                     ? range.end - range.start
@@ -864,7 +879,13 @@ export class VideoPrefetcher {
                 } catch (error) {
                   const interrupted =
                     request.signal.aborted && !requests.signal.aborted;
-                  if (!interrupted) throw error;
+                  if (!interrupted) {
+                    // fetch 的 TypeError 通常是 CORS / DNS / 連線失敗，換路由兜底。
+                    if (error instanceof TypeError) {
+                      (error as Error & { noRetry?: boolean }).noRetry = true;
+                    }
+                    throw error;
+                  }
                 } finally {
                   this.activeRequests.delete(request);
                   requests.signal.removeEventListener('abort', cancel);

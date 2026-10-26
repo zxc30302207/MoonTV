@@ -143,6 +143,12 @@ export interface PreferredVariant {
   signal?: AbortSignal;
   /** Server-side parsing must also validate nested playlists and AES keys. */
   validateUrls?: boolean;
+  /**
+   * 瀏覽器直連播放列表失敗（CORS / 403 / DNS）時，允許改走同源代理。
+   * 僅適用於預設瀏覽器 fetch；自訂 fetcher 及 validateUrls 的安全抓取
+   * 不受此開關影響，避免繞過驗證或讓伺服器遞迴呼叫自身。
+   */
+  allowProxyFallback?: boolean;
 }
 
 /** 從 `RESOLUTION=1920x1080` 中取出高度 */
@@ -243,6 +249,77 @@ function extractSubPlaylistUrl(
   return playlists[0].url;
 }
 
+/** 僅對跨來源 HTTP(S) 資源啟用瀏覽器端代理，避免代理自身遞迴。 */
+function playlistProxyUrl(target: string): string | null {
+  if (typeof window === 'undefined') return null;
+  const origin = window.location?.origin;
+  if (!origin) return null;
+  try {
+    const parsed = new URL(target);
+    if (
+      !['http:', 'https:'].includes(parsed.protocol) ||
+      parsed.origin === origin
+    ) {
+      return null;
+    }
+    return `/api/m3u8?url=${encodeURIComponent(parsed.href)}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 播放列表與 AES key 共用的傳輸流程。
+ * 自訂 fetcher / 伺服器安全抓取不得被瀏覽器代理繞過；只有明確允許時
+ * 才為預設瀏覽器 fetch 提供代理兜底。代理回應以可信的上游轉址標頭解析
+ * 相對 URI，而不是以 MoonTV 自己的網址或轉址前網址解析。
+ */
+async function fetchPlaylistResponse(
+  target: string,
+  options?: M3U8ParseOptions,
+  preferred?: PreferredVariant
+): Promise<{ response: Response; baseUrl: string }> {
+  options?.validateUrl?.(target);
+  const signal = options?.signal ?? preferred?.signal;
+  const fetcher =
+    options?.fetcher || (preferred?.validateUrls ? fetchMediaUrl : fetch);
+  let response: Response;
+  let usedProxy = false;
+  try {
+    response = await fetcher(target, { signal });
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`M3U8 request failed: ${response.status}`);
+    }
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    const proxy =
+      preferred?.allowProxyFallback &&
+      !preferred.validateUrls &&
+      !options?.fetcher
+        ? playlistProxyUrl(target)
+        : null;
+    if (!proxy) throw error;
+    response = await fetch(proxy, {
+      signal,
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(`M3U8 proxy request failed: ${response.status}`);
+    }
+    usedProxy = true;
+  }
+  const baseUrl =
+    options?.resolveResponseUrl?.(response, target) ||
+    (usedProxy
+      ? response.headers.get('X-MoonTV-Upstream-URL') || target
+      : response.url || target);
+  options?.validateUrl?.(baseUrl);
+  return { response, baseUrl };
+}
+
 /**
  * 解析 M3U8，保留伺服器安全抓取選項及上游畫質偏好呼叫方式。
  */
@@ -267,16 +344,11 @@ export async function parseM3U8(
     throw new Error('M3U8 解析層級過深，可能存在循環引用');
   }
 
-  options?.validateUrl?.(url);
-  const fetcher =
-    options?.fetcher || (preferred?.validateUrls ? fetchMediaUrl : fetch);
-  const response = await fetcher(url, {
-    signal: options?.signal ?? preferred?.signal,
-  });
-  if (!response.ok) throw new Error(`M3U8 request failed: ${response.status}`);
-  const resolvedUrl =
-    options?.resolveResponseUrl?.(response, url) || response.url || url;
-  options?.validateUrl?.(resolvedUrl);
+  const { response, baseUrl: resolvedUrl } = await fetchPlaylistResponse(
+    url,
+    options,
+    preferred
+  );
   const content = await response.text();
   const m3u8Str = options?.transformPlaylist?.(content) ?? content;
 
@@ -384,13 +456,11 @@ export async function parseM3U8(
 
     // 獲取 AES key
     if (task.aesConf.uri) {
-      options?.validateUrl?.(task.aesConf.uri);
-      const keyResponse = await fetcher(task.aesConf.uri, {
-        signal: options?.signal ?? preferred?.signal,
-      });
-      if (!keyResponse.ok)
-        throw new Error(`AES key request failed: ${keyResponse.status}`);
-
+      const { response: keyResponse } = await fetchPlaylistResponse(
+        task.aesConf.uri,
+        options,
+        preferred
+      );
       const keyArrayBuffer = await keyResponse.arrayBuffer();
       task.aesConf.key = arrayBufferToWordArray(keyArrayBuffer);
     }
