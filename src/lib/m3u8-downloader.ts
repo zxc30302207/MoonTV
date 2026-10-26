@@ -7,6 +7,7 @@
 import CryptoJS from 'crypto-js';
 
 import { inferHeightFromBitrate } from './hls-quality';
+import { MediaRequestDeadline } from './media-request-deadline';
 import { StreamingTransmuxer, transmuxTSToMP4 } from './mp4-transmuxer';
 import { fetchMediaUrl } from './url-guard';
 import {
@@ -73,6 +74,9 @@ export interface M3U8Task {
   /** 未結束的播放列表可能繼續更新，不應長期復用解析結果。 */
   isLive?: boolean;
   segmentByteRanges?: Array<SegmentByteRange | undefined>;
+  /** Per-segment encryption state; null explicitly means METHOD=NONE. */
+  segmentEncryption?: Array<M3U8Task['aesConf'] | null>;
+  downloadUnsupportedReason?: string;
 
   finishList: Array<{
     title: string;
@@ -277,18 +281,21 @@ function playlistProxyUrl(target: string): string | null {
 async function fetchPlaylistResponse(
   target: string,
   options?: M3U8ParseOptions,
-  preferred?: PreferredVariant
+  preferred?: PreferredVariant,
+  deadline?: MediaRequestDeadline
 ): Promise<{ response: Response; baseUrl: string }> {
   options?.validateUrl?.(target);
   const signal = options?.signal ?? preferred?.signal;
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   const fetcher =
     options?.fetcher || (preferred?.validateUrls ? fetchMediaUrl : fetch);
   let response: Response;
   let usedProxy = false;
   try {
-    response = await fetcher(target, { signal });
+    const pending = fetcher(target, { signal });
+    response = await (deadline ? deadline.wait(pending) : pending);
     if (!response.ok) {
-      await response.body?.cancel();
+      void response.body?.cancel().catch(() => undefined);
       throw new Error(`M3U8 request failed: ${response.status}`);
     }
   } catch (error) {
@@ -300,13 +307,14 @@ async function fetchPlaylistResponse(
         ? playlistProxyUrl(target)
         : null;
     if (!proxy) throw error;
-    response = await fetch(proxy, {
+    const pending = fetch(proxy, {
       signal,
       credentials: 'same-origin',
       cache: 'no-store',
     });
+    response = await (deadline ? deadline.wait(pending) : pending);
     if (!response.ok) {
-      await response.body?.cancel();
+      void response.body?.cancel().catch(() => undefined);
       throw new Error(`M3U8 proxy request failed: ${response.status}`);
     }
     usedProxy = true;
@@ -339,6 +347,32 @@ export async function parseM3U8(
       : 0;
   const preferred =
     typeof depthOrPreferred === 'object' ? depthOrPreferred : preferredVariant;
+  const controller = new AbortController();
+  const parentSignal = options?.signal ?? preferred?.signal;
+  const abort = () => controller.abort();
+  parentSignal?.addEventListener('abort', abort, { once: true });
+  if (parentSignal?.aborted) controller.abort();
+  const deadline = new MediaRequestDeadline(controller);
+  try {
+    return await parseM3U8Internal(
+      url,
+      { ...options, signal: controller.signal },
+      depth,
+      preferred,
+      deadline
+    );
+  } finally {
+    parentSignal?.removeEventListener('abort', abort);
+  }
+}
+
+async function parseM3U8Internal(
+  url: string,
+  options: M3U8ParseOptions,
+  depth: number,
+  preferred: PreferredVariant | undefined,
+  deadline: MediaRequestDeadline
+): Promise<M3U8Task> {
   // 防止無限遞迴
   if (depth > 5) {
     throw new Error('M3U8 解析層級過深，可能存在循環引用');
@@ -347,9 +381,12 @@ export async function parseM3U8(
   const { response, baseUrl: resolvedUrl } = await fetchPlaylistResponse(
     url,
     options,
-    preferred
+    preferred,
+    deadline
   );
-  const content = await response.text();
+  const content = response.body?.getReader
+    ? new TextDecoder().decode(await deadline.readBody(response))
+    : await deadline.wait(response.text());
   const m3u8Str = options?.transformPlaylist?.(content) ?? content;
 
   if (m3u8Str.substring(0, 7).toUpperCase() !== '#EXTM3U') {
@@ -369,7 +406,13 @@ export async function parseM3U8(
     }
 
     options?.validateUrl?.(subPlaylistUrl);
-    return parseM3U8(subPlaylistUrl, options, depth + 1, preferred);
+    return parseM3U8Internal(
+      subPlaylistUrl,
+      options,
+      depth + 1,
+      preferred,
+      deadline
+    );
   }
 
   const task: M3U8Task = {
@@ -379,6 +422,7 @@ export async function parseM3U8(
     tsUrlList: [],
     isLive: !/^#EXT-X-ENDLIST\s*$/m.test(m3u8Str),
     segmentByteRanges: [],
+    segmentEncryption: [],
     finishList: [],
     downloadIndex: 0,
     finishNum: 0,
@@ -405,8 +449,62 @@ export async function parseM3U8(
   let pendingByteRange: string | undefined;
   let previousUrl: string | undefined;
   let previousRange: SegmentByteRange | undefined;
+  let sequence = 0;
+  let encryption: M3U8Task['aesConf'] | null = null;
+  const keys = new Map<string, any>();
   for (const rawLine of lines) {
     const line = rawLine.trim();
+    if (line.startsWith('#EXT-X-MEDIA-SEQUENCE:')) {
+      sequence = Number(line.slice('#EXT-X-MEDIA-SEQUENCE:'.length));
+      if (!Number.isSafeInteger(sequence) || sequence < 0) {
+        throw new Error('無效的媒體序號');
+      }
+    } else if (line.startsWith('#EXT-X-MAP:')) {
+      // Raw segment prefetch remains supported. TS concatenation/transmuxing is
+      // not an fMP4 muxer: refuse download rather than silently omit init data.
+      task.downloadUnsupportedReason =
+        '此下載器尚不支援含初始化段的 fMP4 播放列表';
+    } else if (line.startsWith('#EXT-X-KEY:')) {
+      const attrs = Object.fromEntries(
+        [...line.matchAll(/([A-Z0-9-]+)=("[^"]*"|[^,\s]+)/g)].map((m) => [
+          m[1],
+          m[2].replace(/^"|"$/g, ''),
+        ])
+      );
+      encryption = null;
+      if (attrs.METHOD !== 'NONE') {
+        if (
+          attrs.METHOD !== 'AES-128' ||
+          (attrs.KEYFORMAT && attrs.KEYFORMAT !== 'identity')
+        ) {
+          task.downloadUnsupportedReason = '此下載器尚不支援此加密格式';
+        } else {
+          if (!attrs.URI) throw new Error('AES-128 缺少金鑰 URI');
+          if (attrs.IV && !/^0x[0-9a-f]{1,32}$/i.test(attrs.IV))
+            throw new Error('無效的 AES IV');
+          const uri = applyURL(attrs.URI, resolvedUrl);
+          options?.validateUrl?.(uri);
+          if (!keys.has(uri)) {
+            const { response: keyResponse } = await fetchPlaylistResponse(
+              uri,
+              options,
+              preferred,
+              deadline
+            );
+            const bytes = await deadline.readBody(keyResponse);
+            if (bytes.byteLength !== 16)
+              throw new Error('AES-128 金鑰長度必須為 16 bytes');
+            keys.set(uri, arrayBufferToWordArray(bytes));
+          }
+          encryption = {
+            method: 'AES-128',
+            uri,
+            iv: attrs.IV ? '0x' + attrs.IV.slice(2).padStart(32, '0') : '',
+            key: keys.get(uri),
+          };
+        }
+      }
+    }
     if (line.startsWith('#EXTINF:')) {
       lastDuration = parseFloat(line.split('#EXTINF:')[1]);
       task.durationSecond += lastDuration;
@@ -424,6 +522,16 @@ export async function parseM3U8(
             );
 
       task.tsUrlList.push(tsUrl);
+      const segmentEncryption = encryption
+        ? {
+            ...encryption,
+            iv: encryption.iv || '0x' + sequence.toString(16).padStart(32, '0'),
+          }
+        : null;
+      task.segmentEncryption?.push(segmentEncryption);
+      if (segmentEncryption && !task.aesConf.key)
+        task.aesConf = segmentEncryption;
+      sequence++;
       task.segmentByteRanges?.push(range);
       previousUrl = tsUrl;
       previousRange = range;
@@ -443,28 +551,6 @@ export async function parseM3U8(
   const estimatedBitrate = (2 * 1024 * 1024) / 8; // 2Mbps 轉為字節/秒
 
   task.totalSize = Math.round(task.durationSecond * estimatedBitrate);
-
-  // 檢測 AES 加密
-  if (m3u8Str.includes('#EXT-X-KEY')) {
-    const methodMatch = m3u8Str.match(/METHOD=([^,\s]+)/);
-    const uriMatch = m3u8Str.match(/URI="([^"]+)"/);
-    const ivMatch = m3u8Str.match(/IV=([^,\s]+)/);
-
-    task.aesConf.method = methodMatch ? methodMatch[1] : '';
-    task.aesConf.uri = uriMatch ? applyURL(uriMatch[1], resolvedUrl) : '';
-    task.aesConf.iv = ivMatch ? ivMatch[1] : '';
-
-    // 獲取 AES key
-    if (task.aesConf.uri) {
-      const { response: keyResponse } = await fetchPlaylistResponse(
-        task.aesConf.uri,
-        options,
-        preferred
-      );
-      const keyArrayBuffer = await keyResponse.arrayBuffer();
-      task.aesConf.key = arrayBufferToWordArray(keyArrayBuffer);
-    }
-  }
 
   return task;
 }
@@ -698,7 +784,7 @@ export interface DownloadProgress {
   current: number;
   total: number;
   percentage: number;
-  status: 'downloading' | 'processing' | 'done' | 'error';
+  status: 'downloading' | 'processing' | 'done' | 'partial' | 'error';
   message?: string;
 }
 
@@ -716,6 +802,43 @@ export async function downloadM3U8Video(
   completeStreamRef?: { current: (() => Promise<void>) | null }, // 完成流函數引用（用於邊下邊存模式立即保存）
   persistTaskId?: string // 任務ID：傳入時啟用斷點續傳持久化
 ): Promise<void> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) controller.abort();
+  try {
+    await downloadM3U8VideoInternal(
+      task,
+      onProgress,
+      controller.signal,
+      pauseResumeController,
+      concurrency,
+      streamMode,
+      maxRetries,
+      completeStreamRef,
+      persistTaskId,
+      controller
+    );
+  } finally {
+    signal?.removeEventListener('abort', abort);
+    if (completeStreamRef) completeStreamRef.current = null;
+  }
+}
+
+async function downloadM3U8VideoInternal(
+  task: M3U8Task,
+  onProgress?: (progress: DownloadProgress) => void,
+  signal?: AbortSignal,
+  pauseResumeController?: PauseResumeController, // 暫停/恢復控制器
+  concurrency = 16, // 默認16個並發（下載提速）
+  streamMode: StreamSaverMode = 'disabled', // 邊下邊存模式
+  maxRetries = 3, // 最大重試次數
+  completeStreamRef?: { current: (() => Promise<void>) | null }, // 完成流函數引用（用於邊下邊存模式立即保存）
+  persistTaskId?: string,
+  downloadController?: AbortController
+): Promise<void> {
+  if (task.downloadUnsupportedReason)
+    throw new Error(task.downloadUnsupportedReason);
   const { startSegment, endSegment } = task.rangeDownload;
   const totalSegments = endSegment - startSegment + 1;
 
@@ -786,7 +909,19 @@ export async function downloadM3U8Video(
     }
   }
 
+  // A newly opened stream contains no restored bytes. Re-download its range
+  // rather than skipping persisted successes and committing an empty/truncated file.
+  if (writer) {
+    for (let i = startSegment - 1; i < endSegment; i++)
+      task.finishList[i].status = '';
+    task.finishNum = 0;
+    task.errorNum = 0;
+  }
   let completedCount = 0;
+  let writtenCount = 0;
+  let earlyRequested = false;
+  let earlyFinishPromise: Promise<void> | null = null;
+  const workers: Promise<void>[] = [];
 
   // 斷點續傳：初始化時統計范圍內已成功的片段，確保進度條顯示正確的恢復進度
   for (let i = startSegment - 1; i < endSegment; i++) {
@@ -856,6 +991,7 @@ export async function downloadM3U8Video(
               throw new Error('Writer is not initialized');
             }
           }
+          writtenCount++;
           pendingWrites.delete(nextWriteIndex);
           nextWriteIndex++;
         } catch (error) {
@@ -877,32 +1013,32 @@ export async function downloadM3U8Video(
 
   // 如果提供了完成流函數引用，設置完成流的函數（需要在 completedCount 和 writer 初始化後設置）
   if (completeStreamRef && streamMode !== 'disabled' && writer) {
-    completeStreamRef.current = async () => {
-      if (!writer) return;
-
-      try {
-        // 等待所有待寫入的數據完成
-        await flushPendingWrites();
-
-        // 如果使用了流式轉碼器，需要先完成轉碼
-        if (streamingTransmuxer) {
-          await streamingTransmuxer.finish();
-        } else {
-          await writer.close();
+    completeStreamRef.current = () => {
+      if (earlyFinishPromise) return earlyFinishPromise;
+      earlyRequested = true;
+      earlyFinishPromise = (async () => {
+        // Explicit partial save is not cancellation: stop producers, settle their
+        // writes, then commit only bytes already written. Never call writer.abort.
+        downloadController?.abort();
+        pauseResumeController?.resume();
+        await Promise.allSettled(workers);
+        await writeLock.catch(() => undefined);
+        if (!writer) return;
+        if (!writtenCount) {
+          await writer.abort();
+          throw new Error('尚未寫入完整片段，無法保存部分檔案');
         }
-
+        if (streamingTransmuxer) await streamingTransmuxer.finish();
+        else await writer.close();
         onProgress?.({
-          current: completedCount,
+          current: writtenCount,
           total: totalSegments,
-          percentage: 100,
-          status: 'done',
-          message: '下載完成！',
+          percentage: Math.floor((writtenCount / totalSegments) * 100),
+          status: 'partial',
+          message: `已保存部分檔案：${writtenCount}/${totalSegments} 個片段（非完整影片）`,
         });
-      } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error('提前完成時關閉流失敗:', error);
-        throw error;
-      }
+      })();
+      return earlyFinishPromise;
     };
   }
 
@@ -961,12 +1097,11 @@ export async function downloadM3U8Video(
       }
 
       // AES 解密
-      if (task.aesConf.key) {
-        segmentData = aesDecrypt(
-          segmentData,
-          task.aesConf.key,
-          task.aesConf.iv
-        );
+      const encryption = task.segmentEncryption
+        ? task.segmentEncryption[index]
+        : task.aesConf;
+      if (encryption?.key) {
+        segmentData = aesDecrypt(segmentData, encryption.key, encryption.iv);
       }
 
       // 解密後再次檢查暫停狀態
@@ -1120,7 +1255,6 @@ export async function downloadM3U8Video(
   };
 
   // 並發控制：同時最多 concurrency 個下載任務
-  const workers: Promise<void>[] = [];
 
   const processQueue = async () => {
     while (downloadQueue.length > 0) {
@@ -1148,7 +1282,19 @@ export async function downloadM3U8Video(
   try {
     // 等待所有worker完成
     await Promise.all(workers);
+    if (signal?.aborted) throw new Error('下載已取消');
 
+    // Never close/commit a truncated stream as a successful complete file.
+    if (
+      writer &&
+      task.finishList
+        .slice(startSegment - 1, endSegment)
+        .some((item) => item.status !== 'success')
+    ) {
+      throw new Error('下載不完整：仍有失敗片段，已中止檔案寫入，請重新下載');
+    }
+    // 自然完成與明確部分保存互斥，避免 close 尚未完成時再次 close。
+    if (completeStreamRef) completeStreamRef.current = null;
     // 邊下邊存模式：關閉流
     if (writer) {
       try {
@@ -1177,6 +1323,10 @@ export async function downloadM3U8Video(
       return;
     }
   } catch (error) {
+    if (earlyRequested && earlyFinishPromise) {
+      await earlyFinishPromise;
+      return;
+    }
     // 如果是中止下載，需要關閉流以顯示瀏覽器取消狀態
     if (writer) {
       try {

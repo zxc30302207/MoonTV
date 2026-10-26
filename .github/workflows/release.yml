@@ -35,6 +35,16 @@ jobs:
       - name: Verify version files
         run: pnpm check:version
 
+      - name: Build project
+        run: pnpm run build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-files
+          path: .next/
+          retention-days: 30
+
       - name: Create Release
         uses: actions/create-release@v1
         env:
@@ -53,13 +63,3 @@ jobs:
             - [Source code (tar.gz)](https://github.com/${{ github.repository }}/archive/${{ github.ref_name }}.tar.gz)
           draft: false
           prerelease: false
-
-      - name: Build project
-        run: pnpm run build
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-files
-          path: .next/
-          retention-days: 30

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { getConfig } from '@/lib/config';
+import { ConfigConflictError } from '@/lib/config-snapshot';
 import { getStorage } from '@/lib/db';
 
 export const runtime = 'nodejs';
@@ -79,6 +80,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '存儲服務不可用' }, { status: 500 });
     }
   } catch (error) {
+    if (error instanceof ConfigConflictError)
+      return NextResponse.json({ error: error.message }, { status: 409 });
     return NextResponse.json(
       {
         error: '更新配置文件失敗',

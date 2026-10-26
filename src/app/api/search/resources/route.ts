@@ -9,6 +9,15 @@ export const runtime = 'nodejs';
 export async function GET(request: NextRequest) {
   try {
     const auth = await getVerifiedAuthInfo(request);
+    if (!auth) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        {
+          status: 401,
+          headers: { 'Cache-Control': 'private, no-store', Vary: 'Cookie' },
+        }
+      );
+    }
     const username = auth?.username;
     const apiSites = await getAvailableApiSites(username);
 

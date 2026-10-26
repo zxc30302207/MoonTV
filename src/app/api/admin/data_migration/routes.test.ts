@@ -3,6 +3,8 @@ import { deflate, inflate } from 'pako';
 
 const mockAuth = jest.fn();
 const mockDb = {
+  snapshotAllData: jest.fn(),
+  restoreAllData: jest.fn(),
   clearAllData: jest.fn(),
   saveAdminConfig: jest.fn(),
   getAdminConfig: jest.fn(),
@@ -17,7 +19,7 @@ const mockDb = {
 };
 
 jest.mock('@/lib/auth-server', () => ({ getVerifiedAuthInfo: mockAuth }));
-jest.mock('@/lib/db', () => ({ db: mockDb }));
+jest.mock('@/lib/db', () => ({ db: mockDb, getStorage: () => mockDb }));
 jest.mock('@/lib/config', () => ({
   configSelfCheck: (config: unknown) => config,
   setCachedConfig: jest.fn(),
@@ -29,6 +31,8 @@ jest.mock('@/lib/crypto', () => ({
   },
 }));
 jest.mock('@/lib/password', () => ({
+  normalizePasswordForStorage: async (value: string) =>
+    value.startsWith('hashed:') ? value : `hashed:${value}`,
   hashPassword: async (value: string) => `hashed:${value}`,
   isPasswordHash: (value: string) => value.startsWith('hashed:'),
 }));
@@ -99,6 +103,31 @@ describe('owner-only migration routes', () => {
   });
 
   it('exports SSE with following data and hashed owner password only', async () => {
+    mockDb.snapshotAllData.mockResolvedValue([
+      {
+        key: 'admin:config',
+        value: {
+          ConfigFile: '{}',
+          SiteConfig: { SiteName: 'Custom', DisableYellowFilter: false },
+          UserConfig: { AllowRegister: false, Users: [] },
+          SourceConfig: [],
+          CustomCategories: [],
+        },
+      },
+      {
+        key: 'u:owner:following:normal+1',
+        value: {
+          title: 'Show',
+          source_name: 'Normal',
+          year: '',
+          cover: '',
+          search_title: 'Show',
+          total_episodes: 1,
+          watched_episodes: 0,
+          save_time: 1,
+        },
+      },
+    ]);
     mockDb.getAdminConfig.mockResolvedValue({
       SiteConfig: { SiteName: 'Custom' },
     });
@@ -131,9 +160,40 @@ describe('owner-only migration routes', () => {
       'hashed:owner-placeholder'
     );
     expect(backup.data.userData.owner.followings).toEqual({
-      'normal+1': { title: 'Show' },
+      'normal+1': expect.objectContaining({ title: 'Show' }),
     });
     expect(response.headers.get('cache-control')).toContain('no-store');
     expect(events.at(-1).type).toBe('done');
+  });
+  it('restores once atomically; missing RPC does not clear data or publish done', async () => {
+    const config = {
+      ConfigFile: '{}',
+      SiteConfig: { SiteName: 'Test', DisableYellowFilter: false },
+      UserConfig: { AllowRegister: false, Users: [] },
+      SourceConfig: [],
+      CustomCategories: [],
+    };
+    const encrypted = Buffer.from(
+      deflate(JSON.stringify({ data: { adminConfig: config, userData: {} } }))
+    ).toString('base64');
+    const form = new Map<string, unknown>([
+      ['file', { size: encrypted.length, text: async () => encrypted }],
+      ['password', 'backup'],
+    ]);
+    mockDb.restoreAllData.mockRejectedValueOnce(
+      new Error('002_atomic_kv required')
+    );
+    const { POST } = await import('./import/route');
+    const failure = await POST({ formData: async () => form } as never);
+    expect(await failure.text()).toContain('002_atomic_kv');
+    expect(mockDb.clearAllData).not.toHaveBeenCalled();
+    expect(mockDb.restoreAllData).toHaveBeenCalledTimes(1);
+    mockDb.restoreAllData.mockResolvedValueOnce(undefined);
+    const success = await POST({ formData: async () => form } as never);
+    const text = await success.text();
+    expect(text).toContain('"type":"done"');
+    expect(mockDb.restoreAllData).toHaveBeenCalledWith([
+      { key: 'admin:config', value: config },
+    ]);
   });
 });

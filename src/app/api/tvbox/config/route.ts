@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 
+import { isUserSessionCurrent } from '@/lib/auth-server';
 import { getAvailableApiSites, getConfig } from '@/lib/config';
 import { getRequestOrigin } from '@/lib/request-origin';
-import { verifyTVBoxToken } from '@/lib/tvbox-auth';
+import { verifyTVBoxTokenPayload } from '@/lib/tvbox-auth';
 
 export const runtime = 'nodejs';
 
@@ -31,14 +32,28 @@ export async function GET(request: Request) {
     let username = '';
     if (storageType !== 'localstorage') {
       if (token.trim()) {
-        const verifiedUsername = await verifyTVBoxToken(token);
-        if (!verifiedUsername) {
+        const payload = await verifyTVBoxTokenPayload(token);
+        const activeMember =
+          payload &&
+          (payload.username === process.env.USERNAME ||
+            adminConfig.UserConfig.Users.some(
+              (user) => user.username === payload.username && !user.banned
+            ));
+        if (
+          !payload ||
+          !activeMember ||
+          !(await isUserSessionCurrent(
+            payload.username,
+            payload.timestamp,
+            payload.sessionVersion
+          ))
+        ) {
           return NextResponse.json(
             { error: 'TVBox token 無效或已過期' },
             { status: 401 }
           );
         }
-        username = verifiedUsername;
+        username = payload.username;
       } else if (!legacyUn.trim()) {
         return NextResponse.json({ error: '缺少參數 token' }, { status: 400 });
       }

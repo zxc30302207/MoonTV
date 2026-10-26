@@ -26,8 +26,10 @@ interface DownloadTask {
     | 'downloading'
     | 'paused'
     | 'completed'
+    | 'partial'
     | 'error'
     | 'merging';
+  errorMessage?: string;
   progress: number;
   current: number;
   total: number;
@@ -271,10 +273,11 @@ const DownloadManager = ({
                 // 合並中時不更新進度
                 if (t.status === 'merging') return t;
                 // 如果正在提前完成，不更新狀態（狀態會在立即保存時手動更新）
-                if (t.isEarlyCompleting) return t;
+                if (t.isEarlyCompleting && prog.status !== 'partial') return t;
 
                 // 只有任務本身是 downloading 時才允許更新狀態，避免手動暫停被覆蓋
-                const shouldUpdateStatus = t.status === 'downloading';
+                const shouldUpdateStatus =
+                  t.status === 'downloading' || t.isEarlyCompleting;
 
                 // 創建新的 parsedTask 引用以觸發重新渲染
                 // 注意：downloadedSegments 是 Map，需要保持引用以便數據共享
@@ -297,7 +300,9 @@ const DownloadManager = ({
                   current: prog.current,
                   total: prog.total,
                   status: shouldUpdateStatus
-                    ? prog.status === 'done'
+                    ? prog.status === 'partial'
+                      ? 'partial'
+                      : prog.status === 'done'
                       ? 'completed'
                       : prog.status === 'error'
                       ? 'error'
@@ -337,13 +342,6 @@ const DownloadManager = ({
               t.id === taskId ? { ...t, abortController: undefined } : t
             )
           );
-
-          if (hasFailedSegments && streamMode !== 'disabled') {
-            // eslint-disable-next-line no-console
-            console.log(
-              `✅ 邊下邊存模式：任務 ${taskId} 已完成，失敗片段已跳過`
-            );
-          }
         }
       } catch (error) {
         if (error instanceof Error && error.message === '下載已取消') {
@@ -378,7 +376,13 @@ const DownloadManager = ({
           setTasks((prev) =>
             prev.map((t) =>
               t.id === taskId
-                ? { ...t, status: 'error' as const, abortController: undefined }
+                ? {
+                    ...t,
+                    status: 'error' as const,
+                    abortController: undefined,
+                    errorMessage:
+                      error instanceof Error ? error.message : '下載失敗',
+                  }
                 : t
             )
           );
@@ -403,7 +407,9 @@ const DownloadManager = ({
     activeDownloadsRef.current += 1;
     setTasks((prev) =>
       prev.map((t) =>
-        t.id === task.id ? { ...t, status: 'downloading' as const } : t
+        t.id === task.id
+          ? { ...t, status: 'downloading' as const, errorMessage: undefined }
+          : t
       )
     );
 
@@ -441,7 +447,7 @@ const DownloadManager = ({
     }
 
     // 批量下載：該集沒有預解析數據，先解析再下載
-    parseM3U8(task.url)
+    parseM3U8(task.url, { signal: abortController.signal })
       .then((parsed) => {
         parsed.title = task.title;
         parsed.type = cfg.downloadType;
@@ -468,7 +474,12 @@ const DownloadManager = ({
         setTasks((prev) =>
           prev.map((t) =>
             t.id === task.id
-              ? { ...t, status: 'error' as const, abortController: undefined }
+              ? {
+                  ...t,
+                  status: 'error' as const,
+                  abortController: undefined,
+                  errorMessage: err instanceof Error ? err.message : '下載失敗',
+                }
               : t
           )
         );
@@ -1167,7 +1178,7 @@ const DownloadManager = ({
                             if (streamMode !== 'disabled') {
                               const result = await Swal.fire({
                                 title: '立即保存',
-                                text: '立即保存將跳過後續片段下載，直接完成下載。文件將包含目前已下載的片段。\n\n是否繼續？',
+                                text: '立即保存將跳過後續片段下載，直接完成下載。文件只包含目前已寫入的片段，不是完整影片。\n\n是否繼續？',
                                 icon: 'warning',
                                 showCancelButton: true,
                                 confirmButtonText: '確定',
@@ -1189,48 +1200,21 @@ const DownloadManager = ({
                                     )
                                   );
 
-                                  // 先取消後續下載，避免繼續下載
-                                  if (task.abortController) {
-                                    task.abortController.abort();
-                                  }
-
-                                  // 等待一小段時間，確保 abort 信號已傳播，錯誤處理已檢查 isEarlyCompleting
-                                  await new Promise((resolve) =>
-                                    setTimeout(resolve, 100)
-                                  );
-
-                                  // 然後完成流（這會調用 onProgress 更新進度為 100%）
+                                  // The downloader stops its producers and commits the
+                                  // existing prefix without treating this as cancellation.
                                   await task.completeStreamRef.current();
-
-                                  // 最後更新狀態為完成（使用函數式更新確保獲取最新狀態）
                                   setTasks((prev) =>
-                                    prev.map((t) => {
-                                      if (t.id === task.id) {
-                                        return {
-                                          ...t,
-                                          status: 'completed' as const,
-                                          progress: 100,
-                                          current: t.total,
-                                          abortController: undefined,
-                                          // 保留 isEarlyCompleting 標記一段時間，防止錯誤處理覆蓋狀態
-                                          // 稍後通過 setTimeout 清除
-                                        };
-                                      }
-                                      return t;
-                                    })
+                                    prev.map((t) =>
+                                      t.id === task.id
+                                        ? {
+                                            ...t,
+                                            status: 'partial' as const,
+                                            abortController: undefined,
+                                            isEarlyCompleting: false,
+                                          }
+                                        : t
+                                    )
                                   );
-
-                                  // 延遲清除 isEarlyCompleting 標記，確保錯誤處理已經檢查過
-                                  setTimeout(() => {
-                                    setTasks((prev) =>
-                                      prev.map((t) =>
-                                        t.id === task.id &&
-                                        t.status === 'completed'
-                                          ? { ...t, isEarlyCompleting: false }
-                                          : t
-                                      )
-                                    );
-                                  }, 1000);
                                 } catch (error) {
                                   // eslint-disable-next-line no-console
                                   console.error('完成下載失敗:', error);
@@ -1348,7 +1332,8 @@ const DownloadManager = ({
                         </button>
                       ) : task.status === 'waiting' ||
                         task.status === 'paused' ||
-                        task.status === 'error' ? (
+                        task.status === 'error' ||
+                        task.status === 'partial' ? (
                         <button
                           onClick={() => resumeTask(task.id)}
                           className='p-2 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors'
@@ -1367,11 +1352,21 @@ const DownloadManager = ({
                     </div>
                   </div>
 
+                  {task.errorMessage && task.status === 'error' && (
+                    <p
+                      role='alert'
+                      className='text-sm text-red-600 dark:text-red-400'
+                    >
+                      {task.errorMessage}
+                    </p>
+                  )}
                   {/* 進度條 */}
                   <div className='space-y-1'>
                     <div className='flex items-center justify-between text-sm'>
                       <span className='text-gray-700 dark:text-gray-300'>
-                        {task.status === 'completed'
+                        {task.status === 'partial'
+                          ? '已保存部分檔案（非完整影片）'
+                          : task.status === 'completed'
                           ? '已完成'
                           : task.status === 'merging'
                           ? '合並中'

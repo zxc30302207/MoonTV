@@ -14,7 +14,10 @@ jest.mock('@/lib/db', () => ({
     registerUser: mockRegister,
     saveAdminConfig: mockSave,
   },
-  getStorage: () => ({ appendRegisteredUser: mockAppend }),
+  getStorage: () => ({
+    registerUserAtomic: mockRegister,
+    appendRegisteredUser: mockAppend,
+  }),
 }));
 jest.mock('@/lib/auth-crypto', () => ({
   generateSignature: async () => 'signature',
@@ -40,6 +43,7 @@ describe('registration concurrency', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockRegister.mockReset();
+    mockRegister.mockResolvedValue('a'.repeat(64));
     mockAppend.mockReset();
     mockAppend.mockResolvedValue({
       UserConfig: { AllowRegister: true, Users: [{ username: 'alice' }] },
@@ -64,39 +68,45 @@ describe('registration concurrency', () => {
       })
     );
   }
-  it('atomically appends and refreshes the local view instead of replacing a stale config', async () => {
-    const config = {
-      UserConfig: {
-        AllowRegister: true,
-        Users: [{ username: 'bob' }, { username: 'alice' }],
-      },
-    };
-    mockAppend.mockResolvedValue(config);
-    expect((await register()).status).toBe(200);
-    expect(mockAppend).toHaveBeenCalledWith('alice');
-    expect(mockAppend.mock.invocationCallOrder[0]).toBeLessThan(
-      mockRegister.mock.invocationCallOrder[0]
+  it('atomically creates membership and credentials without a separate config reservation', async () => {
+    const response = await register();
+    expect(response.status).toBe(200);
+    expect(
+      JSON.parse(
+        decodeURIComponent(response.cookies.get('auth')?.value || 'null')
+      ).sessionVersion
+    ).toBe('a'.repeat(64));
+    expect(mockRegister).toHaveBeenCalledWith(
+      'alice',
+      'test-password',
+      expect.any(Object),
+      expect.objectContaining({
+        UserConfig: expect.objectContaining({
+          Users: [{ username: 'alice', role: 'user' }],
+        }),
+      })
     );
-    expect(mockSetCachedConfig).toHaveBeenCalledWith(config);
+    expect(mockAppend).not.toHaveBeenCalled();
+    expect(mockSetCachedConfig).toHaveBeenCalled();
     expect(mockSave).not.toHaveBeenCalled();
   });
   it('returns conflict for a concurrent registration winning the password insert', async () => {
     mockRegister.mockRejectedValue({ code: '23505' });
     expect((await register()).status).toBe(409);
-    expect(mockAppend).toHaveBeenCalledWith('alice');
+    expect(mockAppend).not.toHaveBeenCalled();
     expect(mockSetCachedConfig).not.toHaveBeenCalled();
   });
   it('never creates credentials when config append fails or registration closes', async () => {
-    mockAppend.mockRejectedValue(new Error('Registration is closed'));
+    mockRegister.mockRejectedValue(new Error('Registration is closed'));
     const response = await register();
-    expect(response.status).toBe(500);
-    expect(mockRegister).not.toHaveBeenCalled();
+    expect(response.status).toBe(503);
+    expect(mockAppend).not.toHaveBeenCalled();
     expect(response.cookies.get('auth')).toBeUndefined();
   });
   it('issues no cookie after an uncertain credential insert outcome', async () => {
     mockRegister.mockRejectedValue(new Error('network failure after insert'));
     const response = await register();
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(503);
     expect(response.cookies.get('auth')).toBeUndefined();
     expect(mockSave).not.toHaveBeenCalled();
   });

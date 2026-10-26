@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { getVerifiedAuthInfo } from '@/lib/auth-server';
+import { readBoundedText } from '@/lib/bounded-response';
 import {
   buildDanmakuUpstreamHeaders,
   buildDanmakuUpstreamUrl,
@@ -18,6 +20,8 @@ export async function GET(
   context: { params: Promise<{ episodeId: string }> }
 ) {
   try {
+    if (!(await getVerifiedAuthInfo(request)))
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const { episodeId } = await context.params;
     if (!episodeId) {
       return NextResponse.json(
@@ -52,7 +56,7 @@ export async function GET(
       }
     );
 
-    return proxyResponse(
+    return await proxyResponse(
       response,
       format === 'json' ? 'application/json' : 'application/xml'
     );
@@ -84,7 +88,11 @@ function createTimeoutSignal(timeoutMs: number): AbortSignal {
 }
 
 async function proxyResponse(response: Response, fallbackContentType: string) {
-  const body = await response.text();
+  const body = await readBoundedText(
+    response,
+    16 * 1024 * 1024,
+    REQUEST_TIMEOUT_MS
+  );
   return new NextResponse(body, {
     status: response.status,
     headers: {

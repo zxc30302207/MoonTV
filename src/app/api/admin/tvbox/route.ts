@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { getConfig } from '@/lib/config';
+import { ConfigConflictError } from '@/lib/config-snapshot';
 import { getStorage } from '@/lib/db';
 import { getRequestOrigin } from '@/lib/request-origin';
 import { createTVBoxToken } from '@/lib/tvbox-auth';
@@ -14,6 +15,7 @@ function buildTvboxConfigUrl(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const issuanceTime = Date.now();
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
   const adminConfig = await getConfig();
 
@@ -40,7 +42,11 @@ export async function GET(request: NextRequest) {
 
   // 生成接口 URL（基於請求 URL 推導）
   const baseUrl = buildTvboxConfigUrl(request);
-  const token = await createTVBoxToken(authInfo.username);
+  const token = await createTVBoxToken(
+    authInfo.username,
+    issuanceTime,
+    authInfo.sessionVersion
+  );
   const url = `${baseUrl}?token=${encodeURIComponent(token)}`;
 
   const payload = {
@@ -55,6 +61,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const issuanceTime = Date.now();
   const authInfo = await getVerifiedAuthInfo(request);
   if (!authInfo || !authInfo.username) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -109,12 +116,22 @@ export async function POST(request: NextRequest) {
 
   const storage = getStorage();
   if (storage && typeof storage.setAdminConfig === 'function') {
-    await storage.setAdminConfig(adminConfig);
+    try {
+      await storage.setAdminConfig(adminConfig);
+    } catch (error) {
+      if (error instanceof ConfigConflictError)
+        return NextResponse.json({ error: error.message }, { status: 409 });
+      throw error;
+    }
   }
 
   const baseUrl = buildTvboxConfigUrl(request);
 
-  const token = await createTVBoxToken(username);
+  const token = await createTVBoxToken(
+    username,
+    issuanceTime,
+    authInfo.sessionVersion
+  );
   return NextResponse.json({
     enabled: adminConfig.SiteConfig.TVBoxEnabled === true,
     password: adminConfig.SiteConfig.TVBoxPassword || '',

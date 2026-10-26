@@ -14,7 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import {
@@ -23,6 +23,8 @@ import {
   refreshAuthInfo,
 } from '@/lib/auth-client';
 import { saveNavSettings } from '@/lib/nav-settings';
+import { pendingWriteCount } from '@/lib/pending-writes';
+import { useDialogFocus } from '@/lib/use-dialog-focus';
 import { checkForUpdates, CURRENT_VERSION, UpdateStatus } from '@/lib/version';
 
 import { useNavigationLoading } from './NavigationLoadingProvider';
@@ -44,6 +46,10 @@ export const UserMenu: React.FC = () => {
   const pathname = usePathname();
   const { startLoading } = useNavigationLoading();
   const [isOpen, setIsOpen] = useState(false);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
+  const settingsRef = useRef<HTMLDivElement>(null);
+  const passwordRef = useRef<HTMLDivElement>(null);
+  const adultRef = useRef<HTMLDivElement>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isAdultAuthOpen, setIsAdultAuthOpen] = useState(false);
@@ -51,6 +57,18 @@ export const UserMenu: React.FC = () => {
   const [authInfo, setAuthInfo] = useState<AuthInfo | null>(null);
   const [storageType, setStorageType] = useState<string>('localstorage');
   const [mounted, setMounted] = useState(false);
+  const [pendingWrites, setPendingWrites] = useState(0);
+  const [retryingWrites, setRetryingWrites] = useState(false);
+  useEffect(() => {
+    if (!isSettingsOpen) return;
+    const update = () =>
+      setPendingWrites(
+        authInfo?.username ? pendingWriteCount(authInfo.username) : 0
+      );
+    update();
+    window.addEventListener('databaseSyncStatus', update);
+    return () => window.removeEventListener('databaseSyncStatus', update);
+  }, [authInfo?.username, isSettingsOpen]);
 
   // 設置相關狀態
   const [defaultAggregateSearch, setDefaultAggregateSearch] = useState(true);
@@ -761,6 +779,25 @@ export const UserMenu: React.FC = () => {
   );
 
   // 設置面板內容
+  useDialogFocus(
+    isSettingsOpen && mounted,
+    settingsRef,
+    handleCloseSettings,
+    menuTriggerRef
+  );
+  useDialogFocus(
+    isChangePasswordOpen && mounted,
+    passwordRef,
+    handleCloseChangePassword,
+    menuTriggerRef
+  );
+  useDialogFocus(
+    isAdultAuthOpen && mounted,
+    adultRef,
+    handleCloseAdultAuth,
+    menuTriggerRef
+  );
+
   const settingsPanel = (
     <>
       {/* 背景遮罩 */}
@@ -770,7 +807,14 @@ export const UserMenu: React.FC = () => {
       />
 
       {/* 設置面板 */}
-      <div className='fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-xl max-h-[90vh] bg-white dark:bg-gray-900 rounded-xl shadow-xl z-[1001] p-6 overflow-y-auto'>
+      <div
+        ref={settingsRef}
+        role='dialog'
+        aria-modal='true'
+        aria-label='本地設置'
+        tabIndex={-1}
+        className='fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-xl max-h-[90vh] bg-white dark:bg-gray-900 rounded-xl shadow-xl z-[1001] p-6 overflow-y-auto'
+      >
         {/* 標題欄 */}
         <div className='flex items-center justify-between mb-6'>
           <div className='flex items-center gap-3'>
@@ -796,6 +840,49 @@ export const UserMenu: React.FC = () => {
 
         {/* 設置項 */}
         <div className='space-y-6'>
+          {pendingWrites > 0 && (
+            <div
+              role='status'
+              className='text-sm text-amber-700 dark:text-amber-400'
+            >
+              此裝置有 {pendingWrites} 筆變更尚未確認同步。
+              <button
+                type='button'
+                disabled={retryingWrites}
+                className='ml-2 underline disabled:opacity-50'
+                onClick={async () => {
+                  setRetryingWrites(true);
+                  try {
+                    const { retryPendingDatabaseWrites } = await import(
+                      '@/lib/db.client'
+                    );
+                    const failures = await retryPendingDatabaseWrites();
+                    if (failures)
+                      window.dispatchEvent(
+                        new CustomEvent('globalError', {
+                          detail: {
+                            message:
+                              '部分變更仍未同步；清空全部等操作請回原頁重新確認，其他操作請檢查網路後再試。',
+                          },
+                        })
+                      );
+                  } catch {
+                    window.dispatchEvent(
+                      new CustomEvent('globalError', {
+                        detail: {
+                          message: '無法重試同步，請確認登入狀態後再試。',
+                        },
+                      })
+                    );
+                  } finally {
+                    setRetryingWrites(false);
+                  }
+                }}
+              >
+                {retryingWrites ? '同步中…' : '重試未同步變更'}
+              </button>
+            </div>
+          )}
           {/* 簡潔模式下隱藏所有代理相關設置 */}
           {!simpleMode && (
             <>
@@ -939,7 +1026,7 @@ export const UserMenu: React.FC = () => {
                   <div className='absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none'>
                     <ChevronDown
                       className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform duration-200 ${
-                        isDoubanDropdownOpen ? 'rotate-180' : ''
+                        isDoubanImageProxyDropdownOpen ? 'rotate-180' : ''
                       }`}
                     />
                   </div>
@@ -1125,7 +1212,8 @@ export const UserMenu: React.FC = () => {
                 彈幕自動嘗試次數
               </h4>
               <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                自動彈幕獲取的嘗試次數，-1為一直獲取直到成功
+                自動彈幕獲取的嘗試次數；為避免頻繁請求，最多 2 次（-1 亦為 2
+                次）
               </p>
             </div>
             <input
@@ -1314,7 +1402,14 @@ export const UserMenu: React.FC = () => {
       />
 
       {/* 修改密碼面板 */}
-      <div className='fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-white dark:bg-gray-900 rounded-xl shadow-xl z-[1001] p-6'>
+      <div
+        ref={passwordRef}
+        role='dialog'
+        aria-modal='true'
+        aria-label='修改密碼'
+        tabIndex={-1}
+        className='fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-white dark:bg-gray-900 rounded-xl shadow-xl z-[1001] p-6'
+      >
         {/* 標題欄 */}
         <div className='flex items-center justify-between mb-6'>
           <h3 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
@@ -1424,7 +1519,14 @@ export const UserMenu: React.FC = () => {
         onClick={handleCloseAdultAuth}
       />
 
-      <div className='fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-white dark:bg-gray-900 rounded-xl shadow-xl z-[1001] p-6'>
+      <div
+        ref={adultRef}
+        role='dialog'
+        aria-modal='true'
+        aria-label='成人內容授權'
+        tabIndex={-1}
+        className='fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-white dark:bg-gray-900 rounded-xl shadow-xl z-[1001] p-6'
+      >
         <div className='flex items-center justify-between mb-6'>
           <div>
             <h3 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
@@ -1501,6 +1603,7 @@ export const UserMenu: React.FC = () => {
         <button
           onClick={handleMenuClick}
           className='w-8 h-8 p-1.5 rounded-full flex items-center justify-center text-gray-600 hover:bg-gray-200/50 dark:text-gray-300 dark:hover:bg-gray-700/50 transition-colors'
+          ref={menuTriggerRef}
           aria-label='User Menu'
         >
           <User className='w-full h-full' />

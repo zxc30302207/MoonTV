@@ -6,6 +6,7 @@ import {
 } from '@/lib/adult-authorization';
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { getConfig } from '@/lib/config';
+import { ConfigConflictError } from '@/lib/config-snapshot';
 import { getStorage } from '@/lib/db';
 
 export const runtime = 'nodejs';
@@ -64,6 +65,8 @@ export async function POST(request: NextRequest) {
       { headers: noStoreHeaders() }
     );
   } catch (error) {
+    if (error instanceof ConfigConflictError)
+      return NextResponse.json({ error: error.message }, { status: 409 });
     return NextResponse.json(
       { error: error instanceof Error ? error.message : '授權卡號不可用' },
       { status: 400 }

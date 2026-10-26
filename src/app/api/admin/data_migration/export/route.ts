@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { deflate } from 'pako';
 
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
+import { snapshotToBackup } from '@/lib/backup-kv';
 import { SimpleCrypto } from '@/lib/crypto';
-import { db } from '@/lib/db';
-import { hashPassword, isPasswordHash } from '@/lib/password';
+import { getStorage } from '@/lib/db';
+import { normalizePasswordForStorage } from '@/lib/password';
 import { CURRENT_VERSION } from '@/lib/version';
+
+import { validateBackup } from '../validation';
 
 export const runtime = 'nodejs';
 
@@ -41,38 +44,35 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const config = await db.getAdminConfig();
-    if (!config) {
-      return NextResponse.json({ error: '無法獲取配置' }, { status: 500 });
-    }
-
     // 解析請求體獲取密碼
     const { password } = await req.json();
     if (!password || typeof password !== 'string') {
       return NextResponse.json({ error: '請提供加密密碼' }, { status: 400 });
     }
 
-    // 收集所有數據
+    // One MVCC snapshot: never combine OFFSET pages from different versions.
+    const snapshot = snapshotToBackup(await getStorage().snapshotAllData());
+    for (const user of Object.values(snapshot.userData)) {
+      if (user.password)
+        user.password = await normalizePasswordForStorage(user.password);
+    }
+    const owner = process.env.USERNAME;
+    if (owner && process.env.PASSWORD) {
+      snapshot.userData[owner] ||= {};
+      snapshot.userData[owner].password = await normalizePasswordForStorage(
+        process.env.PASSWORD
+      );
+    }
     const exportData = {
       timestamp: new Date().toISOString(),
       serverVersion: CURRENT_VERSION,
-      data: {
-        // 管理員配置
-        adminConfig: config,
-        // 所有用戶數據
-        userData: {} as Record<string, unknown>,
-      },
+      data: snapshot,
     };
-
-    // 站长用户名（用于导出其密码等）
-    const adminUsername = process.env.USERNAME as string;
-
-    // 获取所有用户
-    let allUsers = await db.getAllUsers();
-    // 添加站长用户
-    allUsers.push(adminUsername);
-    allUsers = Array.from(new Set(allUsers));
-    const TOTAL_USERS = allUsers.length;
+    if (!validateBackup(exportData))
+      throw new Error(
+        '現有資料不符合備份格式；未產生可能無法還原的備份，請先檢查舊資料'
+      );
+    const TOTAL_USERS = Object.keys(snapshot.userData).length;
 
     // 创建 SSE 流
     const encoder = new TextEncoder();
@@ -90,96 +90,6 @@ export async function POST(req: NextRequest) {
         };
 
         try {
-          // 阶段 1：开始导出
-          send({ type: 'stage', message: '正在导出管理员配置...', percent: 0 });
-
-          // 阶段 2：逐用户收集数据
-          let userIndex = 0;
-          for (const username of allUsers) {
-            userIndex++;
-            // 用户进度：5% ~ 90%
-            const percent = Math.round(5 + (userIndex / TOTAL_USERS) * 85);
-
-            send({
-              type: 'user',
-              message: `正在导出用户 ${userIndex}/${TOTAL_USERS}: ${username}`,
-              username,
-              userIndex,
-              totalUsers: TOTAL_USERS,
-              percent,
-            });
-
-            // 并行读取各类型数据以提升导出速度
-            const [
-              playRecords,
-              favorites,
-              followings,
-              todayUpdated,
-              searchHistory,
-              skipConfigs,
-              userPassword,
-            ] = await Promise.all([
-              db.getAllPlayRecords(username),
-              db.getAllFavorites(username),
-              db.getAllFollowings(username),
-              db.getTodayUpdated(username),
-              db.getSearchHistory(username),
-              db.getAllSkipConfigs(username),
-              getUserPassword(username),
-            ]);
-
-            // 记录各类型条数用于日志展示
-            const counts: string[] = [];
-            const playCount = Object.keys(playRecords || {}).length;
-            const favCount = Object.keys(favorites || {}).length;
-            const folCount = Object.keys(followings || {}).length;
-            const searchCount = Array.isArray(searchHistory)
-              ? searchHistory.length
-              : 0;
-            const skipCount = Object.keys(skipConfigs || {}).length;
-            if (playCount) counts.push(`播放记录${playCount}`);
-            if (favCount) counts.push(`收藏${favCount}`);
-            if (folCount) counts.push(`追更${folCount}`);
-            if (todayUpdated) counts.push('今日新更');
-            if (searchCount) counts.push(`搜索历史${searchCount}`);
-            if (skipCount) counts.push(`跳过配置${skipCount}`);
-            send({
-              type: 'detail',
-              message: `用户 ${username}: ${
-                counts.length ? counts.join('、') : '无数据'
-              }`,
-              percent,
-            });
-
-            exportData.data.userData[username] = {
-              // 播放记录
-              playRecords,
-              // 收藏夹
-              favorites,
-              // 追更
-              followings,
-              // 今日新更
-              todayUpdated,
-              // 搜索历史
-              searchHistory,
-              // 跳过片头片尾配置
-              skipConfigs,
-              // 用户密码
-              password: userPassword,
-            };
-          }
-
-          // 覆盖站长密码
-          const ownerData = exportData.data.userData[adminUsername] as {
-            password?: string | null;
-          };
-          const ownerPassword = process.env.PASSWORD;
-          if (ownerPassword) {
-            ownerData.password = isPasswordHash(ownerPassword)
-              ? ownerPassword
-              : await hashPassword(ownerPassword);
-          }
-
           // 阶段 3：压缩并加密
           send({
             type: 'stage',
@@ -273,16 +183,5 @@ export async function POST(req: NextRequest) {
       { error: error instanceof Error ? error.message : '導出失敗' },
       { status: 500 }
     );
-  }
-}
-
-// 輔助函數：獲取用戶密碼（通過數據庫直接訪問）
-async function getUserPassword(username: string): Promise<string | null> {
-  try {
-    const password = await db.getUserPassword(username);
-    if (!password) return null;
-    return isPasswordHash(password) ? password : await hashPassword(password);
-  } catch {
-    return null;
   }
 }

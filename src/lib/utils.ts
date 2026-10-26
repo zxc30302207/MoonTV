@@ -105,8 +105,13 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
       const pingStart = performance.now();
       let pingTime = 0;
 
+      const pingController = new AbortController();
       // 測量ping時間（使用m3u8 URL）
-      fetch(m3u8Url, { method: 'HEAD', mode: 'no-cors' })
+      fetch(m3u8Url, {
+        method: 'HEAD',
+        mode: 'no-cors',
+        signal: pingController.signal,
+      })
         .then(() => {
           pingTime = performance.now() - pingStart;
         })
@@ -117,17 +122,26 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
       // 固定使用hls.js加載
       const hls = new Hls();
 
-      // 設置超時處理
-      const timeout = setTimeout(() => {
+      let settled = false;
+      const cleanup = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        pingController.abort();
+        video.onerror = null;
+        video.onloadedmetadata = null;
         hls.destroy();
         video.remove();
+      };
+
+      // 設置超時處理
+      const timeout = setTimeout(() => {
+        cleanup();
         reject(new Error('Timeout loading video metadata'));
       }, 4000);
 
       video.onerror = () => {
-        clearTimeout(timeout);
-        hls.destroy();
-        video.remove();
+        cleanup();
         reject(new Error('Failed to load video metadata'));
       };
 
@@ -140,15 +154,13 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
       // 檢查是否可以返回結果
       const checkAndResolve = () => {
         if (
+          !settled &&
           hasMetadataLoaded &&
           (hasSpeedCalculated || actualLoadSpeed !== '未知')
         ) {
-          clearTimeout(timeout);
           const width = video.videoWidth;
+          cleanup();
           if (width && width > 0) {
-            hls.destroy();
-            video.remove();
-
             // 根據視頻寬度判斷視頻質量等級，使用經典分辨率的寬度作為分割點
             const quality =
               width >= 3840
@@ -212,16 +224,11 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
         }
       });
 
-      hls.loadSource(m3u8Url);
-      hls.attachMedia(video);
-
       // 監聽hls.js錯誤
       hls.on(Hls.Events.ERROR, (event: any, data: any) => {
         console.error('HLS錯誤:', data);
         if (data.fatal) {
-          clearTimeout(timeout);
-          hls.destroy();
-          video.remove();
+          cleanup();
           reject(new Error(`HLS播放失敗: ${data.type}`));
         }
       });
@@ -231,6 +238,13 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
         hasMetadataLoaded = true;
         checkAndResolve(); // 嘗試返回結果
       };
+      try {
+        hls.loadSource(m3u8Url);
+        hls.attachMedia(video);
+      } catch (error) {
+        cleanup();
+        reject(error);
+      }
     });
   } catch (error) {
     throw new Error(

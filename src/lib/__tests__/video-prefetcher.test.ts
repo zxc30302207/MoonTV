@@ -213,3 +213,28 @@ it('does not trust proxy metadata from a direct external response', async () => 
   ).toBe('https://real.example.com/index.m3u8');
   prefetcher.stop();
 });
+
+it('retries a stalled segment rather than treating timeout as bandwidth yielding forever', async () => {
+  jest.useFakeTimers();
+  (parseM3U8 as jest.Mock).mockResolvedValue(task);
+  (global.fetch as jest.Mock).mockImplementationOnce(
+    () => new Promise(() => undefined)
+  );
+  const prefetcher = new VideoPrefetcher();
+  try {
+    prefetcher.ensure(options);
+    await flush();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(15_000);
+    await flush();
+    // Timeout uses the existing bounded retry/backoff policy, not an immediate loop.
+    expect(fetch).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(1_000);
+    await flush();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(prefetcher.getStats()).toMatchObject({ state: 'done', cached: 1 });
+  } finally {
+    prefetcher.stop();
+    jest.useRealTimers();
+  }
+});

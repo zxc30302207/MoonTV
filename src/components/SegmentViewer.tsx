@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { formatTime } from '@/lib/formatTime';
 import {
   aesDecrypt,
-  downloadTsSegment,
+  downloadTsSegmentConcurrent,
   M3U8Task,
   StreamSaverMode,
 } from '@/lib/m3u8-downloader';
@@ -49,16 +49,21 @@ const SegmentViewer = ({
     setRetryingSegments((prev) => new Set(prev).add(index));
 
     try {
+      if (task.downloadUnsupportedReason)
+        throw new Error(task.downloadUnsupportedReason);
       // 下載片段
-      let segmentData = await downloadTsSegment(task.tsUrlList[index]);
+      let segmentData = await downloadTsSegmentConcurrent(
+        task.tsUrlList[index],
+        undefined,
+        task.segmentByteRanges?.[index]
+      );
 
       // AES 解密
-      if (task.aesConf.key) {
-        segmentData = aesDecrypt(
-          segmentData,
-          task.aesConf.key,
-          task.aesConf.iv
-        );
+      const encryption = task.segmentEncryption
+        ? task.segmentEncryption[index]
+        : task.aesConf;
+      if (encryption?.key) {
+        segmentData = aesDecrypt(segmentData, encryption.key, encryption.iv);
       }
 
       // 保存片段數據到任務的 downloadedSegments 中

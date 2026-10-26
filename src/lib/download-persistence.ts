@@ -7,6 +7,8 @@
  * 普通模式下已下載的片段數據單獨持久化，使刷新後能真正續傳。
  */
 
+import CryptoJS from 'crypto-js';
+
 import type { M3U8Task } from './m3u8-downloader';
 
 const DOWNLOAD_STATE_KEY = 'downloadTaskStates';
@@ -23,6 +25,9 @@ export interface DownloadTaskPersistState {
   /** 片段總數（用於校驗 m3u8 是否變更） */
   totalSegments: number;
   segmentUrls?: string[];
+  /** v2 binds decoded bytes to URLs, ranges and per-segment encryption. */
+  formatVersion?: 2;
+  manifestIdentity?: string;
   /** 最後更新時間戳 */
   updatedAt: number;
 }
@@ -52,6 +57,41 @@ function writeAll(map: StateMap): void {
   }
 }
 
+/** Persist only a digest; key material must never be copied into localStorage. */
+function manifestIdentity(task: M3U8Task): string {
+  return CryptoJS.SHA256(
+    JSON.stringify(
+      task.tsUrlList.map((url, index) => {
+        const encryption = task.segmentEncryption
+          ? task.segmentEncryption[index]
+          : task.aesConf;
+        return [
+          url,
+          task.segmentByteRanges?.[index] ?? null,
+          encryption?.key
+            ? [
+                encryption.method,
+                encryption.uri,
+                encryption.iv,
+                encryption.key.toString(),
+              ]
+            : null,
+        ];
+      })
+    )
+  ).toString();
+}
+
+function needsModernIdentity(task: M3U8Task): boolean {
+  return (
+    !!task.downloadUnsupportedReason ||
+    !!task.segmentByteRanges?.some(Boolean) ||
+    !!task.aesConf?.key ||
+    !!task.aesConf?.method ||
+    !!task.segmentEncryption?.some((encryption) => !!encryption)
+  );
+}
+
 /** 從任務裡抽取可持久化的完成狀態 */
 export function persistDownloadState(taskId: string, task: M3U8Task): void {
   const map = readAll();
@@ -61,6 +101,8 @@ export function persistDownloadState(taskId: string, task: M3U8Task): void {
       ...(item.retryCount !== undefined ? { retryCount: item.retryCount } : {}),
     })),
     totalSegments: task.finishList.length,
+    formatVersion: 2,
+    manifestIdentity: manifestIdentity(task),
     segmentUrls: [...task.tsUrlList],
     updatedAt: Date.now(),
   };
@@ -170,12 +212,33 @@ export async function restoreDownloadProgress(
   if (!(task.downloadedSegments instanceof Map))
     task.downloadedSegments = new Map();
   const state = loadDownloadState(taskId);
-  if (!state || state.totalSegments !== task.tsUrlList.length) return 0;
+  const rejectRestore = () => {
+    task.downloadedSegments?.clear();
+    task.finishList.forEach((item) => {
+      if (item.status === 'success') item.status = '';
+    });
+    task.finishNum = 0;
+    return 0;
+  };
+  if (!state || state.totalSegments !== task.tsUrlList.length)
+    return rejectRestore();
+  if (state.formatVersion === 2) {
+    if (state.manifestIdentity !== manifestIdentity(task))
+      return rejectRestore();
+  } else if (
+    state.formatVersion !== undefined ||
+    needsModernIdentity(task) ||
+    !state.segmentUrls
+  ) {
+    // Legacy decrypted/ranged bytes may have been produced by the old broken
+    // parser. Unknown identity is not evidence that those bytes are reusable.
+    return rejectRestore();
+  }
   if (
     state.segmentUrls &&
     state.segmentUrls.some((url, index) => url !== task.tsUrlList[index])
   )
-    return 0;
+    return rejectRestore();
   const segments =
     task.downloadedSegments instanceof Map
       ? task.downloadedSegments

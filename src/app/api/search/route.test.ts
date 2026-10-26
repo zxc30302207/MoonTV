@@ -205,6 +205,7 @@ describe('/api/search', () => {
     expect(lines.some((line) => line.failedSources?.[0]?.key === 'bad')).toBe(
       true
     );
+    expect(lines[lines.length - 1]).toEqual({ complete: true });
     expect(response.headers.get('Cache-Control')).toBe('private, no-store');
   });
 });

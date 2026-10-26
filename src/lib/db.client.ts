@@ -15,6 +15,13 @@
  */
 
 import { getCachedAuthInfo, refreshAuthInfo } from './auth-client';
+import {
+  beginWrite,
+  currentWriteRevision,
+  mergePendingWrites,
+  pendingWriteCount,
+  pendingWriteRequests,
+} from './pending-writes';
 import { Following, SkipConfig, TodayUpdatedRecord } from './types';
 
 /**
@@ -515,6 +522,11 @@ async function handleDatabaseOperationFailure(
   error: any
 ): Promise<void> {
   console.warn(`数据库同步失败 (${dataType})，已保留本地结果:`, error);
+  window.dispatchEvent(
+    new CustomEvent('globalError', {
+      detail: { message: '變更尚未確認同步，已保留在此裝置。請重試原操作。' },
+    })
+  );
 }
 
 // 頁面加載時清理過期緩存
@@ -526,39 +538,94 @@ if (typeof window !== 'undefined') {
 /**
  * 通用的 fetch 函數，處理 401 狀態碼自動跳轉登錄
  */
+const mutationQueues = new Map<string, Promise<void>>();
+
 async function fetchWithAuth(
   url: string,
-  options?: RequestInit
+  options?: RequestInit,
+  trackWrite = true
 ): Promise<Response> {
   const username =
     STORAGE_TYPE !== 'localstorage'
       ? (getCachedAuthInfo() || (await refreshAuthInfo()))?.username
       : undefined;
-  const res = await fetch(url, { ...options, cache: 'no-store' });
-  if (getCachedAuthInfo()?.username !== username) {
-    throw new Error('登入狀態已變更');
+  const acknowledge =
+    username && trackWrite ? beginWrite(username, url, options) : undefined;
+  const method = options?.method || 'GET';
+  const path = new URL(url, window.location.origin).pathname;
+  const queueKey =
+    username &&
+    ['POST', 'DELETE'].includes(method) &&
+    [
+      '/api/playrecords',
+      '/api/favorites',
+      '/api/followings',
+      '/api/searchhistory',
+    ].includes(path)
+      ? `${username}:${path}`
+      : null;
+  let release: (() => void) | undefined;
+  let queued: Promise<void> | undefined;
+  if (queueKey) {
+    const previous = mutationQueues.get(queueKey);
+    queued = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    mutationQueues.set(queueKey, queued);
+    if (previous) await previous;
   }
-  if (!res.ok) {
-    // 如果是 401 未授權，跳轉到登錄頁面
-    if (res.status === 401) {
-      // 調用 logout 接口
-      try {
-        await fetch('/api/logout', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        });
-      } catch (error) {
-        console.error('注銷請求失敗:', error);
-      }
-      const currentUrl = window.location.pathname + window.location.search;
-      const loginUrl = new URL('/login', window.location.origin);
-      loginUrl.searchParams.set('redirect', currentUrl);
-      window.location.href = loginUrl.toString();
-      throw new Error('用戶未授權，已跳轉到登錄頁面');
+  try {
+    if (getCachedAuthInfo()?.username !== username)
+      throw new Error('登入狀態已變更');
+    const res = await fetch(url, { ...options, cache: 'no-store' });
+    if (getCachedAuthInfo()?.username !== username) {
+      throw new Error('登入狀態已變更');
     }
-    throw new Error(`請求 ${url} 失敗: ${res.status}`);
+    if (!res.ok) {
+      // 如果是 401 未授權，跳轉到登錄頁面
+      if (res.status === 401) {
+        // 調用 logout 接口
+        try {
+          await fetch('/api/logout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          });
+        } catch (error) {
+          console.error('注銷請求失敗:', error);
+        }
+        const currentUrl = window.location.pathname + window.location.search;
+        const loginUrl = new URL('/login', window.location.origin);
+        loginUrl.searchParams.set('redirect', currentUrl);
+        window.location.href = loginUrl.toString();
+        throw new Error('用戶未授權，已跳轉到登錄頁面');
+      }
+      throw new Error(`請求 ${url} 失敗: ${res.status}`);
+    }
+    acknowledge?.();
+    return res;
+  } finally {
+    release?.();
+    if (queueKey && mutationQueues.get(queueKey) === queued)
+      mutationQueues.delete(queueKey);
   }
-  return res;
+}
+
+/** Explicit user retry only; no background replay or cross-account requests. */
+export async function retryPendingDatabaseWrites(): Promise<number> {
+  const username = getCachedAuthInfo()?.username;
+  if (!username) throw new Error('未登入');
+  for (const request of pendingWriteRequests(username)) {
+    if (getCachedAuthInfo()?.username !== username)
+      throw new Error('登入狀態已變更');
+    if (!request.isCurrent()) continue;
+    try {
+      await fetchWithAuth(request.url, request.options, false);
+      request.acknowledge();
+    } catch {
+      // Keep the unacknowledged intent for another explicit retry.
+    }
+  }
+  return pendingWriteCount(username);
 }
 
 /**
@@ -574,10 +641,11 @@ const inflightGets = new Map<string, Promise<unknown>>();
 async function fetchFromApi<T>(path: string): Promise<T> {
   const username = (getCachedAuthInfo() || (await refreshAuthInfo()))?.username;
   const mutationRevision = followingMutationRevision;
+  const writeRevision = currentWriteRevision();
   const requestKey = JSON.stringify([
     username || '',
     path,
-    path === '/api/followings' ? mutationRevision : 0,
+    path === '/api/followings' ? mutationRevision : writeRevision,
   ]);
   const existing = inflightGets.get(requestKey) as Promise<T> | undefined;
   if (existing) return existing;
@@ -586,13 +654,17 @@ async function fetchFromApi<T>(path: string): Promise<T> {
     const result = (await res.json()) as T;
     if (getCachedAuthInfo()?.username !== username)
       throw new Error('登入狀態已變更');
-    return path === '/api/followings' && username
-      ? (mergeFollowingMutations(
-          result as Record<string, Following>,
-          username,
-          mutationRevision
-        ) as T)
-      : result;
+    const merged =
+      path === '/api/followings' && username
+        ? (mergeFollowingMutations(
+            result as Record<string, Following>,
+            username,
+            mutationRevision
+          ) as T)
+        : result;
+    return username
+      ? mergePendingWrites(username, path, merged, writeRevision)
+      : merged;
   });
   inflightGets.set(requestKey, request);
   const clear = () => {
@@ -691,17 +763,7 @@ export async function savePlayRecord(
     // 立即更新緩存
     const cachedRecords = cacheManager.getCachedPlayRecords() || {};
 
-    // 刪除同名的舊記錄
-    if (record.title) {
-      Object.keys(cachedRecords).forEach((existingKey) => {
-        if (
-          existingKey !== key &&
-          cachedRecords[existingKey].title === record.title
-        ) {
-          delete cachedRecords[existingKey];
-        }
-      });
-    }
+    // Different source/id pairs are distinct unless an explicit identity proves otherwise.
 
     cachedRecords[key] = record;
     cacheManager.cachePlayRecords(cachedRecords);
@@ -739,17 +801,7 @@ export async function savePlayRecord(
   try {
     const allRecords = await getAllPlayRecords();
 
-    // 刪除同名的舊記錄
-    if (record.title) {
-      Object.keys(allRecords).forEach((existingKey) => {
-        if (
-          existingKey !== key &&
-          allRecords[existingKey].title === record.title
-        ) {
-          delete allRecords[existingKey];
-        }
-      });
-    }
+    // Different source/id pairs are distinct unless an explicit identity proves otherwise.
 
     allRecords[key] = record;
     localStorage.setItem(PLAY_RECORDS_KEY, JSON.stringify(allRecords));
@@ -1353,6 +1405,8 @@ export interface FollowingRefreshResult {
   updatedCount: number;
   failedCount: number;
   successCount: number;
+  processedCount: number;
+  removedCount: number;
   total: number;
 }
 
@@ -1360,6 +1414,7 @@ export interface FollowingRefreshCallbacks {
   onStart?: (total: number) => void;
   onItemResult?: (item: FollowingRefreshItem) => void;
   onItemFailed?: (item: FollowingRefreshItem) => void;
+  onItemRemoved?: (key: string) => void;
   onComplete?: (result: FollowingRefreshResult) => void;
 }
 
@@ -1419,6 +1474,10 @@ export async function refreshFollowingsStream(
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let completionSeen = false;
+    let expectedTotal = Object.keys(followings).length;
+    const processedKeys = new Set<string>();
+    const removedKeys = new Set<string>();
 
     const handleEvent = (raw: string) => {
       if (!isSameUser()) return;
@@ -1433,8 +1492,14 @@ export async function refreshFollowingsStream(
         return;
       }
 
+      if (
+        ['item_result', 'item_failed', 'item_removed'].includes(payload.type) &&
+        typeof payload.key === 'string'
+      )
+        processedKeys.add(payload.key);
       switch (payload.type) {
         case 'start': {
+          expectedTotal = payload.total || 0;
           callbacks?.onStart?.(payload.total || 0);
           break;
         }
@@ -1461,7 +1526,11 @@ export async function refreshFollowingsStream(
           break;
         }
         case 'item_removed': {
-          if (!changedLocally(payload.key)) delete refreshed[payload.key];
+          removedKeys.add(payload.key);
+          if (!changedLocally(payload.key)) {
+            delete refreshed[payload.key];
+            callbacks?.onItemRemoved?.(payload.key);
+          }
           break;
         }
         case 'item_failed': {
@@ -1476,10 +1545,14 @@ export async function refreshFollowingsStream(
           break;
         }
         case 'complete': {
+          expectedTotal = payload.total ?? expectedTotal;
+          completionSeen = processedKeys.size >= expectedTotal;
           callbacks?.onComplete?.({
             updatedCount: payload.updatedCount || 0,
             failedCount: payload.failedCount || 0,
             successCount: payload.successCount || 0,
+            processedCount: processedKeys.size,
+            removedCount: removedKeys.size,
             total: payload.total || 0,
           });
           break;
@@ -1512,6 +1585,7 @@ export async function refreshFollowingsStream(
     }
 
     if (!isSameUser()) return {};
+    if (!completionSeen) throw new Error('追更刷新連線中斷，部分項目尚未完成');
 
     // Use a new read, not a GET that was already in flight before refresh.
     // Overlay mutations made while refreshing, including a pending unfollow,
@@ -1520,7 +1594,12 @@ export async function refreshFollowingsStream(
     const latest = (await latestResponse.json()) as Record<string, Following>;
     if (!isSameUser()) return {};
     const reconciled = mergeFollowingMutations(
-      latest,
+      mergePendingWrites(
+        username,
+        '/api/followings',
+        latest,
+        currentWriteRevision()
+      ),
       username,
       mutationRevision
     );
@@ -1530,15 +1609,21 @@ export async function refreshFollowingsStream(
     );
     return reconciled;
   } catch (err) {
-    console.error('批量刷新追更失败:', err);
-    console.warn('批量刷新追更失败(已本地处理, 不弹全局提示)');
-    return isSameUser()
-      ? mergeFollowingMutations(
-          cacheManager.getCachedFollowings() || refreshed,
+    if (!isSameUser()) return {};
+    // Preserve the partial cache, but propagate failure so the UI cannot report success.
+    cacheManager.cacheFollowings(
+      mergeFollowingMutations(
+        mergePendingWrites(
           username,
-          mutationRevision
-        )
-      : {};
+          '/api/followings',
+          refreshed,
+          currentWriteRevision()
+        ),
+        username,
+        mutationRevision
+      )
+    );
+    throw err;
   }
 }
 

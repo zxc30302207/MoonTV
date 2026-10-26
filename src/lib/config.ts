@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, no-console, @typescript-eslint/no-non-null-assertion */
-
 import {
   ensureAdultAuthConfig,
   getAdultAuthorizationStatus,
@@ -7,6 +6,11 @@ import {
 import { getStorage } from '@/lib/db';
 
 import { AdminConfig } from './admin.types';
+import {
+  cloneConfigSnapshot,
+  getConfigSnapshot,
+  markConfigSnapshot,
+} from './config-snapshot';
 import { DEFAULT_DANMAKU_API_BASE_URL } from './danmaku.constants';
 import { getDefaultPlaybackSaveInterval } from './playback-settings';
 import runtimeConfig from './runtime';
@@ -407,7 +411,9 @@ async function initConfig() {
             type: category.type,
             query: category.query,
             from: 'config',
-            disabled: false,
+            disabled:
+              customCategoriesMap.get(category.query + category.type)
+                ?.disabled ?? false,
           });
         });
 
@@ -621,9 +627,9 @@ async function initConfig() {
 
 export async function getConfig(): Promise<AdminConfig> {
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
-  if (process.env.DOCKER_ENV === 'true' || storageType === 'localstorage') {
+  if (storageType === 'localstorage') {
     await initConfig();
-    return cachedConfig;
+    return cloneConfigSnapshot(cachedConfig);
   }
 
   // 非 docker 環境且 DB 存儲，直接讀 db 配置
@@ -783,7 +789,7 @@ export async function getConfig(): Promise<AdminConfig> {
           existingCategory.type = category.type;
           existingCategory.query = category.query;
           existingCategory.from = 'config';
-          existingCategory.disabled = false;
+          // Preserve the administrator's disabled state.
         }
       } else {
         // 如果不存在，創建新條目
@@ -858,7 +864,7 @@ export async function getConfig(): Promise<AdminConfig> {
     await initConfig();
   }
 
-  return cachedConfig;
+  return cloneConfigSnapshot(cachedConfig);
 }
 
 export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
@@ -949,6 +955,7 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
 }
 
 export async function resetConfig() {
+  const previousConfig = await getConfig();
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
   const storage = getStorage();
   // 獲取所有用戶名，用於補全 Users
@@ -1045,6 +1052,7 @@ export async function resetConfig() {
     },
   } as AdminConfig;
 
+  markConfigSnapshot(adminConfig, getConfigSnapshot(previousConfig) ?? null);
   if (storage && typeof (storage as any).setAdminConfig === 'function') {
     await (storage as any).setAdminConfig(adminConfig);
   }

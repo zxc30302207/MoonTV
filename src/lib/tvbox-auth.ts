@@ -1,7 +1,8 @@
 import { generateSignature, safeEqual } from './auth-crypto';
 
-type TVBoxTokenPayload = {
+export type TVBoxTokenPayload = {
   timestamp: number;
+  sessionVersion?: string;
   username: string;
 };
 
@@ -29,9 +30,14 @@ function getTvboxTokenMaxAgeMs(): number {
 
 export async function createTVBoxToken(
   username: string,
-  now = Date.now()
+  now = Date.now(),
+  sessionVersion?: string
 ): Promise<string> {
-  const payload: TVBoxTokenPayload = { timestamp: now, username };
+  const payload: TVBoxTokenPayload = {
+    timestamp: now,
+    username,
+    ...(sessionVersion ? { sessionVersion } : {}),
+  };
   const encodedPayload = encodeBase64Url(JSON.stringify(payload));
   const signature = await generateSignature(
     `tvbox:${encodedPayload}`,
@@ -40,11 +46,13 @@ export async function createTVBoxToken(
   return `${encodedPayload}.${signature}`;
 }
 
-export async function verifyTVBoxToken(
+export async function verifyTVBoxTokenPayload(
   token: string,
   now = Date.now()
-): Promise<string | null> {
-  const [encodedPayload, signature] = token.split('.');
+): Promise<TVBoxTokenPayload | null> {
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [encodedPayload, signature] = parts;
   if (!encodedPayload || !signature || !getTvboxSecret()) return null;
 
   const expected = await generateSignature(
@@ -71,8 +79,29 @@ export async function verifyTVBoxToken(
     ) {
       return null;
     }
-    return payload.username;
+    if (
+      payload.sessionVersion !== undefined &&
+      (typeof payload.sessionVersion !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(payload.sessionVersion))
+    )
+      return null;
+    return {
+      username: payload.username,
+      timestamp: payload.timestamp,
+      ...(payload.sessionVersion
+        ? { sessionVersion: payload.sessionVersion }
+        : {}),
+    };
   } catch {
     return null;
   }
+}
+
+// Keep the username-only helper compatible for callers that do not authorize
+// sessions. Routes must validate the payload timestamp and active membership.
+export async function verifyTVBoxToken(
+  token: string,
+  now = Date.now()
+): Promise<string | null> {
+  return (await verifyTVBoxTokenPayload(token, now))?.username ?? null;
 }

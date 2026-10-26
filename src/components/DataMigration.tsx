@@ -791,6 +791,14 @@ const DataMigration = ({ onRefreshConfig }: DataMigrationProps) => {
   return (
     <>
       <div className='max-w-6xl mx-auto space-y-6'>
+        <p
+          role='note'
+          className='mb-4 text-sm text-amber-700 dark:text-amber-300'
+        >
+          原子還原完成後，所有非站長帳號須重新登入。資料庫若尚未安裝 002
+          遷移，還原不會修改資料。
+          若網路中斷，請先重新檢查資料狀態，不要立即重複匯入。
+        </p>
         {/* 簡潔警告提示 */}
         <div className='flex items-center gap-3 p-4 border border-amber-200 dark:border-amber-700 rounded-lg bg-amber-50/30 dark:bg-amber-900/5'>
           <AlertTriangle className='w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0' />

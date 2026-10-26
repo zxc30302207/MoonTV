@@ -5,6 +5,7 @@ import { Following, TodayUpdatedRecord } from './types';
 
 jest.mock('@supabase/supabase-js', () => ({ createClient: jest.fn() }));
 jest.mock('./password', () => ({
+  hashPassword: async (password: string) => `hash:${password}`,
   normalizePasswordForStorage: jest.fn(
     async (password: string) => `hash:${password}`
   ),
@@ -181,7 +182,10 @@ describe('Supabase following persistence', () => {
       'fulfilled',
       'rejected',
     ]);
-    expect(passwords.get('u:alice:pwd')).toBe('hash:first');
+    expect(passwords.get('u:alice:pwd')).toEqual({
+      hash: 'hash:first',
+      revokedBefore: expect.any(Number),
+    });
     expect(query.upsert).not.toHaveBeenCalled();
   });
 

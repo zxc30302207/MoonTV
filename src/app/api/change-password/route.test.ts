@@ -36,6 +36,7 @@ describe('/api/change-password', () => {
     process.env.USERNAME = 'owner';
     mockGetVerifiedAuthInfo.mockResolvedValue({ username: 'alice' });
     mockVerifyUser.mockResolvedValue(true);
+    mockChangePassword.mockReset();
   });
 
   afterEach(() => {
@@ -62,7 +63,7 @@ describe('/api/change-password', () => {
   });
 
   it('rejects an incorrect current password', async () => {
-    mockVerifyUser.mockResolvedValue(false);
+    mockChangePassword.mockRejectedValue(new Error('目前密碼錯誤'));
     const { POST } = await import('./route');
 
     const response = await POST(
@@ -73,7 +74,11 @@ describe('/api/change-password', () => {
     );
 
     expect(response.status).toBe(401);
-    expect(mockChangePassword).not.toHaveBeenCalled();
+    expect(mockChangePassword).toHaveBeenCalledWith(
+      'alice',
+      'new-secret',
+      'wrong'
+    );
   });
 
   it('changes a normal user password after verifying the current password', async () => {
@@ -87,8 +92,13 @@ describe('/api/change-password', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mockVerifyUser).toHaveBeenCalledWith('alice', 'old-secret');
-    expect(mockChangePassword).toHaveBeenCalledWith('alice', 'new-secret');
+    expect(mockVerifyUser).not.toHaveBeenCalled();
+    expect(mockChangePassword).toHaveBeenCalledWith(
+      'alice',
+      'new-secret',
+      'old-secret'
+    );
+    expect(response.cookies.get('auth')?.value).toBe('');
   });
 
   it('does not allow the owner to change the env password through self-service', async () => {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { readBoundedText } from '@/lib/bounded-response';
 import { filterAdsFromM3U8WithStats } from '@/lib/m3u8-ad-filter';
 import { getClientIp, getRateLimitHeaders, rateLimit } from '@/lib/rate-limit';
 import { assertSafeUrl, parseAllowedHosts, safeFetch } from '@/lib/url-safety';
@@ -41,6 +42,8 @@ export async function GET(request: NextRequest) {
     process.env.ALLOWED_M3U8_HOSTS || process.env.ALLOWED_PROXY_HOSTS
   );
 
+  const requestDeadline = new AbortController();
+  const requestTimer = setTimeout(() => requestDeadline.abort(), 15000);
   try {
     const playlistUrl = assertSafeUrl(targetUrl, {
       allowPrivateNetworks,
@@ -49,6 +52,7 @@ export async function GET(request: NextRequest) {
     const response = await safeFetch(
       playlistUrl,
       {
+        signal: requestDeadline.signal,
         headers: {
           Accept:
             'application/vnd.apple.mpegurl, application/x-mpegURL, text/plain, */*',
@@ -74,7 +78,7 @@ export async function GET(request: NextRequest) {
       allowPrivateNetworks,
       allowedHosts,
     }).toString();
-    const content = (await response.text()).replace(
+    const content = (await readBoundedText(response, 4 * 1024 * 1024)).replace(
       /^#MOONTV-AD-FILTER:.*(?:\r?\n|$)/gm,
       ''
     );
@@ -141,6 +145,8 @@ export async function GET(request: NextRequest) {
       { error: 'Invalid or unsafe m3u8 url' },
       { status: 400, headers: { 'Cache-Control': 'private, no-store' } }
     );
+  } finally {
+    clearTimeout(requestTimer);
   }
 }
 

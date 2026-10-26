@@ -5,6 +5,11 @@ import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 import { Favorite } from '@/lib/types';
 
+import {
+  mediaSchema,
+  storageKeySchema,
+} from '@/app/api/admin/data_migration/validation';
+
 export const runtime = 'nodejs';
 
 /**
@@ -86,7 +91,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { key, favorite }: { key: string; favorite: Favorite } = body;
 
-    if (!key || !favorite) {
+    if (!storageKeySchema.safeParse(key).success || !favorite) {
       return NextResponse.json(
         { error: 'Missing key or favorite' },
         { status: 400 }
@@ -94,7 +99,14 @@ export async function POST(request: NextRequest) {
     }
 
     // 驗證必要字段
-    if (!favorite.title || !favorite.source_name) {
+    if (
+      !favorite.title ||
+      !favorite.source_name ||
+      !mediaSchema.safeParse({
+        ...favorite,
+        save_time: favorite.save_time ?? Date.now(),
+      }).success
+    ) {
       return NextResponse.json(
         { error: 'Invalid favorite data' },
         { status: 400 }

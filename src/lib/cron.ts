@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { db } from '@/lib/db';
+import { db, getStorage } from '@/lib/db';
 import { fetchVideoDetail } from '@/lib/fetchVideoDetail';
 import { SearchResult } from '@/lib/types';
 
@@ -33,11 +33,27 @@ export async function handleCronRequest(
       );
     }
 
-    refreshRecordAndFavorites();
+    const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
+    const release =
+      storageType === 'localstorage'
+        ? async () => undefined
+        : await getStorage().acquireLease('refresh-records', 60000);
+    if (!release)
+      return NextResponse.json(
+        { success: false, message: 'Cron job already running' },
+        { status: 409 }
+      );
+    let result;
+    try {
+      result = await refreshRecordAndFavorites();
+    } finally {
+      await release();
+    }
 
     return NextResponse.json({
       success: true,
-      message: 'Cron job executed successfully',
+      message: 'Cron job completed',
+      ...result,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
@@ -57,9 +73,12 @@ async function refreshRecordAndFavorites() {
   if (
     (process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage') === 'localstorage'
   ) {
-    return;
+    return { processed: 0, failed: 0 };
   }
 
+  let processed = 0;
+  let failed = 0;
+  const deadline = Date.now() + 45000;
   try {
     const users = await db.getAllUsers();
     if (process.env.USERNAME && !users.includes(process.env.USERNAME)) {
@@ -74,6 +93,8 @@ async function refreshRecordAndFavorites() {
       id: string,
       fallbackTitle: string
     ): Promise<SearchResult | null> => {
+      if (Date.now() >= deadline)
+        throw new Error('Cron job deadline exceeded; retry remaining work');
       const key = `${source}+${id}`;
       let promise = detailCache.get(key);
       if (!promise) {
@@ -81,7 +102,7 @@ async function refreshRecordAndFavorites() {
           source,
           id,
           fallbackTitle: fallbackTitle.trim(),
-          timeout: 30000, // 定時任務使用30秒超時
+          timeout: Math.min(15000, Math.max(1, deadline - Date.now())), // Bounded by the remaining job window
         })
           .then((detail) => {
             // 成功時才緩存結果
@@ -90,19 +111,25 @@ async function refreshRecordAndFavorites() {
             return detail;
           })
           .catch(() => {
+            failed += 1;
             return null;
           });
       }
+      detailCache.set(key, promise);
       return promise;
     };
 
     for (const user of users) {
+      if (Date.now() >= deadline) throw new Error('Cron job deadline exceeded');
       // 播放記錄
       try {
         const playRecords = await db.getAllPlayRecords(user);
 
         for (const [key, record] of Object.entries(playRecords)) {
           try {
+            if (Date.now() >= deadline)
+              throw new Error('Cron job deadline exceeded');
+            processed += 1;
             const [source, id] = key.split('+');
             if (!source || !id) {
               continue;
@@ -115,26 +142,31 @@ async function refreshRecordAndFavorites() {
 
             const episodeCount = detail.episodes?.length || 0;
             if (episodeCount > 0 && episodeCount !== record.total_episodes) {
-              await db.savePlayRecord(user, source, id, {
-                title: detail.title || record.title,
-                source_name: record.source_name,
-                cover: detail.poster || record.cover,
-                index: record.index,
-                total_episodes: episodeCount,
-                play_time: record.play_time,
-                year: detail.year || record.year,
-                total_time: record.total_time,
-                save_time: record.save_time,
-                search_title: record.search_title,
-              });
+              await getStorage().updatePlayRecordIfUnchanged(
+                user,
+                key,
+                record,
+                {
+                  title: detail.title || record.title,
+                  source_name: record.source_name,
+                  cover: detail.poster || record.cover,
+                  index: record.index,
+                  total_episodes: episodeCount,
+                  play_time: record.play_time,
+                  year: detail.year || record.year,
+                  total_time: record.total_time,
+                  save_time: record.save_time,
+                  search_title: record.search_title,
+                }
+              );
             }
           } catch {
-            /* ignore */
+            failed += 1;
             // 繼續處理下一個記錄
           }
         }
       } catch {
-        /* ignore */
+        failed += 1;
       }
 
       // 收藏
@@ -143,6 +175,9 @@ async function refreshRecordAndFavorites() {
 
         for (const [key, fav] of Object.entries(favorites)) {
           try {
+            if (Date.now() >= deadline)
+              throw new Error('Cron job deadline exceeded');
+            processed += 1;
             const [source, id] = key.split('+');
             if (!source || !id) {
               continue;
@@ -155,7 +190,7 @@ async function refreshRecordAndFavorites() {
 
             const favEpisodeCount = favDetail.episodes?.length || 0;
             if (favEpisodeCount > 0 && favEpisodeCount !== fav.total_episodes) {
-              await db.saveFavorite(user, source, id, {
+              await getStorage().updateFavoriteIfUnchanged(user, key, fav, {
                 title: favDetail.title || fav.title,
                 source_name: fav.source_name,
                 cover: favDetail.poster || fav.cover,
@@ -166,15 +201,20 @@ async function refreshRecordAndFavorites() {
               });
             }
           } catch {
-            /* ignore */
+            failed += 1;
             // 繼續處理下一個收藏
           }
         }
       } catch {
-        /* ignore */
+        failed += 1;
       }
     }
   } catch {
-    /* ignore */
+    failed += 1;
   }
+  if (failed)
+    throw new Error(
+      `Cron job incomplete: processed=${processed}, failed=${failed}`
+    );
+  return { processed, failed };
 }

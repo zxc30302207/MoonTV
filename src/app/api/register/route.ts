@@ -20,6 +20,7 @@ type AuthCookieData = {
   username: string;
   timestamp: number;
   signature?: string;
+  sessionVersion?: string;
 };
 
 function getCookieOptions(request: NextRequest, expires: Date) {
@@ -35,11 +36,13 @@ function getCookieOptions(request: NextRequest, expires: Date) {
 // 生成認證Cookie（帶簽名）
 async function generateAuthCookie(
   request: NextRequest,
-  username: string
+  username: string,
+  sessionVersion: string
 ): Promise<string> {
   const authData: AuthCookieData = {
     role: 'user',
     username,
+    sessionVersion,
     timestamp: Date.now(),
   };
 
@@ -112,18 +115,33 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: '用戶已存在' }, { status: 400 });
       }
 
-      // Reserve membership before creating credentials: a failed config append
-      // must not leave a password-only account that cold-start repair activates.
-      // 添加到配置中並保存
       const storage = getStorage();
       if (!storage) throw new Error('Storage unavailable');
-      const registeredConfig = await storage.appendRegisteredUser(username);
-      await db.registerUser(username, password);
+      const registeredConfig = {
+        ...config,
+        UserConfig: {
+          ...config.UserConfig,
+          Users: [
+            ...config.UserConfig.Users,
+            { username, role: 'user' as const },
+          ],
+        },
+      };
+      const sessionVersion = await storage.registerUserAtomic(
+        username,
+        password,
+        config,
+        registeredConfig
+      );
       await setCachedConfig(registeredConfig);
 
       // 註冊成功，設置認證cookie
       const response = NextResponse.json({ ok: true });
-      const cookieValue = await generateAuthCookie(req, username);
+      const cookieValue = await generateAuthCookie(
+        req,
+        username,
+        sessionVersion
+      );
       const expires = new Date();
       expires.setDate(expires.getDate() + 7); // 7天過期
 
@@ -139,7 +157,10 @@ export async function POST(req: NextRequest) {
       ) {
         return NextResponse.json({ error: '用戶已存在' }, { status: 409 });
       }
-      return NextResponse.json({ error: '數據庫錯誤' }, { status: 500 });
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : '數據庫錯誤' },
+        { status: 503 }
+      );
     }
   } catch (error) {
     return NextResponse.json({ error: '服務器錯誤' }, { status: 500 });

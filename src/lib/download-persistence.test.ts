@@ -81,3 +81,76 @@ describe('download resume integrity', () => {
     expect(loadDownloadState('one')).toBeNull();
   });
 });
+
+// Older caches contain already-decrypted bytes, so fixing the parser alone must
+// not silently trust their old success markers.
+describe('resume manifest identity', () => {
+  const encryption = {
+    method: 'AES-128',
+    uri: 'https://cdn.test/key',
+    iv: '0x0000000000000000000000000000002a',
+    key: 'secret-test-key',
+  };
+  const legacy = (task: M3U8Task) => {
+    localStorage.setItem(
+      'downloadTaskStates',
+      JSON.stringify({
+        one: {
+          finishList: task.finishList,
+          totalSegments: task.tsUrlList.length,
+          segmentUrls: task.tsUrlList,
+          updatedAt: 1,
+        },
+      })
+    );
+  };
+  beforeEach(() => localStorage.clear());
+  it.each(['encryption', 'range'])(
+    'rejects legacy %s bytes without a trusted identity',
+    async (kind) => {
+      const task = makeTask();
+      if (kind === 'encryption') task.segmentEncryption = [encryption, null];
+      else task.segmentByteRanges = [{ start: 0, end: 2 }, undefined];
+      task.downloadedSegments = new Map([[0, new ArrayBuffer(2)]]);
+      legacy(task);
+      expect(await restoreDownloadProgress('one', task)).toBe(0);
+      expect(task.finishList[0].status).toBe('');
+      expect(task.downloadedSegments.size).toBe(0);
+    }
+  );
+  it('preserves legacy plain-segment compatibility when the exact URLs and bytes match', async () => {
+    const task = makeTask();
+    task.downloadedSegments = new Map([[0, new ArrayBuffer(2)]]);
+    legacy(task);
+    expect(await restoreDownloadProgress('one', task)).toBe(1);
+  });
+  it.each(['iv', 'key', 'range'])(
+    'redownloads when %s changes despite identical media URLs',
+    async (field) => {
+      const task = makeTask();
+      task.segmentEncryption = [{ ...encryption }, null];
+      task.downloadedSegments = new Map([[0, new ArrayBuffer(2)]]);
+      persistDownloadState('one', task);
+      if (field === 'iv')
+        task.segmentEncryption[0] = {
+          ...encryption,
+          iv: '0x0000000000000000000000000000002b',
+        };
+      else if (field === 'key')
+        task.segmentEncryption[0] = { ...encryption, key: 'new-secret' };
+      else task.segmentByteRanges = [{ start: 0, end: 2 }, undefined];
+      expect(await restoreDownloadProgress('one', task)).toBe(0);
+      expect(task.finishList[0].status).toBe('');
+    }
+  );
+  it('restores matching encrypted bytes while persisting no raw key material', async () => {
+    const task = makeTask();
+    task.segmentEncryption = [{ ...encryption }, null];
+    task.downloadedSegments = new Map([[0, new ArrayBuffer(2)]]);
+    persistDownloadState('one', task);
+    expect(localStorage.getItem('downloadTaskStates')).not.toContain(
+      encryption.key
+    );
+    expect(await restoreDownloadProgress('one', task)).toBe(1);
+  });
+});

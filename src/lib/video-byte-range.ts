@@ -39,7 +39,8 @@ export function byteRangeHeader(range: SegmentByteRange): string {
 /** Never store an entire file under a partial segment key. */
 export async function readByteRangeResponse(
   response: Response,
-  range?: SegmentByteRange
+  range?: SegmentByteRange,
+  readBody: () => Promise<ArrayBuffer> = () => response.arrayBuffer()
 ): Promise<ArrayBuffer> {
   if (range) {
     const contentRange = response.headers.get('Content-Range');
@@ -55,7 +56,7 @@ export async function readByteRangeResponse(
       throw new Error('Server did not return the requested byte range');
     }
   }
-  const buffer = await response.arrayBuffer();
+  const buffer = await readBody();
   if (range && buffer.byteLength !== range.end - range.start) {
     throw new Error('Incomplete byte range response');
   }

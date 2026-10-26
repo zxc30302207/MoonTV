@@ -7,6 +7,7 @@ export type AuthCookieData = {
   role?: 'owner' | 'admin' | 'user';
   username?: string;
   signature?: string;
+  sessionVersion?: string;
   timestamp?: number;
   mode?: 'localstorage';
 };
@@ -17,13 +18,17 @@ export function getAuthSignaturePayload(authInfo: {
   mode?: 'localstorage';
   role?: 'owner' | 'admin' | 'user';
   timestamp?: number;
+  sessionVersion?: string;
   username?: string;
 }): string {
   const role = authInfo.role || 'user';
   if (authInfo.mode === 'localstorage') {
     return `localstorage:${role}:${authInfo.timestamp}`;
   }
-  return `user:${authInfo.username}:${role}:${authInfo.timestamp}`;
+  const base = `user:${authInfo.username}:${role}:${authInfo.timestamp}`;
+  return authInfo.sessionVersion
+    ? `${base}:session:${authInfo.sessionVersion}`
+    : base;
 }
 
 export async function getVerifiedAuthCookie(
@@ -63,12 +68,19 @@ export async function getVerifiedAuthCookie(
   }
 
   if (!authInfo.username) return null;
+  if (
+    authInfo.sessionVersion !== undefined &&
+    (typeof authInfo.sessionVersion !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(authInfo.sessionVersion))
+  )
+    return null;
 
   const expected = await generateSignature(
     getAuthSignaturePayload({
       role,
       timestamp,
       username: authInfo.username,
+      sessionVersion: authInfo.sessionVersion,
     }),
     secret
   );

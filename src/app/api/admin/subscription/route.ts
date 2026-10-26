@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any,no-console */
-
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
+import { readBoundedText } from '@/lib/bounded-response';
 import { configSelfCheck, getConfig } from '@/lib/config';
+import { ConfigConflictError } from '@/lib/config-snapshot';
 import { getStorage } from '@/lib/db';
 import { IStorage } from '@/lib/types';
 import { assertSafeUrl, parseAllowedHosts, safeFetch } from '@/lib/url-safety';
@@ -58,25 +59,31 @@ async function fetchSubscriptionData(url: string): Promise<any> {
   const allowedHosts = parseAllowedHosts(
     process.env.ALLOWED_SUBSCRIPTION_HOSTS || process.env.ALLOWED_PROXY_HOSTS
   );
-  const response = await safeFetch(
-    safeUrl,
-    {},
-    {
-      allowPrivateNetworks: process.env.ALLOW_PRIVATE_NETWORKS === 'true',
-      allowedHosts,
-    }
-  );
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-  }
-  const text = await response.text();
-  // 嘗試 Base58 解碼
+  const requestDeadline = new AbortController();
+  const requestTimer = setTimeout(() => requestDeadline.abort(), 15000);
   try {
-    const decoded = decodeBase58(text);
-    return JSON.parse(decoded);
-  } catch (e) {
-    // 如果不是 Base58，直接解析為 JSON
-    return JSON.parse(text);
+    const response = await safeFetch(
+      safeUrl,
+      { signal: requestDeadline.signal },
+      {
+        allowPrivateNetworks: process.env.ALLOW_PRIVATE_NETWORKS === 'true',
+        allowedHosts,
+      }
+    );
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    const text = await readBoundedText(response, 4 * 1024 * 1024);
+    // 嘗試 Base58 解碼
+    try {
+      const decoded = decodeBase58(text);
+      return JSON.parse(decoded);
+    } catch (e) {
+      // 如果不是 Base58，直接解析為 JSON
+      return JSON.parse(text);
+    }
+  } finally {
+    clearTimeout(requestTimer);
   }
 }
 
@@ -178,6 +185,8 @@ export async function GET(request: NextRequest) {
       subscriptionConfig: config.SubscriptionConfig || {},
     });
   } catch (error) {
+    if (error instanceof ConfigConflictError)
+      return NextResponse.json({ error: error.message }, { status: 409 });
     console.error('獲取訂閱配置失敗:', error);
     return NextResponse.json({ error: '獲取訂閱配置失敗' }, { status: 500 });
   }
@@ -204,15 +213,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '參數格式錯誤' }, { status: 400 });
     }
 
-    // 對於 update 和 import 操作需要身份驗證
-    let username: string | null = null;
-    if (action === 'update' || action === 'import') {
-      const authInfo = await getVerifiedAuthInfo(request);
-      if (!authInfo || !authInfo.username) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-      username = authInfo.username;
-    }
+    const authInfo = await getVerifiedAuthInfo(request);
+    if (!authInfo || !authInfo.username)
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const username = action === 'check' ? null : authInfo.username;
 
     // 獲取配置與存儲
     const adminConfig = await getConfig();
@@ -241,6 +245,11 @@ export async function POST(request: NextRequest) {
             adminConfig.SubscriptionConfig.subscriptionUrl =
               validateSubscriptionUrl(subscriptionUrl);
           } catch (error) {
+            if (error instanceof ConfigConflictError)
+              return NextResponse.json(
+                { error: error.message },
+                { status: 409 }
+              );
             return NextResponse.json(
               {
                 error:
@@ -286,6 +295,8 @@ export async function POST(request: NextRequest) {
         try {
           validateSubscriptionUrl(url);
         } catch (error) {
+          if (error instanceof ConfigConflictError)
+            return NextResponse.json({ error: error.message }, { status: 409 });
           return NextResponse.json(
             {
               error: error instanceof Error ? error.message : '訂閱地址不合法',
@@ -329,6 +340,13 @@ export async function POST(request: NextRequest) {
           }
         }
         if (shouldImport) {
+          const release = await storage.acquireLease('subscription', 30000);
+          if (!release)
+            return NextResponse.json({
+              success: true,
+              updated: false,
+              pending: true,
+            });
           // 執行導入
           try {
             validateSubscriptionUrl(urlToImport);
@@ -353,6 +371,11 @@ export async function POST(request: NextRequest) {
               imported: true,
             });
           } catch (error) {
+            if (error instanceof ConfigConflictError)
+              return NextResponse.json(
+                { error: error.message },
+                { status: 409 }
+              );
             console.error('自動更新導入失敗:', error);
             return NextResponse.json(
               {
@@ -362,6 +385,8 @@ export async function POST(request: NextRequest) {
               },
               { status: 500 }
             );
+          } finally {
+            await release();
           }
         } else {
           return NextResponse.json({
@@ -376,6 +401,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: '未知操作' }, { status: 400 });
     }
   } catch (error) {
+    if (error instanceof ConfigConflictError)
+      return NextResponse.json({ error: error.message }, { status: 409 });
     console.error('訂閱操作失敗:', error);
     return NextResponse.json({ error: '訂閱操作失敗' }, { status: 500 });
   }

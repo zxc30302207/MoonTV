@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { generateSignature } from '@/lib/auth-crypto';
-import { getAuthSignaturePayload } from '@/lib/auth-server';
+import {
+  getAuthSignaturePayload,
+  isUserSessionCurrent,
+} from '@/lib/auth-server';
 import { getConfig } from '@/lib/config';
-import { db } from '@/lib/db';
+import { getStorage } from '@/lib/db';
 import { getClientIp, getRateLimitHeaders, rateLimit } from '@/lib/rate-limit';
 import { normalizeUsername } from '@/lib/username';
 
@@ -19,6 +22,7 @@ type AuthCookieData = {
   role: 'owner' | 'admin' | 'user';
   username?: string;
   signature?: string;
+  sessionVersion?: string;
   timestamp?: number;
   mode?: 'localstorage';
 };
@@ -40,13 +44,16 @@ async function generateAuthCookie(
     username?: string;
     role?: 'owner' | 'admin' | 'user';
     mode?: 'localstorage';
+    timestamp?: number;
+    sessionVersion?: string;
   }
 ): Promise<string> {
   const authData: AuthCookieData = {
     role: options.role || 'user',
     username: options.username,
     mode: options.mode,
-    timestamp: Date.now(),
+    timestamp: options.timestamp ?? Date.now(),
+    sessionVersion: options.sessionVersion,
   };
 
   const secret = process.env.PASSWORD || '';
@@ -164,8 +171,18 @@ export async function POST(req: NextRequest) {
 
     // 校驗用戶密碼
     try {
-      const pass = await db.verifyUser(username, password);
-      if (!pass) {
+      // The issuance epoch belongs to the verification attempt, not its
+      // completion. A concurrent password change must invalidate this attempt.
+      const verifiedAt = Date.now();
+      const verified = await getStorage().verifyUserSession(username, password);
+      if (
+        !verified.valid ||
+        !(await isUserSessionCurrent(
+          username,
+          verifiedAt,
+          verified.sessionVersion
+        ))
+      ) {
         return NextResponse.json(
           { error: '用戶名或密碼錯誤' },
           { status: 401 }
@@ -177,6 +194,8 @@ export async function POST(req: NextRequest) {
       const cookieValue = await generateAuthCookie(req, {
         username,
         role: user.role || 'user',
+        timestamp: verifiedAt,
+        sessionVersion: verified.sessionVersion,
       });
       const expires = new Date();
       expires.setDate(expires.getDate() + 7); // 7天過期

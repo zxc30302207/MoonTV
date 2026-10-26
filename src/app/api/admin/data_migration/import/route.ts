@@ -1,68 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { inflate } from 'pako';
 
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
+import { inflateBackup } from '@/lib/backup-compression';
+import { backupToRows } from '@/lib/backup-kv';
 import { configSelfCheck, setCachedConfig } from '@/lib/config';
+import { markConfigSnapshot } from '@/lib/config-snapshot';
 import { SimpleCrypto } from '@/lib/crypto';
-import { db } from '@/lib/db';
-import type { Favorite, Following, PlayRecord, SkipConfig } from '@/lib/types';
+import { getStorage } from '@/lib/db';
 
-import { ImportUserData, validateBackup } from '../validation';
+import { validateBackup } from '../validation';
 
 export const runtime = 'nodejs';
 
-// pako 的 gunzip 是同步的，不需要 promisify
-
-// 分批并行执行写入任务，控制并发度以提升导入速度，同时避免一次性发起过多请求
-// 每处理完一批就通过 onBatchDone 回调推送一次进度
-async function runInBatches<T>(
-  items: T[],
-  batchSize: number,
-  task: (item: T) => Promise<void>,
-  onBatchDone: (doneCount: number, totalCount: number) => void
-): Promise<void> {
-  let doneCount = 0;
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
-    await Promise.all(batch.map(task));
-    doneCount += batch.length;
-    onBatchDone(doneCount, items.length);
-  }
-}
-
-// 将对象编码为 SSE 事件文本
 function encodeSSE(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`;
-}
-
-// 统计单个用户需要导入的数据记录总数（用于按总记录条数计算进度）
-function countUserRecords(user: ImportUserData): number {
-  let count = 0;
-  if (user.playRecords) {
-    count += Object.keys(user.playRecords).length;
-  }
-  if (user.favorites) {
-    count += Object.keys(user.favorites).length;
-  }
-  if (user.followings) {
-    count += Object.keys(user.followings).filter((key) => {
-      const [source, id] = key.split('+');
-      return !!(source && id);
-    }).length;
-  }
-  if (user.todayUpdated) {
-    count += 1; // 今日新更整体算 1 条
-  }
-  if (user.searchHistory && Array.isArray(user.searchHistory)) {
-    count += user.searchHistory.length;
-  }
-  if (user.skipConfigs) {
-    count += Object.keys(user.skipConfigs).filter((key) => {
-      const [source, id] = key.split('+');
-      return !!(source && id);
-    }).length;
-  }
-  return count;
 }
 
 export async function POST(req: NextRequest) {
@@ -120,9 +71,7 @@ export async function POST(req: NextRequest) {
   let importData: NonNullable<ReturnType<typeof validateBackup>>;
   try {
     const compressedBuffer = Buffer.from(decryptedData, 'base64');
-    const decompressedData = new TextDecoder().decode(
-      inflate(compressedBuffer)
-    );
+    const decompressedData = inflateBackup(compressedBuffer);
     const validated = validateBackup(JSON.parse(decompressedData));
     if (!validated) throw new Error('Invalid backup');
     importData = validated;
@@ -131,17 +80,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '備份文件格式無效' }, { status: 400 });
   }
 
-  const userData = importData.data.userData;
-  const usernames = Object.keys(userData);
-  const TOTAL_USERS = usernames.length;
-  // 并行写入的批次大小（控制并发度，兼顾速度与稳定性）
-  const BATCH_SIZE = 50;
-
-  // 预统计所有用户所有类型的数据记录总数（作为进度条分母）
-  const totalRecords = usernames.reduce((sum, username) => {
-    return sum + countUserRecords(userData[username]);
-  }, 0);
-
+  // Materialize/validate every row before invoking the single DB transaction.
+  let rows: Awaited<ReturnType<typeof backupToRows>>;
+  try {
+    rows = await backupToRows({
+      ...importData.data,
+      extraRows: importData.data.extraRows || [],
+    });
+  } catch {
+    return NextResponse.json(
+      { error: '備份資料鍵或憑證格式無效' },
+      { status: 400 }
+    );
+  }
+  const TOTAL_USERS = Object.keys(importData.data.userData).length;
   // 创建 SSE 流
   const encoder = new TextEncoder();
   let streamClosed = false;
@@ -157,267 +109,18 @@ export async function POST(req: NextRequest) {
         }
       };
 
-      // 已处理的数据记录数（作为进度条分子）
-      let processedRecords = 0;
-
-      // 根据已处理记录数计算并推送全局进度
-      const sendProgress = (dataType: string, done: number, total: number) => {
-        const percent =
-          totalRecords > 0
-            ? Math.min(
-                100,
-                Math.round(((processedRecords + done) / totalRecords) * 100)
-              )
-            : 0;
-        send({
-          type: 'progress',
-          dataType,
-          done,
-          total,
-          percent,
-          message: `${dataType} ${done}/${total}`,
-        });
-      };
-
       try {
-        // 阶段 1：清空现有数据
-        send({ type: 'stage', message: '正在清空现有数据...', percent: 0 });
-        await db.clearAllData();
-
-        // 阶段 2：导入管理员配置
-        send({ type: 'stage', message: '正在导入管理员配置...', percent: 2 });
-        await db.saveAdminConfig(importData.data.adminConfig);
+        send({
+          type: 'stage',
+          message: '正在原子還原；完成前現有資料保持不變...',
+          percent: 0,
+        });
+        await getStorage().restoreAllData(rows);
+        markConfigSnapshot(
+          importData.data.adminConfig,
+          JSON.stringify(importData.data.adminConfig)
+        );
         await setCachedConfig(importData.data.adminConfig);
-
-        // 阶段 3：逐用户导入
-        let userIndex = 0;
-        for (const username of usernames) {
-          const user = userData[username];
-          userIndex++;
-
-          send({
-            type: 'user',
-            message: `正在处理用户 ${userIndex}/${TOTAL_USERS}: ${username}`,
-            username,
-            userIndex,
-            totalUsers: TOTAL_USERS,
-          });
-
-          // 重新注册用户（包含密码）
-          if (user.password) {
-            send({ type: 'detail', message: `注册用户: ${username}` });
-            await db.registerUser(username, String(user.password));
-          }
-
-          // 导入播放记录（优先使用 Supabase 批量导入，使用有界批量写入）
-          if (user.playRecords) {
-            const entries = Object.entries(user.playRecords);
-            send({
-              type: 'detail',
-              message: `导入播放记录 (${entries.length} 条)...`,
-              dataType: '播放记录',
-              total: entries.length,
-            });
-            const batched = await db.batchImportPlayRecords(
-              username,
-              entries,
-              (done) => {
-                sendProgress('播放记录', done, entries.length);
-              }
-            );
-            if (!batched) {
-              // 非 Supabase 存储：分批并行逐条写入
-              await runInBatches(
-                entries,
-                BATCH_SIZE,
-                async ([key, record]) => {
-                  const [source, id] = key.split('+');
-                  await db.savePlayRecord(
-                    username,
-                    source,
-                    id,
-                    record as PlayRecord
-                  );
-                },
-                (done) => {
-                  sendProgress('播放记录', done, entries.length);
-                }
-              );
-            }
-            processedRecords += entries.length;
-          }
-
-          // 导入收藏夹（优先使用 Supabase 批量导入）
-          if (user.favorites) {
-            const entries = Object.entries(user.favorites);
-            send({
-              type: 'detail',
-              message: `导入收藏夹 (${entries.length} 条)...`,
-              dataType: '收藏夹',
-              total: entries.length,
-            });
-            const batched = await db.batchImportFavorites(
-              username,
-              entries,
-              (done) => {
-                sendProgress('收藏夹', done, entries.length);
-              }
-            );
-            if (!batched) {
-              await runInBatches(
-                entries,
-                BATCH_SIZE,
-                async ([key, favorite]) => {
-                  const [source, id] = key.split('+');
-                  await db.saveFavorite(
-                    username,
-                    source,
-                    id,
-                    favorite as Favorite
-                  );
-                },
-                (done) => {
-                  sendProgress('收藏夹', done, entries.length);
-                }
-              );
-            }
-            processedRecords += entries.length;
-          }
-
-          // 导入追更（优先使用 Supabase 批量导入）
-          if (user.followings) {
-            const entries = Object.entries(user.followings).filter(([key]) => {
-              const [source, id] = key.split('+');
-              return !!(source && id);
-            });
-            send({
-              type: 'detail',
-              message: `导入追更 (${entries.length} 条)...`,
-              dataType: '追更',
-              total: entries.length,
-            });
-            const batched = await db.batchImportFollowings(
-              username,
-              entries,
-              (done) => {
-                sendProgress('追更', done, entries.length);
-              }
-            );
-            if (!batched) {
-              await runInBatches(
-                entries,
-                BATCH_SIZE,
-                async ([key, following]) => {
-                  const [source, id] = key.split('+');
-                  await db.saveFollowing(
-                    username,
-                    source,
-                    id,
-                    following as Following
-                  );
-                },
-                (done) => {
-                  sendProgress('追更', done, entries.length);
-                }
-              );
-            }
-            processedRecords += entries.length;
-          }
-
-          // 导入今日新更
-          if (user.todayUpdated) {
-            const todayUpdated = user.todayUpdated;
-            // 兜底处理：确保 date 字段存在，避免 Supabase 的 NOT NULL 约束报错
-            if (!todayUpdated.date) {
-              todayUpdated.date = new Date().toISOString().slice(0, 10);
-            }
-            send({
-              type: 'detail',
-              message: `导入今日新更 (date=${todayUpdated.date})...`,
-              dataType: '今日新更',
-            });
-            const batched = await db.batchImportTodayUpdated(
-              username,
-              todayUpdated
-            );
-            if (!batched) {
-              await db.setTodayUpdated(username, todayUpdated);
-            }
-            processedRecords += 1;
-            sendProgress('今日新更', 1, 1);
-          }
-
-          // 导入搜索历史（优先使用 Supabase 批量导入；非 Supabase 的 list 操作需保持顺序，故串行）
-          if (user.searchHistory && Array.isArray(user.searchHistory)) {
-            const history = [...user.searchHistory];
-            send({
-              type: 'detail',
-              message: `导入搜索历史 (${history.length} 条)...`,
-              dataType: '搜索历史',
-              total: history.length,
-            });
-            const batched = await db.batchImportSearchHistory(
-              username,
-              history,
-              (done) => {
-                sendProgress('搜索历史', done, history.length);
-              }
-            );
-            if (!batched) {
-              let historyDone = 0;
-              for (const keyword of history.reverse()) {
-                // 反转以保持顺序
-                await db.addSearchHistory(username, keyword);
-                historyDone++;
-                sendProgress('搜索历史', historyDone, history.length);
-              }
-            }
-            processedRecords += history.length;
-          }
-
-          // 导入跳过片头片尾配置（优先使用 Supabase 批量导入）
-          if (user.skipConfigs) {
-            const entries = Object.entries(user.skipConfigs).filter(([key]) => {
-              const [source, id] = key.split('+');
-              return !!(source && id);
-            });
-            send({
-              type: 'detail',
-              message: `导入跳过配置 (${entries.length} 条)...`,
-              dataType: '跳过配置',
-              total: entries.length,
-            });
-            const batched = await db.batchImportSkipConfigs(
-              username,
-              entries,
-              (done) => {
-                sendProgress('跳过配置', done, entries.length);
-              }
-            );
-            if (!batched) {
-              await runInBatches(
-                entries,
-                BATCH_SIZE,
-                async ([key, skipConfig]) => {
-                  const [source, id] = key.split('+');
-                  await db.setSkipConfig(
-                    username,
-                    source,
-                    id,
-                    skipConfig as SkipConfig
-                  );
-                },
-                (done) => {
-                  sendProgress('跳过配置', done, entries.length);
-                }
-              );
-            }
-            processedRecords += entries.length;
-          }
-
-          send({ type: 'detail', message: `用户 ${username} 处理完成` });
-        }
-
         // 完成
         send({
           type: 'done',

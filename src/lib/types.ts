@@ -41,6 +41,44 @@ export interface Following {
 
 // 存储接口
 export interface IStorage {
+  verifyUserSession(
+    userName: string,
+    password: string
+  ): Promise<{ valid: boolean; sessionVersion?: string }>;
+  getUserSessionState(
+    userName: string
+  ): Promise<{ exists: boolean; notBefore: number; sessionVersion?: string }>;
+  getUserCredentialSnapshot(userName: string): Promise<unknown>;
+  deleteUserAtomic(
+    userName: string,
+    previous: AdminConfig,
+    expectedCredential: unknown
+  ): Promise<void>;
+  updatePlayRecordIfUnchanged(
+    userName: string,
+    key: string,
+    previous: PlayRecord,
+    next: PlayRecord
+  ): Promise<boolean>;
+  updateFavoriteIfUnchanged(
+    userName: string,
+    key: string,
+    previous: Favorite,
+    next: Favorite
+  ): Promise<boolean>;
+  acquireLease(
+    name: string,
+    ttlMs: number
+  ): Promise<(() => Promise<void>) | null>;
+  getUserSessionNotBefore(userName: string): Promise<number>;
+  registerUserAtomic(
+    userName: string,
+    password: string,
+    previous: AdminConfig,
+    next: AdminConfig
+  ): Promise<string>;
+  snapshotAllData(): Promise<Array<{ key: string; value: unknown }>>;
+  restoreAllData(rows: Array<{ key: string; value: unknown }>): Promise<void>;
   // 播放記錄相關
   getPlayRecord(userName: string, key: string): Promise<PlayRecord | null>;
   setPlayRecord(
@@ -81,7 +119,11 @@ export interface IStorage {
   // 檢查用戶是否存在（無需密碼）
   checkUserExist(userName: string): Promise<boolean>;
   // 修改用戶密碼
-  changePassword(userName: string, newPassword: string): Promise<void>;
+  changePassword(
+    userName: string,
+    newPassword: string,
+    currentPassword?: string
+  ): Promise<void>;
   // 刪除用戶（包括密碼、搜索歷史、播放記錄、收藏夾）
   deleteUser(userName: string): Promise<void>;
 
