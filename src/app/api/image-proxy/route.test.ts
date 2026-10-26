@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 
+const mockRateLimit = jest.fn(() => ({ allowed: true }));
 const mockSafeFetch = jest.fn();
 jest.mock('@/lib/url-safety', () => ({
   parseAllowedHosts: jest.fn(),
@@ -7,7 +8,7 @@ jest.mock('@/lib/url-safety', () => ({
 }));
 jest.mock('@/lib/rate-limit', () => ({
   getClientIp: () => 'test',
-  rateLimit: () => ({ allowed: true }),
+  rateLimit: mockRateLimit,
   getRateLimitHeaders: () => ({}),
 }));
 
@@ -20,6 +21,13 @@ describe('image proxy content safety', () => {
   });
   beforeEach(() => jest.clearAllMocks());
 
+  it('fails closed with 503 before fetching an image', async () => {
+    mockRateLimit.mockReturnValueOnce({ allowed: false, unavailable: true } as never);
+    const { GET } = await import('./route');
+    const response = await GET(new Request('https://site.example/api/image-proxy?url=https://example.com/image.jpg'));
+    expect(response.status).toBe(503);
+    expect(mockSafeFetch).not.toHaveBeenCalled();
+  });
   it.each([
     'image/svg+xml',
     'IMAGE/SVG+XML; charset=utf-8',

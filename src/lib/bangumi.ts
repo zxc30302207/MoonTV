@@ -59,6 +59,7 @@ export async function fetchBangumiSubjectDetail(
         },
       });
       if (!response.ok) {
+        void response.body?.cancel().catch(() => undefined);
         throw new Error(`HTTP ${response.status}`);
       }
       const json = (await response.json()) as BangumiSubjectApiResponse;

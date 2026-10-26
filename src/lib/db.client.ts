@@ -16,9 +16,25 @@
 
 import { getCachedAuthInfo, refreshAuthInfo } from './auth-client';
 import {
+  discardNamespaceConflict,
+  hasNamespaceSnapshot,
+  namespacePath,
+  namespaceProblems,
+  namespaceReadTicket,
+  namespaceSessionGuard,
+  NamespaceSyncError,
+  observeNamespaceRead,
+  responseVersion,
+  retryNamespaceWrites,
+  sendNamespaceWrite,
+} from './namespace-client';
+import {
+  acknowledgeWriteRevision,
   beginWrite,
   currentWriteRevision,
+  discardPendingClear,
   mergePendingWrites,
+  pendingClearPaths,
   pendingWriteCount,
   pendingWriteRequests,
 } from './pending-writes';
@@ -524,7 +540,12 @@ async function handleDatabaseOperationFailure(
   console.warn(`数据库同步失败 (${dataType})，已保留本地结果:`, error);
   window.dispatchEvent(
     new CustomEvent('globalError', {
-      detail: { message: '變更尚未確認同步，已保留在此裝置。請重試原操作。' },
+      detail: {
+        message:
+          error instanceof NamespaceSyncError
+            ? error.message
+            : '變更尚未確認同步，已保留在此裝置。請在帳號選單重試原操作。',
+      },
     })
   );
 }
@@ -538,12 +559,13 @@ if (typeof window !== 'undefined') {
 /**
  * 通用的 fetch 函數，處理 401 狀態碼自動跳轉登錄
  */
-const mutationQueues = new Map<string, Promise<void>>();
+const namespaceObservers = new WeakMap<Response, () => boolean>();
 
 async function fetchWithAuth(
   url: string,
   options?: RequestInit,
-  trackWrite = true
+  trackWrite = true,
+  intentRevision = 0
 ): Promise<Response> {
   const username =
     STORAGE_TYPE !== 'localstorage'
@@ -552,80 +574,189 @@ async function fetchWithAuth(
   const acknowledge =
     username && trackWrite ? beginWrite(username, url, options) : undefined;
   const method = options?.method || 'GET';
-  const path = new URL(url, window.location.origin).pathname;
-  const queueKey =
-    username &&
-    ['POST', 'DELETE'].includes(method) &&
-    [
-      '/api/playrecords',
-      '/api/favorites',
-      '/api/followings',
-      '/api/searchhistory',
-    ].includes(path)
-      ? `${username}:${path}`
-      : null;
-  let release: (() => void) | undefined;
-  let queued: Promise<void> | undefined;
-  if (queueKey) {
-    const previous = mutationQueues.get(queueKey);
-    queued = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    mutationQueues.set(queueKey, queued);
-    if (previous) await previous;
-  }
-  try {
+  const path = namespacePath(url);
+  const guardSession = namespaceSessionGuard();
+  const checkSession = () => {
+    guardSession();
     if (getCachedAuthInfo()?.username !== username)
       throw new Error('登入狀態已變更');
-    const res = await fetch(url, { ...options, cache: 'no-store' });
-    if (getCachedAuthInfo()?.username !== username) {
-      throw new Error('登入狀態已變更');
-    }
-    if (!res.ok) {
-      // 如果是 401 未授權，跳轉到登錄頁面
-      if (res.status === 401) {
-        // 調用 logout 接口
-        try {
-          await fetch('/api/logout', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-          });
-        } catch (error) {
-          console.error('注銷請求失敗:', error);
-        }
-        const currentUrl = window.location.pathname + window.location.search;
-        const loginUrl = new URL('/login', window.location.origin);
-        loginUrl.searchParams.set('redirect', currentUrl);
-        window.location.href = loginUrl.toString();
-        throw new Error('用戶未授權，已跳轉到登錄頁面');
+  };
+  checkSession();
+  const ticket =
+    username && path && method === 'GET'
+      ? namespaceReadTicket(username, path)
+      : undefined;
+  const res =
+    username && path && ['POST', 'DELETE'].includes(method)
+      ? await sendNamespaceWrite(
+          username,
+          url,
+          options || {},
+          acknowledge?.revision || intentRevision,
+          checkSession
+        )
+      : await fetch(url, { ...options, cache: 'no-store' });
+  checkSession();
+  if (!res.ok) {
+    if (res.status === 401) {
+      try {
+        await fetch('/api/logout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (error) {
+        console.error('注銷請求失敗:', error);
       }
-      throw new Error(`請求 ${url} 失敗: ${res.status}`);
+      const currentUrl = window.location.pathname + window.location.search;
+      const loginUrl = new URL('/login', window.location.origin);
+      loginUrl.searchParams.set('redirect', currentUrl);
+      window.location.href = loginUrl.toString();
+      throw new Error('用戶未授權，已跳轉到登錄頁面');
     }
-    acknowledge?.();
-    return res;
-  } finally {
-    release?.();
-    if (queueKey && mutationQueues.get(queueKey) === queued)
-      mutationQueues.delete(queueKey);
+    throw new Error(`請求 ${url} 失敗: ${res.status}`);
   }
+  if (username && path && ticket)
+    namespaceObservers.set(res, () =>
+      observeNamespaceRead(username, path, res, ticket)
+    );
+  acknowledge?.();
+  return res;
 }
 
-/** Explicit user retry only; no background replay or cross-account requests. */
+/** Retry only the exact operation whose acknowledgement was lost. */
 export async function retryPendingDatabaseWrites(): Promise<number> {
   const username = getCachedAuthInfo()?.username;
   if (!username) throw new Error('未登入');
-  for (const request of pendingWriteRequests(username)) {
+  await retryNamespaceWrites(
+    username,
+    () => {
+      if (getCachedAuthInfo()?.username !== username)
+        throw new Error('登入狀態已變更');
+    },
+    (revision, url, options) =>
+      acknowledgeWriteRevision(username, revision, url, options)
+  );
+  return Math.max(
+    pendingWriteCount(username),
+    namespaceProblems(username).length
+  );
+}
+
+/** Explicit conflict review, separate from retrying an unknown network outcome. */
+export async function reconfirmPendingDatabaseWrites(
+  confirm: (message: string) => boolean
+): Promise<number> {
+  const username = getCachedAuthInfo()?.username;
+  if (!username) throw new Error('未登入');
+  const guardSession = namespaceSessionGuard();
+  await retryPendingDatabaseWrites();
+  guardSession();
+  const problems = namespaceProblems(username);
+  if (problems.some((problem) => problem.status === 'unknown')) {
+    throw new NamespaceSyncError(
+      'unknown',
+      '仍有請求結果未明，不能重新提交變更。請稍後重試原請求。'
+    );
+  }
+  const requests = pendingWriteRequests(username);
+  const clears = pendingClearPaths(username);
+  if (!requests.length && !clears.length && !problems.length)
+    return Math.max(
+      pendingWriteCount(username),
+      namespaceProblems(username).length
+    );
+  const paths = [
+    ...new Set([
+      ...requests.map((request) => namespacePath(request.url)),
+      ...clears,
+      ...problems.map((problem) => problem.path),
+    ]),
+  ].filter((path): path is string => Boolean(path));
+  // Read current snapshots, without altering blocked state or silently rebasing intent.
+  const snapshots: { path: string; response: Response; data: unknown }[] = [];
+  for (const path of paths) {
     if (getCachedAuthInfo()?.username !== username)
       throw new Error('登入狀態已變更');
+    const response = await fetch(path, { cache: 'no-store' });
+    guardSession();
+    if (!response.ok) throw new Error('無法重新載入資料');
+    if (!responseVersion(response))
+      throw new NamespaceSyncError(
+        'upgrade',
+        '伺服器版本尚未就緒，請稍後重新整理。'
+      );
+    const data: unknown = await response.json();
+    snapshots.push({ path, response, data });
+  }
+  guardSession();
+  const uncertain = problems.some((problem) => problem.uncertain);
+  if (
+    !confirm(
+      `${
+        uncertain ? '先前請求可能曾成功，之後又被其他操作更新。' : ''
+      }已重新讀取伺服器資料。要重新提交此裝置保留的 ${
+        requests.length
+      } 筆變更嗎？這可能覆蓋其他裝置較新的收藏、追更或播放進度。清空全部不會自動重做，將取消其未同步標記，請回原頁重新確認。取消會保留本地變更。`
+    )
+  )
+    return Math.max(
+      pendingWriteCount(username),
+      namespaceProblems(username).length
+    );
+  guardSession();
+  if (getCachedAuthInfo()?.username !== username)
+    throw new Error('登入狀態已變更');
+  for (const { path, response, data } of snapshots) {
+    discardNamespaceConflict(username, path);
+    discardPendingClear(username, path);
+    observeNamespaceRead(
+      username,
+      path,
+      response,
+      namespaceReadTicket(username, path)
+    );
+    const visible = mergePendingWrites(
+      username,
+      path,
+      data,
+      currentWriteRevision()
+    );
+    const event =
+      path === '/api/playrecords'
+        ? 'playRecordsUpdated'
+        : path === '/api/favorites'
+        ? 'favoritesUpdated'
+        : path === '/api/followings'
+        ? 'followingsUpdated'
+        : 'searchHistoryUpdated';
+    if (path === '/api/playrecords')
+      cacheManager.cachePlayRecords(visible as Record<string, PlayRecord>);
+    else if (path === '/api/favorites')
+      cacheManager.cacheFavorites(visible as Record<string, Favorite>);
+    else if (path === '/api/followings')
+      cacheManager.cacheFollowings(visible as Record<string, Following>);
+    else cacheManager.cacheSearchHistory(visible as string[]);
+    window.dispatchEvent(new CustomEvent(event, { detail: visible }));
+  }
+  for (const request of requests) {
     if (!request.isCurrent()) continue;
     try {
-      await fetchWithAuth(request.url, request.options, false);
+      await fetchWithAuth(
+        request.url,
+        request.options,
+        false,
+        request.revision
+      );
       request.acknowledge();
     } catch {
-      // Keep the unacknowledged intent for another explicit retry.
+      // Stop this explicit batch after any conflict/unknown outcome.
+      break;
     }
   }
-  return pendingWriteCount(username);
+  return Math.max(
+    pendingWriteCount(username),
+    namespaceProblems(username).length
+  );
 }
 
 /**
@@ -652,6 +783,8 @@ async function fetchFromApi<T>(path: string): Promise<T> {
 
   const request = fetchWithAuth(path).then(async (res) => {
     const result = (await res.json()) as T;
+    if (namespaceObservers.get(res)?.() === false)
+      throw new NamespaceSyncError('snapshot', '資料已更新，請重新載入。');
     if (getCachedAuthInfo()?.username !== username)
       throw new Error('登入狀態已變更');
     const merged =
@@ -698,7 +831,13 @@ export async function getAllPlayRecords(): Promise<Record<string, PlayRecord>> {
     // 優先從緩存獲取數據
     const cachedData = cacheManager.getCachedPlayRecords();
 
-    if (cachedData) {
+    if (
+      cachedData &&
+      hasNamespaceSnapshot(
+        getCachedAuthInfo()?.username || '',
+        '/api/playrecords'
+      )
+    ) {
       // 返回緩存數據，同時後臺異步更新
       fetchFromApi<Record<string, PlayRecord>>(`/api/playrecords`)
         .then((freshData) => {
@@ -893,7 +1032,13 @@ export async function getSearchHistory(): Promise<string[]> {
     // 優先從緩存獲取數據
     const cachedData = cacheManager.getCachedSearchHistory();
 
-    if (cachedData) {
+    if (
+      cachedData &&
+      hasNamespaceSnapshot(
+        getCachedAuthInfo()?.username || '',
+        '/api/searchhistory'
+      )
+    ) {
       // 返回緩存數據，同時後臺異步更新
       fetchFromApi<string[]>(`/api/searchhistory`)
         .then((freshData) => {
@@ -1114,7 +1259,13 @@ export async function getAllFavorites(): Promise<Record<string, Favorite>> {
     // 優先從緩存獲取數據
     const cachedData = cacheManager.getCachedFavorites();
 
-    if (cachedData) {
+    if (
+      cachedData &&
+      hasNamespaceSnapshot(
+        getCachedAuthInfo()?.username || '',
+        '/api/favorites'
+      )
+    ) {
       // 返回緩存數據，同時後臺異步更新
       fetchFromApi<Record<string, Favorite>>(`/api/favorites`)
         .then((freshData) => {
@@ -1181,7 +1332,13 @@ export async function getAllFollowings(
     // 同时后台拉取远端数据，若与本地缓存不一致则用远端覆盖本地缓存并触发刷新；
     // 若无本地缓存则阻塞拉取远端。
     if (forceRemote) {
-      if (cachedData) {
+      if (
+        cachedData &&
+        hasNamespaceSnapshot(
+          getCachedAuthInfo()?.username || '',
+          '/api/followings'
+        )
+      ) {
         fetchFromApi<Record<string, Following>>(`/api/followings`)
           .then((freshData) => {
             if (!isSameUser()) return;
@@ -1212,7 +1369,13 @@ export async function getAllFollowings(
       }
     }
 
-    if (cachedData) {
+    if (
+      cachedData &&
+      hasNamespaceSnapshot(
+        getCachedAuthInfo()?.username || '',
+        '/api/followings'
+      )
+    ) {
       fetchFromApi<Record<string, Following>>(`/api/followings`)
         .then((freshData) => {
           if (!isSameUser()) return;
@@ -1592,6 +1755,8 @@ export async function refreshFollowingsStream(
     // so a stale server snapshot cannot resurrect a card or reset progress.
     const latestResponse = await fetchWithAuth('/api/followings');
     const latest = (await latestResponse.json()) as Record<string, Following>;
+    if (namespaceObservers.get(latestResponse)?.() === false)
+      throw new NamespaceSyncError('snapshot', '資料已更新，請重新載入。');
     if (!isSameUser()) return {};
     const reconciled = mergeFollowingMutations(
       mergePendingWrites(
@@ -1764,7 +1929,13 @@ export async function isFavorited(
   if (STORAGE_TYPE !== 'localstorage') {
     const cachedFavorites = cacheManager.getCachedFavorites();
 
-    if (cachedFavorites) {
+    if (
+      cachedFavorites &&
+      hasNamespaceSnapshot(
+        getCachedAuthInfo()?.username || '',
+        '/api/favorites'
+      )
+    ) {
       // 返回緩存數據，同時後臺異步更新
       fetchFromApi<Record<string, Favorite>>(`/api/favorites`)
         .then((freshData) => {

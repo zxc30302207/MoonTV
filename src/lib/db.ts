@@ -1,6 +1,12 @@
 /* eslint-disable no-console, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
 import { AdminConfig } from './admin.types';
+import {
+  MutationNamespace,
+  NamespaceMutation,
+  NamespaceMutationResult,
+  NamespaceSnapshot,
+} from './mutation-protocol';
 import { SupabaseStorage } from './supabase.db';
 import {
   Favorite,
@@ -51,6 +57,25 @@ export class DbManager {
 
   constructor() {
     this.storage = getStorage();
+  }
+
+  async readNamespace(
+    userName: string,
+    namespace: MutationNamespace
+  ): Promise<NamespaceSnapshot> {
+    return (this.storage as SupabaseStorage).readNamespace(userName, namespace);
+  }
+
+  async mutateNamespace(
+    userName: string,
+    namespace: MutationNamespace,
+    mutation: NamespaceMutation
+  ): Promise<NamespaceMutationResult> {
+    return (this.storage as SupabaseStorage).mutateNamespace(
+      userName,
+      namespace,
+      mutation
+    );
   }
 
   // 播放記錄相關方法

@@ -42,6 +42,11 @@ describe('Supabase following persistence', () => {
     then: (resolve: (value: unknown) => unknown) =>
       Promise.resolve(resolve({ error: null, data: updatedRows })),
   };
+  const rpc = jest.fn();
+  const version = {
+    epoch: '11111111-1111-4111-8111-111111111111',
+    revision: '0',
+  };
   let storage: SupabaseStorage;
 
   beforeEach(() => {
@@ -64,7 +69,8 @@ describe('Supabase following persistence', () => {
     query.upsert.mockResolvedValue({ error: null });
     query.range.mockResolvedValue({ data: [], error: null });
     query.maybeSingle.mockResolvedValue({ data: null, error: null });
-    (createClient as jest.Mock).mockReturnValue({ from: () => query });
+    rpc.mockResolvedValue({ data: { version, data: {} }, error: null });
+    (createClient as jest.Mock).mockReturnValue({ from: () => query, rpc });
     storage = new SupabaseStorage();
   });
 
@@ -90,36 +96,44 @@ describe('Supabase following persistence', () => {
       key: 'u:bob:today-updated',
       value: today,
     });
-    query.maybeSingle.mockResolvedValue({
-      data: { value: following },
+    rpc.mockResolvedValue({
+      data: { version, data: { 'normal+1': following } },
       error: null,
     });
     expect(await storage.getFollowing('alice', 'normal+1')).toEqual(following);
-    expect(query.eq).toHaveBeenCalledWith('key', 'u:alice:following:normal+1');
+    expect(rpc).toHaveBeenCalledWith(
+      'moontv_read_namespace',
+      expect.objectContaining({
+        p_username: 'alice',
+        p_namespace: 'followings',
+      })
+    );
   });
 
-  it('escapes underscores in list/delete prefixes so usernames cannot match others', async () => {
+  it('passes usernames literally to the fixed namespace RPC and blocks staged deletion', async () => {
     await storage.getAllFollowings('a_b');
-    await storage.deleteUser('a_b');
-    expect(query.like).toHaveBeenCalledWith('key', 'u:a\\_b:following:%');
-    expect(query.eq).toHaveBeenCalledWith('key', 'u:a_b:today-updated');
+    expect(rpc).toHaveBeenCalledWith(
+      'moontv_read_namespace',
+      expect.objectContaining({ p_username: 'a_b', p_namespace: 'followings' })
+    );
+    await expect(storage.deleteUser('a_b')).rejects.toThrow('交易式');
+    expect(query.delete).not.toHaveBeenCalled();
+    expect(query.like).not.toHaveBeenCalled();
   });
 
-  it('paginates complete exports beyond a single Supabase page', async () => {
-    const page = Array.from({ length: 500 }, (_, index) => ({
-      key: `u:alice:following:normal+${index}`,
-      value: following,
-    }));
-    query.range
-      .mockResolvedValueOnce({ data: page, error: null })
-      .mockResolvedValueOnce({
-        data: [{ key: 'u:alice:following:normal+500', value: following }],
-        error: null,
-      });
+  it('reads complete exports beyond a REST page in one snapshot RPC', async () => {
+    const records = Object.fromEntries(
+      Array.from({ length: 501 }, (_, index) => [
+        `normal+${index}`,
+        { ...following },
+      ])
+    );
+    rpc.mockResolvedValue({ data: { version, data: records }, error: null });
     expect(Object.keys(await storage.getAllFollowings('alice'))).toHaveLength(
       501
     );
-    expect(query.range).toHaveBeenNthCalledWith(2, 500, 999);
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(query.range).not.toHaveBeenCalled();
   });
 
   it('imports followings in bounded batches and reports persisted progress', async () => {
@@ -138,7 +152,7 @@ describe('Supabase following persistence', () => {
     ]);
   });
 
-  it('updates only an existing row whose value still matches, without an upsert', async () => {
+  it('refresh requires the original namespace snapshot and treats stale versions as conflicts', async () => {
     const next = { ...following, total_episodes: 13 };
     expect(
       await storage.updateFollowingIfUnchanged(
@@ -148,21 +162,53 @@ describe('Supabase following persistence', () => {
         next
       )
     ).toBe(false);
-    expect(query.update).toHaveBeenCalledWith(
-      expect.objectContaining({ value: next })
-    );
-    expect(query.eq).toHaveBeenCalledWith('key', 'u:alice:following:normal+1');
-    expect(query.eq).toHaveBeenCalledWith('value', JSON.stringify(following));
-    expect(query.upsert).not.toHaveBeenCalled();
-    updatedRows = [{ key: 'u:alice:following:normal+1' }];
+    expect(rpc).not.toHaveBeenCalled();
+    rpc.mockResolvedValueOnce({
+      data: { version, data: { 'normal+1': following } },
+      error: null,
+    });
+    const previous = await storage.getFollowing('alice', 'normal+1');
+    if (!previous) throw new Error('fixture missing');
+    rpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: '40001', message: 'NAMESPACE_CONFLICT' },
+    });
     expect(
       await storage.updateFollowingIfUnchanged(
         'alice',
         'normal+1',
-        following,
+        previous,
+        next
+      )
+    ).toBe(false);
+    rpc.mockResolvedValueOnce({
+      data: {
+        version: { ...version, revision: '1' },
+        duplicate: false,
+        data: {},
+      },
+      error: null,
+    });
+    expect(
+      await storage.updateFollowingIfUnchanged(
+        'alice',
+        'normal+1',
+        previous,
         next
       )
     ).toBe(true);
+    expect(rpc).toHaveBeenLastCalledWith(
+      'moontv_mutate_namespace',
+      expect.objectContaining({
+        p_revision: '0',
+        p_epoch: version.epoch,
+        p_namespace: 'followings',
+        p_action: 'set',
+        p_value: next,
+      })
+    );
+    expect(query.upsert).not.toHaveBeenCalled();
+    expect(query.update).not.toHaveBeenCalled();
   });
 
   it('inserts passwords once so competing registrations cannot overwrite the winner', async () => {

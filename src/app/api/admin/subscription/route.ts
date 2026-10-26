@@ -71,6 +71,7 @@ async function fetchSubscriptionData(url: string): Promise<any> {
       }
     );
     if (!response.ok) {
+      void response.body?.cancel().catch(() => undefined);
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
     const text = await readBoundedText(response, 4 * 1024 * 1024);

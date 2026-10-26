@@ -17,16 +17,20 @@ export const runtime = 'nodejs';
  */
 export async function POST(request: NextRequest) {
   try {
-    const rateLimitResult = rateLimit(getClientIp(request), {
+    const rateLimitResult = await rateLimit(getClientIp(request), {
       limit: 60,
       windowMs: 60_000,
       prefix: 'm3u8-parse',
     });
     if (!rateLimitResult.allowed) {
       return NextResponse.json(
-        { error: '請求過於頻繁，請稍後再試' },
         {
-          status: 429,
+          error: rateLimitResult.unavailable
+            ? '服務暫時無法使用，請稍後再試'
+            : '請求過於頻繁，請稍後再試',
+        },
+        {
+          status: rateLimitResult.unavailable ? 503 : 429,
           headers: getRateLimitHeaders(rateLimitResult),
         }
       );
@@ -97,16 +101,20 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
-    const rateLimitResult = rateLimit(getClientIp(request), {
+    const rateLimitResult = await rateLimit(getClientIp(request), {
       limit: 1200,
       windowMs: 60_000,
       prefix: 'm3u8-proxy',
     });
     if (!rateLimitResult.allowed) {
       return NextResponse.json(
-        { error: '請求過於頻繁，請稍後再試' },
         {
-          status: 429,
+          error: rateLimitResult.unavailable
+            ? '服務暫時無法使用，請稍後再試'
+            : '請求過於頻繁，請稍後再試',
+        },
+        {
+          status: rateLimitResult.unavailable ? 503 : 429,
           headers: getRateLimitHeaders(rateLimitResult),
         }
       );

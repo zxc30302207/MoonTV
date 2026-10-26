@@ -3,6 +3,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
+import {
+  mutateFromRequest,
+  namespaceError,
+  namespaceJson,
+} from '@/lib/mutation-api';
 import { Favorite } from '@/lib/types';
 
 import {
@@ -42,26 +47,26 @@ export async function GET(request: NextRequest) {
     const key = searchParams.get('key');
 
     // 查詢單條收藏
-    if (key) {
+    if (key !== null) {
       const [source, id] = key.split('+');
-      if (!source || !id) {
+      if (!source || !id || key.split('+').length !== 2) {
         return NextResponse.json(
           { error: 'Invalid key format' },
           { status: 400 }
         );
       }
-      const fav = await db.getFavorite(authInfo.username, source, id);
-      return NextResponse.json(fav, { status: 200 });
+      const snapshot = await db.readNamespace(authInfo.username, 'fav');
+      return namespaceJson(
+        (snapshot.data as Record<string, Favorite>)[key] ?? null,
+        snapshot.version
+      );
     }
 
     // 查詢全部收藏
-    const favorites = await db.getAllFavorites(authInfo.username);
-    return NextResponse.json(favorites, { status: 200 });
+    const snapshot = await db.readNamespace(authInfo.username, 'fav');
+    return namespaceJson(snapshot.data, snapshot.version);
   } catch (err) {
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    );
+    return namespaceError(err);
   }
 }
 
@@ -104,7 +109,7 @@ export async function POST(request: NextRequest) {
       !favorite.source_name ||
       !mediaSchema.safeParse({
         ...favorite,
-        save_time: favorite.save_time ?? Date.now(),
+        save_time: favorite.save_time,
       }).success
     ) {
       return NextResponse.json(
@@ -114,7 +119,7 @@ export async function POST(request: NextRequest) {
     }
 
     const [source, id] = key.split('+');
-    if (!source || !id) {
+    if (!source || !id || key.split('+').length !== 2) {
       return NextResponse.json(
         { error: 'Invalid key format' },
         { status: 400 }
@@ -123,17 +128,16 @@ export async function POST(request: NextRequest) {
 
     const finalFavorite = {
       ...favorite,
-      save_time: favorite.save_time ?? Date.now(),
+      save_time: favorite.save_time,
     } as Favorite;
 
-    await db.saveFavorite(authInfo.username, source, id, finalFavorite);
-
-    return NextResponse.json({ success: true }, { status: 200 });
+    return await mutateFromRequest(request, authInfo.username, 'fav', {
+      action: 'set',
+      key,
+      value: finalFavorite,
+    });
   } catch (err) {
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    );
+    return namespaceError(err);
   }
 }
 
@@ -166,32 +170,21 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const key = searchParams.get('key');
 
-    if (key) {
+    if (key !== null) {
       // 刪除單條
       const [source, id] = key.split('+');
-      if (!source || !id) {
+      if (!source || !id || key.split('+').length !== 2) {
         return NextResponse.json(
           { error: 'Invalid key format' },
           { status: 400 }
         );
       }
-      await db.deleteFavorite(username, source, id);
-    } else {
-      // 清空全部
-      const all = await db.getAllFavorites(username);
-      await Promise.all(
-        Object.keys(all).map(async (k) => {
-          const [s, i] = k.split('+');
-          if (s && i) await db.deleteFavorite(username, s, i);
-        })
-      );
     }
-
-    return NextResponse.json({ success: true }, { status: 200 });
+    return await mutateFromRequest(request, username, 'fav', {
+      action: key !== null ? 'delete' : 'clear',
+      ...(key !== null ? { key } : {}),
+    });
   } catch (err) {
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    );
+    return namespaceError(err);
   }
 }

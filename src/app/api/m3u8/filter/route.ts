@@ -11,16 +11,20 @@ const M3U8_CONTENT_TYPE = 'application/vnd.apple.mpegurl; charset=utf-8';
 
 export async function GET(request: NextRequest) {
   const clientIp = getClientIp(request);
-  const rateLimitResult = rateLimit(clientIp, {
+  const rateLimitResult = await rateLimit(clientIp, {
     limit: 60,
     prefix: 'm3u8-filter',
     windowMs: 60_000,
   });
   if (!rateLimitResult.allowed) {
     return NextResponse.json(
-      { error: 'Too many requests' },
       {
-        status: 429,
+        error: rateLimitResult.unavailable
+          ? 'Service temporarily unavailable'
+          : 'Too many requests',
+      },
+      {
+        status: rateLimitResult.unavailable ? 503 : 429,
         headers: {
           ...getRateLimitHeaders(rateLimitResult),
           'Cache-Control': 'private, no-store',
@@ -64,6 +68,7 @@ export async function GET(request: NextRequest) {
     );
 
     if (!response.ok) {
+      void response.body?.cancel().catch(() => undefined);
       return NextResponse.json(
         { error: 'Failed to fetch m3u8 playlist' },
         {

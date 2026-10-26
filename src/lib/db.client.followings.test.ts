@@ -1,3 +1,4 @@
+import { webcrypto } from 'crypto';
 const mockAuth = { current: null as { username: string } | null };
 const mockRefreshAuth = jest.fn();
 
@@ -7,7 +8,19 @@ jest.mock('./auth-client', () => ({
 }));
 
 function response(value: unknown): Response {
-  return { ok: true, json: async () => value } as Response;
+  return {
+    ok: true,
+    status: 200,
+    headers: {
+      get: (name: string) =>
+        name === 'X-MoonTV-Epoch'
+          ? '11111111-1111-4111-8111-111111111111'
+          : name === 'X-MoonTV-Revision'
+          ? '1'
+          : null,
+    },
+    json: async () => value,
+  } as Response;
 }
 
 describe('following client session isolation', () => {
@@ -16,6 +29,10 @@ describe('following client session isolation', () => {
   const originalFetch = global.fetch;
 
   beforeEach(async () => {
+    Object.defineProperty(global, 'crypto', {
+      value: webcrypto,
+      configurable: true,
+    });
     jest.resetModules();
     jest.useFakeTimers();
     localStorage.clear();
@@ -26,6 +43,19 @@ describe('following client session isolation', () => {
     global.fetch = fetchMock;
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     api = await import('./db.client');
+    const versions = await import('./namespace-client');
+    for (const path of [
+      '/api/favorites',
+      '/api/followings',
+      '/api/playrecords',
+      '/api/searchhistory',
+    ])
+      versions.observeNamespaceRead(
+        'alice',
+        path,
+        response({}),
+        versions.namespaceReadTicket('alice', path)
+      );
   });
 
   afterEach(() => {

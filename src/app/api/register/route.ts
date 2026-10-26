@@ -60,16 +60,20 @@ async function generateAuthCookie(
 
 export async function POST(req: NextRequest) {
   try {
-    const rateLimitResult = rateLimit(getClientIp(req), {
+    const rateLimitResult = await rateLimit(getClientIp(req), {
       limit: 5,
       windowMs: 60_000,
       prefix: 'register',
     });
     if (!rateLimitResult.allowed) {
       return NextResponse.json(
-        { error: '請求過於頻繁，請稍後再試' },
         {
-          status: 429,
+          error: rateLimitResult.unavailable
+            ? '服務暫時無法使用，請稍後再試'
+            : '請求過於頻繁，請稍後再試',
+        },
+        {
+          status: rateLimitResult.unavailable ? 503 : 429,
           headers: getRateLimitHeaders(rateLimitResult),
         }
       );

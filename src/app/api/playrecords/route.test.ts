@@ -1,12 +1,15 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
-const mockSave = jest.fn();
+const mockSave = jest.fn().mockResolvedValue({
+  version: { epoch: '00000000-0000-4000-8000-000000000001', revision: '1' },
+  duplicate: false,
+});
 jest.mock('@/lib/auth-server', () => ({
   getVerifiedAuthInfo: async () => ({ username: 'alice', role: 'user' }),
 }));
 jest.mock('@/lib/config', () => ({
   getConfig: async () => ({ UserConfig: { Users: [{ username: 'alice' }] } }),
 }));
-jest.mock('@/lib/db', () => ({ db: { savePlayRecord: mockSave } }));
+jest.mock('@/lib/db', () => ({ db: { mutateNamespace: mockSave } }));
 beforeAll(() => {
   const { MessageChannel, MessagePort } = require('worker_threads');
   Object.assign(globalThis, { MessageChannel, MessagePort });
@@ -27,7 +30,14 @@ const valid = {
 };
 async function post(key: unknown, record: unknown) {
   const { POST } = await import('./route');
-  return POST({ json: async () => ({ key, record }) } as never);
+  return POST({
+    json: async () => ({ key, record }),
+    headers: new Headers({
+      'X-MoonTV-Epoch': '00000000-0000-4000-8000-000000000001',
+      'X-MoonTV-Revision': '0',
+      'X-MoonTV-Operation-Id': '00000000-0000-4000-8000-000000000002',
+    }),
+  } as never);
 }
 beforeEach(() => jest.clearAllMocks());
 test.each([
@@ -35,6 +45,7 @@ test.each([
   { ...valid, index: 1.5 },
   { ...valid, total_episodes: -1 },
   { ...valid, year: undefined },
+  { ...valid, save_time: undefined },
 ])('rejects incomplete/invalid record before persistence', async (record) => {
   expect((await post('source+1', record)).status).toBe(400);
   expect(mockSave).not.toHaveBeenCalled();
@@ -48,5 +59,14 @@ test.each(['source+id+ambiguous', 5, '+id'])(
 );
 test('writes a schema-valid record without changing its identity', async () => {
   expect((await post('source+1', valid)).status).toBe(200);
-  expect(mockSave).toHaveBeenCalledWith('alice', 'source', '1', valid);
+  expect(mockSave).toHaveBeenCalledWith(
+    'alice',
+    'pr',
+    expect.objectContaining({
+      action: 'set',
+      key: 'source+1',
+      value: valid,
+      version: { epoch: '00000000-0000-4000-8000-000000000001', revision: '0' },
+    })
+  );
 });

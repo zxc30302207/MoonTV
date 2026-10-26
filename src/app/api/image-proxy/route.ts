@@ -20,16 +20,20 @@ const RASTER_IMAGE_TYPES = new Set([
 
 // OrionTV 兼容接口
 export async function GET(request: Request) {
-  const rateLimitResult = rateLimit(getClientIp(request), {
+  const rateLimitResult = await rateLimit(getClientIp(request), {
     limit: 300,
     windowMs: 60_000,
     prefix: 'image-proxy',
   });
   if (!rateLimitResult.allowed) {
     return NextResponse.json(
-      { error: '請求過於頻繁，請稍後再試' },
       {
-        status: 429,
+        error: rateLimitResult.unavailable
+          ? '服務暫時無法使用，請稍後再試'
+          : '請求過於頻繁，請稍後再試',
+      },
+      {
+        status: rateLimitResult.unavailable ? 503 : 429,
         headers: getRateLimitHeaders(rateLimitResult),
       }
     );
@@ -63,6 +67,7 @@ export async function GET(request: Request) {
     );
 
     if (!imageResponse.ok) {
+      void imageResponse.body?.cancel().catch(() => undefined);
       return NextResponse.json(
         { error: 'Image fetch failed' },
         {

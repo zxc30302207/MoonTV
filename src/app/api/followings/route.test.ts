@@ -4,6 +4,8 @@ const mockAuth = jest.fn();
 const mockSites = jest.fn();
 const mockCanAdult = jest.fn();
 const mockDb = {
+  readNamespace: jest.fn(),
+  mutateNamespace: jest.fn(),
   getAllFollowings: jest.fn(),
   getFollowing: jest.fn(),
   saveFollowing: jest.fn(),
@@ -51,6 +53,14 @@ describe('private following routes', () => {
     mockSites.mockResolvedValue([{ key: 'normal' }]);
     mockCanAdult.mockReturnValue(false);
     mockDb.getFollowing.mockResolvedValue(item);
+    mockDb.readNamespace.mockImplementation(async () => ({
+      data: await mockDb.getAllFollowings(),
+      version: { epoch: '00000000-0000-4000-8000-000000000001', revision: '0' },
+    }));
+    mockDb.mutateNamespace.mockResolvedValue({
+      version: { epoch: '00000000-0000-4000-8000-000000000001', revision: '1' },
+      duplicate: false,
+    });
     mockDb.updateFollowingIfUnchanged.mockResolvedValue(true);
     mockDb.getAllFollowings.mockResolvedValue({
       'normal+1': item,
@@ -64,11 +74,22 @@ describe('private following routes', () => {
     return new NextRequest(
       `http://localhost/api/${path}`,
       body === undefined
-        ? undefined
+        ? {
+            headers: {
+              'X-MoonTV-Epoch': '00000000-0000-4000-8000-000000000001',
+              'X-MoonTV-Revision': '0',
+              'X-MoonTV-Operation-Id': '00000000-0000-4000-8000-000000000002',
+            },
+          }
         : {
             method: 'POST',
             body: JSON.stringify(body),
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'X-MoonTV-Epoch': '00000000-0000-4000-8000-000000000001',
+              'X-MoonTV-Revision': '0',
+              'X-MoonTV-Operation-Id': '00000000-0000-4000-8000-000000000002',
+            },
           }
     );
   }
@@ -154,8 +175,15 @@ describe('private following routes', () => {
     );
     expect(mockDetail).toHaveBeenCalledTimes(1);
     // The unfollow completes before the source responds.
-    mockDb.deleteFollowing.mockImplementationOnce(async () => {
+    mockDb.mutateNamespace.mockImplementationOnce(async () => {
       mockDb.getFollowing.mockResolvedValue(null);
+      return {
+        version: {
+          epoch: '00000000-0000-4000-8000-000000000001',
+          revision: '1',
+        },
+        duplicate: false,
+      };
     });
     const { DELETE } = await import('./route');
     expect(

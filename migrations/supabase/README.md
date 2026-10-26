@@ -109,14 +109,20 @@ transaction rollback only protects failed operations.
 
 ## Local SQL regression
 
-Install PGlite outside the repository (no product dependency or lockfile change):
+PGlite 0.5.11 is pinned as a development dependency in the lockfile. After the
+normal frozen-lockfile install, run all three local SQL regression suites:
 
 ```sh
-npm install --prefix /tmp/moontv-db-tests --cache /tmp/moontv-npm-cache \
-  --ignore-scripts --no-audit --no-fund @electric-sql/pglite@0.5.11
-PGLITE_MODULE=/tmp/moontv-db-tests/node_modules/@electric-sql/pglite/dist/index.js \
-  node migrations/supabase/tests/atomic-kv.mjs
+pnpm test:sql
 ```
+
+An optional `PGLITE_MODULE` absolute path can select a local PGlite build for
+specialized debugging; ordinary development and CI use the repository dependency.
+CI also runs `pnpm test:transport` on Node 22 to exercise actual local TCP/TLS
+sockets against the pinned transport. After the production build, the mandatory
+`pnpm test:built-transport` gate exercises authenticated local image/playlist/Range
+requests and downstream cancellation through the built application. These tests
+use synthetic local fixtures and do not contact production.
 
 This uses an in-memory local PostgreSQL engine with synthetic data only. It
 checks ACLs, invalid-input/no-side-effect behavior, post-DELETE insertion failure
