@@ -1,37 +1,31 @@
-# MoonTV 4.7.5 相容整合（PR #9）
+# Upstream proposal — review required
 
-- Previously integrated: `e4c0732cf907a1ae4e0bf1d0d446b7c8aeea2234`
-- Proposed upstream: `4641419363b8b9daaf1bfd89231d86d57121cec7`
-- 自訂基準：`fa410b2fa1df69ebf391aff5c84dcdf1bc63bf2d`
-- 上游差異：https://github.com/Stardm0/MoonTV/compare/e4c0732cf907a1ae4e0bf1d0d446b7c8aeea2234...4641419363b8b9daaf1bfd89231d86d57121cec7
+**MANUAL INTEGRATION REQUIRED — report only; no upstream code applied.**
 
-本提案已由 report-only 改為人工增量整合；不將上游整個檔案覆蓋客製程式。仍維持 Draft，未合併 main，未變更分支保護或正式資料庫。
+- Previously integrated: `4641419363b8b9daaf1bfd89231d86d57121cec7`
+- Proposed upstream: `d25cef49bd0f45b3f6a36c8f5cf22f3370610662`
+- Compare: https://github.com/Stardm0/MoonTV/compare/4641419363b8b9daaf1bfd89231d86d57121cec7...d25cef49bd0f45b3f6a36c8f5cf22f3370610662
 
-## 整合內容
+Three-way application conflicted. All partial changes were discarded; custom code and the integrated base are unchanged.
 
-- 依裝置與碼率規劃 HLS 緩衝預算、配額不足時保留降級狀態，校正快取命中的載入／解析時間，保留原有 bits/s 換算。
-- 手動彈幕選擇顯示載入提示，重選同集仍可載入，並保留簽名代理、請求取消與過期結果隔離。
-- 手機導覽依完整 query 正確高亮；分類精確比對，不因子字串或壞的 URL escape 誤選／崩潰。保留自訂分類、榜單、左右捲動控制與無障礙標記。
-- 下載／預取整合代理回退與不可重試錯誤處理，保留原有同源代理、最終轉址 URL、AES key 與安全過濾清單流程。
-- 版本及變更日誌同步為 4.7.5，已整合上游基準僅在本提案分支前進；正式分支未變動。
+Review every custom feature and security boundary before merging. Never merge this proposal automatically.
 
-## 明確保留的客製差異
+## Required verification
 
-上游新 ad-filter 會依 URL 名稱或短片段推測並刪除內容，與本專案保留正片優先原則不相容，因此不採用。既有已驗證廣告素材、明確邊界、加密／MAP／BYTERANGE 安全規則、去廣告偏好、播放器與預取時間軸一致性均保留，不重設 enable_blockad。
+Run typecheck, strict lint, tests, dependency audit and production build on the exact reviewed commit. Check Vercel preview and desktop/mobile playback.
 
-榜單頁保留返回按鈕、繁體文案與請求競態防護，不採用上游純版面移除。Supabase、來源設定、成人授權、登入／同源寫入、SSRF 與私人回應策略未變更。無資料庫遷移、清空或正式服務操作。
+PRs created by GITHUB_TOKEN may not trigger pull_request CI. A maintainer must manually dispatch the existing CI workflow on this branch (Actions → CI → Run workflow), then verify checks belong to the exact commit. No PAT or extra secret is required.
 
-## PR #8 關係
+## Changed upstream paths
 
-#8 目標 `c5ba812f33efbcc1485e52160861621995c48aee` 是本次目標的祖先；#9 另外包含手動彈幕修正與 4.7.5 版本提交。完成本提案審查後，#8 的上游範圍由本提案涵蓋。未自動關閉 #8。
-
-## 本機驗證（Node 22.23.4 / pnpm 10.14.0）
-
-- 90 套 Jest、667 項測試通過；包含播放器／彈幕、代理／加密金鑰、導航與舊有安全回歸。
-- TypeScript、全專案 strict ESLint 零警告、production build 通過。
-- 全依賴 pnpm audit 零已知漏洞（本次檢查時間 2026-10-25 UTC）。
-- 版本同步與產生器測試、6 項上游提案安全測試通過。
-- 本機 HTTP 可啟動並回應未登入請求的 307 重新導向。
-- Chromium 在頁面載入前被執行環境的 socket 權限限制阻擋；未完成桌面／手機瀏覽器播放驗收，沒有停用平台限制。未登入正式站或操作正式資料庫。
-
-遠端 CI／Preview 必須核對本提案的最終 SHA；具體結果以 PR 說明為準。部署成功不代表播放驗收成功。不要自動合併此提案。
+```json
+[
+  "src/app/play/play-utils.ts",
+  "src/lib/ad-filter.ts",
+  "src/lib/danmaku.client.ts",
+  "src/lib/m3u8-downloader.ts",
+  "src/lib/segment-media-probe.ts",
+  "src/lib/video-cache.ts",
+  "src/lib/video-prefetcher.ts"
+]
+```
