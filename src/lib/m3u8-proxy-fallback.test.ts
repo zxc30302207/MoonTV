@@ -62,7 +62,7 @@ it('falls back for recursive playlists and AES keys using the final upstream URL
   expect(task.aesConf.key.toString()).toBe('07070707070707070707070707070707');
   expect(fetch).toHaveBeenCalledTimes(6);
   expect(fetch).toHaveBeenCalledWith(proxy(key), {
-    signal: controller.signal,
+    signal: expect.any(AbortSignal),
     credentials: 'same-origin',
     cache: 'no-store',
   });

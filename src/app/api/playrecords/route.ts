@@ -5,6 +5,11 @@ import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 import { PlayRecord } from '@/lib/types';
 
+import {
+  playRecordSchema,
+  storageKeySchema,
+} from '@/app/api/admin/data_migration/validation';
+
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
@@ -58,7 +63,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { key, record }: { key: string; record: PlayRecord } = body;
 
-    if (!key || !record) {
+    if (!storageKeySchema.safeParse(key).success || !record) {
       return NextResponse.json(
         { error: 'Missing key or record' },
         { status: 400 }
@@ -66,7 +71,14 @@ export async function POST(request: NextRequest) {
     }
 
     // 驗證播放記錄數據
-    if (!record.title || !record.source_name || record.index < 1) {
+    if (
+      !playRecordSchema.safeParse({
+        ...record,
+        save_time: record.save_time ?? Date.now(),
+      }).success ||
+      record.index < 1 ||
+      !Number.isInteger(record.index)
+    ) {
       return NextResponse.json(
         { error: 'Invalid record data' },
         { status: 400 }
@@ -75,7 +87,7 @@ export async function POST(request: NextRequest) {
 
     // 從key中解析source和id
     const [source, id] = key.split('+');
-    if (!source || !id) {
+    if (!source || !id || key.split('+').length !== 2) {
       return NextResponse.json(
         { error: 'Invalid key format' },
         { status: 400 }
@@ -124,7 +136,7 @@ export async function DELETE(request: NextRequest) {
     if (key) {
       // 如果提供了 key，刪除單條播放記錄
       const [source, id] = key.split('+');
-      if (!source || !id) {
+      if (!source || !id || key.split('+').length !== 2) {
         return NextResponse.json(
           { error: 'Invalid key format' },
           { status: 400 }

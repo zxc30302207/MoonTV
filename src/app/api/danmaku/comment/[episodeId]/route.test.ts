@@ -3,6 +3,10 @@
 import type { NextRequest } from 'next/server';
 
 const mockGetConfig = jest.fn();
+const mockGetVerifiedAuthInfo = jest.fn();
+jest.mock('@/lib/auth-server', () => ({
+  getVerifiedAuthInfo: mockGetVerifiedAuthInfo,
+}));
 
 jest.mock('@/lib/config', () => ({
   getConfig: mockGetConfig,
@@ -22,6 +26,10 @@ describe('/api/danmaku/comment/[episodeId]', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.restoreAllMocks();
+    mockGetVerifiedAuthInfo.mockResolvedValue({
+      username: 'alice',
+      role: 'user',
+    });
     process.env = { ...originalEnv };
     delete process.env.DANDANPLAY_APP_ID;
     delete process.env.DANDANPLAY_APP_SECRET;
@@ -38,6 +46,37 @@ describe('/api/danmaku/comment/[episodeId]', () => {
 
   afterAll(() => {
     process.env = originalEnv;
+  });
+
+  it('rejects revoked users without fetching comments', async () => {
+    mockGetVerifiedAuthInfo.mockResolvedValue(null);
+    global.fetch = jest.fn();
+    const { GET } = await import('./route');
+    const response = await GET(
+      new Request(
+        'http://localhost/api/danmaku/comment/123'
+      ) as unknown as NextRequest,
+      { params: Promise.resolve({ episodeId: '123' }) }
+    );
+    expect(response.status).toBe(401);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('handles oversized upstream comments without rejecting the route promise', async () => {
+    global.fetch = jest.fn(
+      async () =>
+        new Response('<i/>', {
+          headers: { 'content-length': String(17 * 1024 * 1024) },
+        })
+    ) as unknown as typeof fetch;
+    const { GET } = await import('./route');
+    const response = await GET(
+      new Request(
+        'http://localhost/api/danmaku/comment/123'
+      ) as unknown as NextRequest,
+      { params: Promise.resolve({ episodeId: '123' }) }
+    );
+    expect(response.status).toBe(502);
   });
 
   it('proxies xml comment requests by episode id', async () => {

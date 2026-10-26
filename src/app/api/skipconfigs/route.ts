@@ -5,6 +5,11 @@ import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
 import { SkipConfig } from '@/lib/types';
 
+import {
+  skipConfigSchema,
+  storageKeySchema,
+} from '@/app/api/admin/data_migration/validation';
+
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
@@ -67,7 +72,10 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { key, config } = body;
 
-    if (!key || !config) {
+    if (
+      !storageKeySchema.safeParse(key).success ||
+      !skipConfigSchema.safeParse(config).success
+    ) {
       return NextResponse.json({ error: '缺少必要參數' }, { status: 400 });
     }
 

@@ -24,8 +24,8 @@ import {
 } from '@/lib/db.client';
 import { getDoubanCategories } from '@/lib/douban.client';
 import {
-  buildPlayRecordTitleIndex,
   computeUnwatchedEpisodes,
+  getFollowingWatchedEpisodes,
 } from '@/lib/following';
 import { getSwal } from '@/lib/sweetalert';
 import { DoubanItem, SearchResult } from '@/lib/types';
@@ -124,6 +124,10 @@ function HomeClient() {
   const [followingListLoading, setFollowingListLoading] = useState(false);
   const [followingUpdatesLoading, setFollowingUpdatesLoading] = useState(false);
   const latestPlayRecordsRef = useRef<Record<string, any>>({});
+
+  const [refreshInterrupted, setRefreshInterrupted] = useState(false);
+  const [refreshSettled, setRefreshSettled] = useState(false);
+  const [refreshRemoved, setRefreshRemoved] = useState(0);
 
   // 追更集數刷新進度（流式）
   const [refreshProgress, setRefreshProgress] = useState<{
@@ -345,9 +349,7 @@ function HomeClient() {
       {};
     latestPlayRecordsRef.current = allPlayRecords;
 
-    // 按標題索引播放記錄，優先按標題匹配「當前播放集數/總集數」，
-    // 解決用戶換片源觀看後追更 key(source+id) 與播放記錄 key 對不上而取不到的問題。
-    const playRecordTitleIndex = buildPlayRecordTitleIndex(allPlayRecords);
+    // Only source + id is a verified identity; titles cannot establish equivalence.
 
     const sorted = Object.entries(allFollowings || {})
       .filter(([, item]) => item && typeof item === 'object')
@@ -356,11 +358,12 @@ function HomeClient() {
         const plusIndex = key.indexOf('+');
         const source = key.slice(0, plusIndex);
         const id = key.slice(plusIndex + 1);
-        // 匹配順序：先按追更標題精確命中最新播放記錄，未命中再回退 source+id 直查
-        const matchedPlayRecord =
-          playRecordTitleIndex.get(item.title) ?? allPlayRecords[key];
-        const watchedEpisodes =
-          matchedPlayRecord?.index ?? item.watched_episodes ?? 0;
+        const matchedPlayRecord = allPlayRecords[key];
+        const watchedEpisodes = getFollowingWatchedEpisodes(
+          key,
+          item,
+          allPlayRecords
+        );
         const totalEpisodes =
           item.total_episodes || matchedPlayRecord?.total_episodes || 1;
         const unwatchedEpisodes = computeUnwatchedEpisodes({
@@ -405,7 +408,11 @@ function HomeClient() {
     playRecords: Record<string, any>,
     isRetry: boolean
   ) => {
-    const playRecordTitleIndex = buildPlayRecordTitleIndex(playRecords);
+    setRefreshInterrupted(false);
+    setRefreshSettled(false);
+    if (!isRetry) setRefreshRemoved(0);
+    const priorSuccess = isRetry ? refreshProgressRef.current.success : 0;
+    const priorUpdated = isRetry ? refreshProgressRef.current.updated : 0;
     const targetCount = Object.keys(targetFollowings).length;
     if (targetCount === 0) {
       updateProgress({
@@ -491,11 +498,11 @@ function HomeClient() {
               const plusIndex = item.key.indexOf('+');
               const source = item.key.slice(0, plusIndex);
               const id = item.key.slice(plusIndex + 1);
-              const watchedEpisodes =
-                playRecordTitleIndex.get(item.title || updated?.title)?.index ??
-                playRecords[item.key]?.index ??
-                updated?.watched_episodes ??
-                0;
+              const watchedEpisodes = getFollowingWatchedEpisodes(
+                item.key,
+                updated,
+                playRecords
+              );
               const newEpisodes =
                 item.total_episodes || updated?.total_episodes || 0;
               const entry: TodayUpdatedItem = {
@@ -547,9 +554,21 @@ function HomeClient() {
               failed: refreshProgressRef.current.failed + 1,
             });
           },
-          onComplete: () => {
-            // 成功/失敗/更新數已通過逐條事件累加，此處僅結束運行態
-            updateProgress({ running: false });
+          onItemRemoved: (key) => {
+            delete workingFollowings[key];
+            updateFollowingItems(workingFollowings, playRecords);
+          },
+          onComplete: (result) => {
+            setRefreshSettled(result.processedCount >= result.total);
+            setRefreshRemoved(
+              (previous) => (isRetry ? previous : 0) + result.removedCount
+            );
+            updateProgress({
+              success: priorSuccess + result.successCount,
+              failed: result.failedCount,
+              updated: priorUpdated + result.updatedCount,
+            });
+            // Keep running until the final server reconciliation has completed.
             // 最終以服務端寫回後的完整列表為准
             updateFollowingItems(workingFollowings, playRecords);
           },
@@ -560,7 +579,13 @@ function HomeClient() {
         workingFollowings
       );
     } catch (error) {
+      setRefreshInterrupted(true);
       console.error('刷新追更失敗', error);
+      window.dispatchEvent(
+        new CustomEvent('globalError', {
+          detail: { message: '追更刷新未完成，已保留完成的項目，請重新刷新。' },
+        })
+      );
     } finally {
       updateProgress({ running: false });
     }
@@ -771,10 +796,11 @@ function HomeClient() {
            </div>`
         : '';
 
-    const canRetry = failed.length > 0 && !running;
+    const incomplete = refreshInterrupted || !refreshSettled;
+    const canRetry = (failed.length > 0 || incomplete) && !running;
 
     Swal.fire({
-      title: running ? '正在刷新集數…' : '刷新結果',
+      title: running ? '正在刷新集數…' : incomplete ? '刷新未完成' : '刷新結果',
       html: `
         <div class="text-sm text-gray-600 dark:text-gray-300">
           <div class="flex items-center justify-center gap-2 mb-2">
@@ -786,20 +812,29 @@ function HomeClient() {
             <span>成功獲取 <b class="text-green-600">${success}</b> / ${total}</span>
           </div>
           <div class="text-xs text-gray-500 dark:text-gray-400">
-            新更影片數：<b class="text-blue-600">${updated}</b> | 失敗：<b class="text-red-500">${failedCount}</b>
+            新更影片數：<b class="text-blue-600">${updated}</b> | 失敗：<b class="text-red-500">${failedCount}</b> | 已移除：${refreshRemoved}
           </div>
         </div>
         ${failedHtml}
       `,
-      icon: failedCount > 0 ? 'warning' : 'success',
+      icon: running
+        ? 'info'
+        : failedCount > 0 || incomplete
+        ? 'warning'
+        : 'success',
       showCancelButton: canRetry,
-      confirmButtonText: canRetry ? '重試失敗項' : '知道了',
+      confirmButtonText: canRetry
+        ? incomplete
+          ? '重新刷新'
+          : '重試失敗項'
+        : '知道了',
       cancelButtonText: '關閉',
       confirmButtonColor: '#10b981',
       cancelButtonColor: '#6b7280',
     }).then((result) => {
       if (result.isConfirmed && canRetry) {
-        retryFailedFollowings();
+        if (incomplete) void handleManualRefresh();
+        else void retryFailedFollowings();
       }
     });
   };
@@ -897,16 +932,23 @@ function HomeClient() {
                       ) : (
                         <span
                           className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold text-white ${
-                            refreshProgress.failed > 0
+                            refreshInterrupted ||
+                            refreshProgress.failed > 0 ||
+                            !refreshSettled
                               ? 'bg-amber-500'
                               : 'bg-green-500'
                           }`}
                         >
-                          ✓
+                          {!refreshInterrupted &&
+                          refreshProgress.failed === 0 &&
+                          refreshSettled
+                            ? '✓'
+                            : '!'}
                         </span>
                       )}
                       <span>
                         成功 {refreshProgress.success}/{refreshProgress.total}
+                        {refreshRemoved > 0 && `（已移除 ${refreshRemoved}）`}
                       </span>
                       {refreshProgress.failed > 0 && (
                         <span className='text-red-500'>

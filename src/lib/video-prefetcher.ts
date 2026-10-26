@@ -11,6 +11,7 @@
  */
 
 import { parseM3U8 } from './m3u8-downloader';
+import { MediaRequestDeadline } from './media-request-deadline';
 import {
   clampPrefetchConcurrency,
   observePrefetchSegment,
@@ -526,6 +527,7 @@ export class VideoPrefetcher {
         task = await parseM3U8(
           playlistUrl,
           {
+            signal,
             fetcher: (url, init) =>
               fetch(
                 isFilterEndpoint(url)
@@ -533,7 +535,7 @@ export class VideoPrefetcher {
                   : buildSegmentCacheKey(url, useProxy),
                 {
                   ...init,
-                  signal,
+                  signal: init?.signal ?? signal,
                   credentials: 'same-origin',
                   cache: 'no-store',
                 }
@@ -847,15 +849,18 @@ export class VideoPrefetcher {
                   once: true,
                 });
                 this.activeRequests.add(request);
+                const deadline = new MediaRequestDeadline(request);
                 try {
-                  const response = await fetch(url, {
-                    signal: request.signal,
-                    credentials: 'same-origin',
-                    cache: 'no-store',
-                    headers: range
-                      ? { Range: byteRangeHeader(range) }
-                      : undefined,
-                  });
+                  const response = await deadline.wait(
+                    fetch(url, {
+                      signal: request.signal,
+                      credentials: 'same-origin',
+                      cache: 'no-store',
+                      headers: range
+                        ? { Range: byteRangeHeader(range) }
+                        : undefined,
+                    })
+                  );
                   if (!response.ok) {
                     await response.body?.cancel();
                     const httpError = new Error(
@@ -873,12 +878,18 @@ export class VideoPrefetcher {
                   if (Number.isFinite(expectedBytes) && expectedBytes > 0) {
                     observePrefetchSegment(expectedBytes);
                   }
-                  const buffer = await readByteRangeResponse(response, range);
+                  const buffer = await readByteRangeResponse(
+                    response,
+                    range,
+                    () => deadline.readBody(response)
+                  );
                   observePrefetchSegment(buffer.byteLength);
                   return { response, buffer };
                 } catch (error) {
                   const interrupted =
-                    request.signal.aborted && !requests.signal.aborted;
+                    request.signal.aborted &&
+                    !requests.signal.aborted &&
+                    !deadline.timedOut;
                   if (!interrupted) {
                     // fetch 的 TypeError 通常是 CORS / DNS / 連線失敗，換路由兜底。
                     if (error instanceof TypeError) {
@@ -978,7 +989,8 @@ export class VideoPrefetcher {
               buffer,
               response.headers.get('Content-Type'),
               settings,
-              requests.signal
+              requests.signal,
+              options.episodeKey
             );
             // 登出或取消後不得重新寫回私人元數據；新隊列會等待本輪結束。
             if (signal.aborted || requests.signal.aborted) return;

@@ -26,6 +26,11 @@ function DoubanPageClient() {
   const [doubanData, setDoubanData] = useState<DoubanItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
+  const [pageError, setPageError] = useState(false);
+  const [retryVersion, setRetryVersion] = useState(0);
+  const committedPage = useRef(0);
+  const pagePending = useRef(false);
+  const initialRequest = useRef(0);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [selectorsReady, setSelectorsReady] = useState(false);
@@ -286,6 +291,7 @@ function DoubanPageClient() {
 
   // 防抖的數據加載函數
   const loadInitialData = useCallback(async () => {
+    const requestId = ++initialRequest.current;
     // 創建當前參數的快照
     const requestSnapshot = {
       type,
@@ -301,6 +307,9 @@ function DoubanPageClient() {
       // 確保在加載初始數據時重置頁面狀態
       setDoubanData([]);
       setCurrentPage(0);
+      committedPage.current = 0;
+      pagePending.current = false;
+      setPageError(false);
       setHasMore(true);
       setIsLoadingMore(false);
 
@@ -400,7 +409,12 @@ function DoubanPageClient() {
         // 使用 ref 獲取最新的當前值
         const currentSnapshot = { ...currentParamsRef.current };
 
-        if (isSnapshotEqual(requestSnapshot, currentSnapshot)) {
+        if (
+          requestId === initialRequest.current &&
+          isSnapshotEqual(requestSnapshot, currentSnapshot)
+        ) {
+          committedPage.current = 0;
+          setPageError(false);
           setDoubanData(data.list);
           setHasMore(data.list.length !== 0);
           setLoading(false);
@@ -413,7 +427,13 @@ function DoubanPageClient() {
       }
     } catch (err) {
       console.error(err);
-      setLoading(false); // 發生錯誤時總是停止loading狀態
+      if (
+        requestId === initialRequest.current &&
+        isSnapshotEqual(requestSnapshot, currentParamsRef.current)
+      ) {
+        setLoading(false);
+        setPageError(true);
+      }
     }
   }, [
     type,
@@ -446,6 +466,7 @@ function DoubanPageClient() {
 
     // 清理函數
     return () => {
+      initialRequest.current += 1;
       if (debounceTimeoutRef.current) {
         clearTimeout(debounceTimeoutRef.current);
       }
@@ -462,6 +483,7 @@ function DoubanPageClient() {
 
   // 單獨處理 currentPage 變化（加載更多）
   useEffect(() => {
+    let cancelled = false;
     if (currentPage > 0) {
       const fetchMoreData = async () => {
         // 創建當前參數的快照
@@ -476,6 +498,7 @@ function DoubanPageClient() {
 
         try {
           setIsLoadingMore(true);
+          setPageError(false);
 
           let data: DoubanResult;
           if (type === 'custom') {
@@ -564,7 +587,11 @@ function DoubanPageClient() {
             // 使用 ref 獲取最新的當前值
             const currentSnapshot = { ...currentParamsRef.current };
 
-            if (isSnapshotEqual(requestSnapshot, currentSnapshot)) {
+            if (
+              !cancelled &&
+              isSnapshotEqual(requestSnapshot, currentSnapshot)
+            ) {
+              committedPage.current = currentPage;
               setDoubanData((prev) => [...prev, ...data.list]);
               setHasMore(data.list.length !== 0);
             } else {
@@ -574,16 +601,32 @@ function DoubanPageClient() {
             throw new Error(data.message || '獲取數據失敗');
           }
         } catch (err) {
-          console.error(err);
+          if (
+            !cancelled &&
+            isSnapshotEqual(requestSnapshot, currentParamsRef.current)
+          ) {
+            console.error(err);
+            setPageError(true);
+          }
         } finally {
-          setIsLoadingMore(false);
+          if (
+            !cancelled &&
+            isSnapshotEqual(requestSnapshot, currentParamsRef.current)
+          ) {
+            setIsLoadingMore(false);
+            pagePending.current = false;
+          }
         }
       };
 
       fetchMoreData();
     }
+    return () => {
+      cancelled = true;
+    };
   }, [
     currentPage,
+    retryVersion,
     type,
     primarySelection,
     secondarySelection,
@@ -597,7 +640,7 @@ function DoubanPageClient() {
   // 設置滾動監聽
   useEffect(() => {
     // 如果沒有更多數據或正在加載，則不設置監聽
-    if (!hasMore || isLoadingMore || loading) {
+    if (!hasMore || isLoadingMore || loading || pageError) {
       return;
     }
 
@@ -608,8 +651,14 @@ function DoubanPageClient() {
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
-          setCurrentPage((prev) => prev + 1);
+        if (
+          entries[0].isIntersecting &&
+          hasMore &&
+          !isLoadingMore &&
+          !pagePending.current
+        ) {
+          pagePending.current = true;
+          setCurrentPage(committedPage.current + 1);
         }
       },
       { threshold: 0.1 }
@@ -623,7 +672,7 @@ function DoubanPageClient() {
         observerRef.current.disconnect();
       }
     };
-  }, [hasMore, isLoadingMore, loading]);
+  }, [hasMore, isLoadingMore, loading, pageError]);
 
   // 處理選擇器變化
   const handlePrimaryChange = useCallback(
@@ -633,6 +682,9 @@ function DoubanPageClient() {
         setLoading(true);
         // 立即重置頁面狀態，防止基於舊狀態的請求
         setCurrentPage(0);
+        committedPage.current = 0;
+        pagePending.current = false;
+        setPageError(false);
         setDoubanData([]);
         setHasMore(true);
         setIsLoadingMore(false);
@@ -684,6 +736,9 @@ function DoubanPageClient() {
         setLoading(true);
         // 立即重置頁面狀態，防止基於舊狀態的請求
         setCurrentPage(0);
+        committedPage.current = 0;
+        pagePending.current = false;
+        setPageError(false);
         setDoubanData([]);
         setHasMore(true);
         setIsLoadingMore(false);
@@ -716,6 +771,9 @@ function DoubanPageClient() {
       setLoading(true);
       // 立即重置頁面狀態，防止基於舊狀態的請求
       setCurrentPage(0);
+      committedPage.current = 0;
+      pagePending.current = false;
+      setPageError(false);
       setDoubanData([]);
       setHasMore(true);
       setIsLoadingMore(false);
@@ -836,18 +894,23 @@ function DoubanPageClient() {
                 ))}
           </div>
 
+          {pageError && (
+            <div role='alert'>
+              載入失敗，已保留現有內容。
+              <button
+                type='button'
+                onClick={() => {
+                  if (currentPage === 0) void loadInitialData();
+                  else setRetryVersion((value) => value + 1);
+                }}
+              >
+                重試
+              </button>
+            </div>
+          )}
           {/* 加載更多指示器 */}
           {hasMore && !loading && (
-            <div
-              ref={(el) => {
-                if (el && el.offsetParent !== null) {
-                  (
-                    loadingRef as React.MutableRefObject<HTMLDivElement | null>
-                  ).current = el;
-                }
-              }}
-              className='flex justify-center mt-12 py-8'
-            >
+            <div ref={loadingRef} className='flex justify-center mt-12 py-8'>
               {isLoadingMore && (
                 <div className='flex items-center gap-2'>
                   <div className='animate-spin rounded-full h-6 w-6 border-b-2 border-green-500'></div>

@@ -222,6 +222,8 @@ const AddDownloadModal = ({
     setIsLoading(true);
     try {
       const parsedTask = await parseM3U8(editableUrl);
+      if (parsedTask.downloadUnsupportedReason)
+        throw new Error(parsedTask.downloadUnsupportedReason);
       parsedTask.title = editableTitle || parsedTask.title;
       parsedTask.type = downloadType;
       setTask(parsedTask);

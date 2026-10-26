@@ -45,6 +45,9 @@ jobs:
       - name: Test version generation
         run: node --test scripts/convert-changelog.test.cjs
 
+      - name: Test release workflow safety
+        run: node --test scripts/release-workflows.test.cjs
+
       - name: Audit production dependencies
         run: pnpm audit --prod
 

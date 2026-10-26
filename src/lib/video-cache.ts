@@ -493,8 +493,14 @@ export function resetSegmentProbe(): void {
  * @returns 實際刪除的片段數量
  */
 export async function enforceQuota(
-  settings: CacheSettings = loadCacheSettings()
+  settings: CacheSettings = loadCacheSettings(),
+  emergency?: {
+    incomingBytes: number;
+    protectedEpisodeKey?: string;
+    signal?: AbortSignal;
+  }
 ): Promise<number> {
+  const generation = cacheGeneration;
   const cache = await openVideoCache();
   if (!cache) return 0;
 
@@ -509,34 +515,51 @@ export async function enforceQuota(
   const victims = new Set<string>();
   let total = records.reduce((sum, record) => sum + (record.bytes || 0), 0);
 
-  // ① 單集超限
-  const grouped = new Map<string, SegmentMeta[]>();
-  for (const record of records) {
-    const list = grouped.get(record.episodeKey);
-    if (list) list.push(record);
-    else grouped.set(record.episodeKey, [record]);
-  }
-
-  for (const list of Array.from(grouped.values())) {
-    list.sort((a, b) => a.lastAccess - b.lastAccess);
-    let size = list.reduce((sum, record) => sum + (record.bytes || 0), 0);
-    for (const record of list) {
-      if (size <= settings.maxBytesPerEpisode) break;
-      victims.add(record.key);
-      size -= record.bytes || 0;
-      total -= record.bytes || 0;
-    }
-  }
-
-  // ② 全局超限
-  if (total > settings.maxTotalBytes) {
-    const rest = records
-      .filter((record) => !victims.has(record.key))
+  if (emergency) {
+    // Browser quota can be lower than our configured limit. Free a bounded
+    // amount independently of that limit, without evicting active playback.
+    const target =
+      emergency.incomingBytes +
+      Math.min(emergency.incomingBytes * 0.1, 1024 * 1024);
+    let freed = 0;
+    const candidates = records
+      .filter((record) => record.episodeKey !== emergency.protectedEpisodeKey)
       .sort((a, b) => a.lastAccess - b.lastAccess);
-    for (const record of rest) {
-      if (total <= settings.maxTotalBytes) break;
+    for (const record of candidates) {
+      if (freed >= target || victims.size >= 64) break;
       victims.add(record.key);
-      total -= record.bytes || 0;
+      freed += record.bytes || 0;
+    }
+  } else {
+    // ① 單集超限
+    const grouped = new Map<string, SegmentMeta[]>();
+    for (const record of records) {
+      const list = grouped.get(record.episodeKey);
+      if (list) list.push(record);
+      else grouped.set(record.episodeKey, [record]);
+    }
+
+    for (const list of Array.from(grouped.values())) {
+      list.sort((a, b) => a.lastAccess - b.lastAccess);
+      let size = list.reduce((sum, record) => sum + (record.bytes || 0), 0);
+      for (const record of list) {
+        if (size <= settings.maxBytesPerEpisode) break;
+        victims.add(record.key);
+        size -= record.bytes || 0;
+        total -= record.bytes || 0;
+      }
+    }
+
+    // ② 全局超限
+    if (total > settings.maxTotalBytes) {
+      const rest = records
+        .filter((record) => !victims.has(record.key))
+        .sort((a, b) => a.lastAccess - b.lastAccess);
+      for (const record of rest) {
+        if (total <= settings.maxTotalBytes) break;
+        victims.add(record.key);
+        total -= record.bytes || 0;
+      }
     }
   }
 
@@ -546,6 +569,7 @@ export async function enforceQuota(
   const victimKeys = Array.from(victims);
   // Bound storage work instead of opening a transaction for every victim at once.
   for (let offset = 0; offset < victimKeys.length; offset += 8) {
+    if (emergency?.signal?.aborted || generation !== cacheGeneration) break;
     await Promise.all(
       victimKeys.slice(offset, offset + 8).map(async (key) => {
         try {
@@ -895,7 +919,8 @@ export async function putCachedSegmentResilient(
   buffer: ArrayBuffer,
   contentType?: string | null,
   settings: CacheSettings = loadCacheSettings(),
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  protectedEpisodeKey?: string
 ): Promise<PutSegmentResult> {
   const generation = cacheGeneration;
   const cancelled = () => signal?.aborted || generation !== cacheGeneration;
@@ -907,15 +932,19 @@ export async function putCachedSegmentResilient(
   } catch (err) {
     if (cancelled() || !isQuotaExceededError(err)) return 'failed';
 
-    const removed = await enforceQuota(settings);
+    const removed = await enforceQuota(settings, {
+      incomingBytes: buffer.byteLength,
+      protectedEpisodeKey,
+      signal,
+    });
     if (cancelled()) return 'failed';
     if (removed === 0) return 'quota';
 
     try {
       await putCachedSegment(key, buffer, contentType, signal);
       return cancelled() ? 'failed' : 'ok';
-    } catch {
-      return 'quota';
+    } catch (error) {
+      return !cancelled() && isQuotaExceededError(error) ? 'quota' : 'failed';
     }
   }
 }

@@ -2,7 +2,12 @@
 
 const mockGetAvailableApiSites = jest.fn();
 const mockGetConfig = jest.fn();
-const mockVerifyTVBoxToken = jest.fn();
+const mockVerifyTVBoxTokenPayload = jest.fn();
+
+const mockIsUserSessionCurrent = jest.fn();
+jest.mock('@/lib/auth-server', () => ({
+  isUserSessionCurrent: mockIsUserSessionCurrent,
+}));
 
 jest.mock('@/lib/config', () => ({
   getAvailableApiSites: mockGetAvailableApiSites,
@@ -10,7 +15,7 @@ jest.mock('@/lib/config', () => ({
 }));
 
 jest.mock('@/lib/tvbox-auth', () => ({
-  verifyTVBoxToken: mockVerifyTVBoxToken,
+  verifyTVBoxTokenPayload: mockVerifyTVBoxTokenPayload,
 }));
 
 describe('/api/tvbox/config', () => {
@@ -26,7 +31,11 @@ describe('/api/tvbox/config', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.NEXT_PUBLIC_STORAGE_TYPE = 'supabase';
+    mockIsUserSessionCurrent.mockResolvedValue(true);
     mockGetConfig.mockResolvedValue({
+      UserConfig: {
+        Users: [{ username: 'alice', role: 'user', banned: false }],
+      },
       SiteConfig: {
         TVBoxEnabled: true,
         TVBoxPassword: 'tvbox-secret',
@@ -50,7 +59,10 @@ describe('/api/tvbox/config', () => {
   });
 
   it('uses signed tokens to calculate user-visible sources', async () => {
-    mockVerifyTVBoxToken.mockResolvedValue('alice');
+    mockVerifyTVBoxTokenPayload.mockResolvedValue({
+      username: 'alice',
+      timestamp: 123,
+    });
     const { GET } = await import('./route');
 
     await GET(
@@ -60,6 +72,29 @@ describe('/api/tvbox/config', () => {
     );
 
     expect(mockGetAvailableApiSites).toHaveBeenCalledWith('alice');
+  });
+
+  it('checks the signed generation instead of granting a recreated username', async () => {
+    const sessionVersion = 'a'.repeat(64);
+    mockVerifyTVBoxTokenPayload.mockResolvedValue({
+      username: 'alice',
+      timestamp: 123,
+      sessionVersion,
+    });
+    mockIsUserSessionCurrent.mockResolvedValue(false);
+    const { GET } = await import('./route');
+    const response = await GET(
+      new Request('http://localhost/api/tvbox/config?token=signed-token', {
+        headers: { 'x-tvbox-password': 'tvbox-secret' },
+      })
+    );
+    expect(mockIsUserSessionCurrent).toHaveBeenCalledWith(
+      'alice',
+      123,
+      sessionVersion
+    );
+    expect(response.status).toBe(401);
+    expect(mockGetAvailableApiSites).not.toHaveBeenCalled();
   });
 
   it('keeps legacy base64 user URLs compatible without adult/user grants', async () => {
@@ -73,12 +108,43 @@ describe('/api/tvbox/config', () => {
       ) as Request
     );
 
-    expect(mockVerifyTVBoxToken).not.toHaveBeenCalled();
+    expect(mockVerifyTVBoxTokenPayload).not.toHaveBeenCalled();
     expect(mockGetAvailableApiSites).toHaveBeenCalledWith(undefined);
   });
 
+  it.each(['banned', 'deleted', 'revoked'])(
+    'rejects %s signed sessions without exporting sources',
+    async (state) => {
+      mockVerifyTVBoxTokenPayload.mockResolvedValue({
+        username: 'alice',
+        timestamp: 123,
+      });
+      if (state !== 'revoked') {
+        mockGetConfig.mockResolvedValue({
+          SiteConfig: { TVBoxEnabled: true, TVBoxPassword: 'tvbox-secret' },
+          UserConfig: {
+            Users:
+              state === 'deleted'
+                ? []
+                : [{ username: 'alice', role: 'user', banned: true }],
+          },
+        });
+      } else {
+        mockIsUserSessionCurrent.mockResolvedValue(false);
+      }
+      const { GET } = await import('./route');
+      const response = await GET(
+        new Request('http://localhost/api/tvbox/config?token=signed-token', {
+          headers: { 'x-tvbox-password': 'tvbox-secret' },
+        })
+      );
+      expect(response.status).toBe(401);
+      expect(mockGetAvailableApiSites).not.toHaveBeenCalled();
+    }
+  );
+
   it('rejects invalid signed tokens', async () => {
-    mockVerifyTVBoxToken.mockResolvedValue(null);
+    mockVerifyTVBoxTokenPayload.mockResolvedValue(null);
     const { GET } = await import('./route');
 
     const response = await GET(

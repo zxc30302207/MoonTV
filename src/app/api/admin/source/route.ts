@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { getConfig } from '@/lib/config';
+import { ConfigConflictError } from '@/lib/config-snapshot';
 import { getStorage } from '@/lib/db';
 import { IStorage } from '@/lib/types';
 
@@ -224,6 +225,8 @@ export async function POST(request: NextRequest) {
       }
     );
   } catch (error) {
+    if (error instanceof ConfigConflictError)
+      return NextResponse.json({ error: error.message }, { status: 409 });
     return NextResponse.json(
       {
         error: '視頻源管理操作失敗',

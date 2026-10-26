@@ -263,6 +263,7 @@ export async function GET(request: NextRequest) {
       if (failedSources.length > 0) {
         await safeWrite({ failedSources });
       }
+      await safeWrite({ complete: true });
     } finally {
       try {
         await writer.close();

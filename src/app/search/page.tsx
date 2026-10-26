@@ -38,6 +38,8 @@ function SearchPageClient() {
   const searchParams = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [retryVersion, setRetryVersion] = useState(0);
   const [showResults, setShowResults] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -177,7 +179,12 @@ function SearchPageClient() {
             selectedTitles.length === 0 || selectedTitles.includes(item.title);
           const yearMatch =
             selectedYears.length === 0 || selectedYears.includes(item.year);
-          return titleMatch && yearMatch;
+          return (
+            (filterSources.length === 0 ||
+              filterSources.includes(item.source_name)) &&
+            titleMatch &&
+            yearMatch
+          );
         });
         return [_key, filteredGroup] as [string, SearchResult[]];
       })
@@ -297,7 +304,7 @@ function SearchPageClient() {
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const fetchSearchResults = async (query: string) => {
+  const fetchSearchResults = async (query: string, sources: string[]) => {
     abortControllerRef.current?.abort();
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -306,14 +313,15 @@ function SearchPageClient() {
       setIsLoading(true);
       setSearchResults([]);
       setFailedSources([]);
+      setSearchError(null);
       setShowResults(true);
 
       const params = new URLSearchParams({ q: query.trim() });
       params.set('stream', streamEnabled ? '1' : '0');
 
       // 添加選中的搜索源到請求參數
-      if (searchSources.length > 0) {
-        params.set('sources', searchSources.join(','));
+      if (sources.length > 0) {
+        params.set('sources', sources.join(','));
       }
 
       // 添加超时时间与并发数参数
@@ -331,16 +339,18 @@ function SearchPageClient() {
       if (!streamEnabled) {
         const json = await response.json();
         if (controller.signal.aborted) return;
-        setSearchResults(json.results || []);
+        if (!Array.isArray(json.results)) throw new Error('搜尋回應格式錯誤');
+        setSearchResults(json.results);
         setFailedSources(json.failedSources || []);
         setIsLoading(false);
       } else {
-        if (!response.body) return;
+        if (!response.body) throw new Error('搜尋回應不完整');
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let done = false;
         let buffer = '';
         let firstResult = true;
+        let completionSeen = false;
 
         while (!done) {
           const { value, done: readerDone } = await reader.read();
@@ -356,6 +366,7 @@ function SearchPageClient() {
               if (!line.trim()) continue;
               try {
                 const json = JSON.parse(line);
+                if (json.complete === true) completionSeen = true;
                 if (json.pageResults?.length) {
                   setSearchResults((prev) => [...prev, ...json.pageResults]);
                   if (firstResult) {
@@ -365,7 +376,7 @@ function SearchPageClient() {
                 }
                 if (json.failedSources) setFailedSources(json.failedSources);
               } catch {
-                //
+                throw new Error('搜尋回應格式錯誤');
               }
             }
           }
@@ -374,19 +385,21 @@ function SearchPageClient() {
         if (buffer.trim()) {
           try {
             const json = JSON.parse(buffer);
+            if (json.complete === true) completionSeen = true;
             if (json.pageResults)
               setSearchResults((prev) => [...prev, ...json.pageResults]);
             if (json.failedSources) setFailedSources(json.failedSources);
           } catch {
-            //
+            throw new Error('搜尋回應格式錯誤');
           }
         }
 
+        if (!completionSeen) throw new Error('搜尋回應未完成');
         setIsLoading(false);
       }
     } catch (err: any) {
       if (controller.signal.aborted || err.name === 'AbortError') return;
-      setSearchResults([]);
+      setSearchError('搜尋未完成，已保留收到的結果。請重試。');
     } finally {
       if (
         abortControllerRef.current === controller &&
@@ -523,15 +536,15 @@ function SearchPageClient() {
   // 同步搜索源配置（当 sources 参数变化时）
   // 内容一致时保持原数组引用，避免多余的渲染与 URL 回写
   useEffect(() => {
-    if (!currentSources) return;
-    const nextSources = currentSources.split(',');
+    if (!currentQuery && !currentSources) return;
+    const nextSources = currentSources ? currentSources.split(',') : [];
     setSearchSources((prev) =>
       prev.length === nextSources.length &&
       prev.every((source, index) => source === nextSources[index])
         ? prev
         : nextSources
     );
-  }, [currentSources]);
+  }, [currentSources, currentQuery]);
 
   // 監聽查詢參數 q 的變化並觸發搜索（只在 q 變化時觸發）
   useEffect(() => {
@@ -540,13 +553,16 @@ function SearchPageClient() {
       setSearchQuery(currentQuery);
       setIsLoading(true);
       setShowResults(true);
-      fetchSearchResults(currentQuery);
+      fetchSearchResults(
+        currentQuery,
+        currentSources ? currentSources.split(',') : []
+      );
     } else {
       // 沒有搜索參數時，聚焦輸入框
       document.getElementById('searchInput')?.focus();
     }
     return () => abortControllerRef.current?.abort();
-  }, [currentQuery]); // 只依賴查詢參數 q，僅在 q 變化時觸發
+  }, [currentQuery, currentSources, retryVersion]);
 
   // 監聽URL參數變化，當URL變為無參數時重新掛載組件（只執行一次）
   useEffect(() => {
@@ -584,9 +600,7 @@ function SearchPageClient() {
 
     const params = new URLSearchParams();
     params.set('q', currentQuery);
-    if (searchSources.length > 0) {
-      params.set('sources', searchSources.join(','));
-    }
+    if (currentSources) params.set('sources', currentSources);
     if (filterSources.length > 0) {
       params.set('filter_sources', filterSources.join(','));
     }
@@ -610,7 +624,7 @@ function SearchPageClient() {
     window.history.replaceState({}, '', nextUrl);
   }, [
     currentQuery,
-    searchSources,
+    currentSources,
     filterSources,
     selectedTitles,
     selectedYears,
@@ -645,6 +659,12 @@ function SearchPageClient() {
     // 添加超時時間參數
     const timeoutSeconds = getRequestTimeout();
     urlParams.set('timeout', timeoutSeconds.toString());
+    if (
+      searchParams.get('q') === urlParams.get('q') &&
+      (searchParams.get('sources') || '') === (urlParams.get('sources') || '')
+    ) {
+      setRetryVersion((value) => value + 1);
+    }
     window.history.pushState({}, '', `/search?${urlParams.toString()}`);
   };
 
@@ -660,6 +680,12 @@ function SearchPageClient() {
     // 添加超時時間參數
     const timeoutSeconds = getRequestTimeout();
     urlParams.set('timeout', timeoutSeconds.toString());
+    if (
+      searchParams.get('q') === urlParams.get('q') &&
+      (searchParams.get('sources') || '') === (urlParams.get('sources') || '')
+    ) {
+      setRetryVersion((value) => value + 1);
+    }
     window.history.pushState({}, '', `/search?${urlParams.toString()}`);
   };
 
@@ -697,7 +723,20 @@ function SearchPageClient() {
             <div className='flex-shrink-0'>
               <SourceSelector
                 selectedSources={searchSources}
-                onChange={setSearchSources}
+                onChange={(sources) => {
+                  setSearchSources(sources);
+                  if (currentQuery) {
+                    const params = new URLSearchParams(window.location.search);
+                    if (sources.length)
+                      params.set('sources', sources.join(','));
+                    else params.delete('sources');
+                    window.history.replaceState(
+                      {},
+                      '',
+                      `/search?${params.toString()}`
+                    );
+                  }
+                }}
                 openFilter={openFilter}
                 setOpenFilter={setOpenFilter}
               />
@@ -734,6 +773,21 @@ function SearchPageClient() {
             </div>
           ) : showResults ? (
             <section className='mb-12'>
+              {searchError && (
+                <div
+                  role='alert'
+                  className='mb-3 text-amber-700 dark:text-amber-400'
+                >
+                  {searchError}{' '}
+                  <button
+                    type='button'
+                    onClick={() => setRetryVersion((value) => value + 1)}
+                    className='underline'
+                  >
+                    重試
+                  </button>
+                </div>
+              )}
               <div className='mb-3 flex items-center justify-between'>
                 <div className='flex items-center gap-4'>
                   <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
@@ -776,6 +830,11 @@ function SearchPageClient() {
                 </div>
               </div>
 
+              {filterSources.length > 0 && (
+                <p className='mb-2 text-xs text-gray-500'>
+                  來源篩選僅限搜尋結果；播放器仍可自動選源或換源。
+                </p>
+              )}
               {/* 篩選組件彈窗 */}
               {showResults && searchResults.length > 0 && (
                 <div className='flex gap-3 flex-wrap mb-7 max-w-[100%] mx-auto'>
@@ -858,7 +917,9 @@ function SearchPageClient() {
                 {sortedAggregatedResults.exact.length === 0 &&
                   sortedAggregatedResults.others.length === 0 && (
                     <div className='col-span-full text-center text-gray-500 py-8 dark:text-gray-400'>
-                      未找到相關結果
+                      {searchError
+                        ? '目前沒有可顯示的結果，搜尋尚未完成'
+                        : '未找到相關結果'}
                     </div>
                   )}
 

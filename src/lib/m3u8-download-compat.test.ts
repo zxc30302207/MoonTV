@@ -75,7 +75,7 @@ describe('M3U8 upstream and custom compatibility', () => {
     expect(result.url).toBe('https://cdn.test/final/show/index.m3u8');
     expect(result.tsUrlList).toEqual(['https://cdn.test/final/show/chunk.ts']);
     expect(fetcher).toHaveBeenCalledWith('https://cdn.test/final/video.key', {
-      signal: undefined,
+      signal: expect.any(AbortSignal),
     });
   });
   it('allows an authenticated proxy to supply its verified upstream URL', async () => {
@@ -115,7 +115,7 @@ describe('M3U8 upstream and custom compatibility', () => {
     ]);
     expect(result.isLive).toBe(false);
     expect(fetcher).toHaveBeenNthCalledWith(2, 'https://cdn.test/child.m3u8', {
-      signal: controller.signal,
+      signal: expect.any(AbortSignal),
     });
   });
   it('rejects failed playlist responses before parsing error-page content', async () => {

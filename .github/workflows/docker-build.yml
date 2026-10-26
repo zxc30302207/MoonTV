@@ -29,6 +29,20 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
+      - name: Validate image tag
+        env:
+          VERSION_TAG: ${{ inputs.version_tag }}
+          INCLUDE_LATEST: ${{ inputs.include_latest }}
+        run: |
+          if [ -n "$VERSION_TAG" ] && ! [[ "$VERSION_TAG" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$ ]]; then
+            echo "Invalid Docker tag: use at most 128 letters, digits, underscores, periods or hyphens."
+            exit 1
+          fi
+          if [ -z "$VERSION_TAG" ] && [ "$INCLUDE_LATEST" != "true" ]; then
+            echo "Select latest or provide a version tag."
+            exit 1
+          fi
+
       - name: 设置 Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -63,18 +77,21 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: 输出镜像信息
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+          VERSION_TAG: ${{ inputs.version_tag }}
+          INCLUDE_LATEST: ${{ inputs.include_latest }}
         run: |
-          echo "### 🐳 Docker镜像构建成功！" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**镜像标签：**" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          if [ -n "${{ inputs.version_tag }}" ]; then
-            echo "**版本标签：** ${{ inputs.version_tag }}" >> $GITHUB_STEP_SUMMARY
-          fi
-          if [ "${{ inputs.include_latest }}" == "true" ]; then
-            echo "**包含latest标签：** 是" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "**包含latest标签：** 否" >> $GITHUB_STEP_SUMMARY
-          fi
+          {
+            printf '%s\n' '### 🐳 Docker镜像构建成功！' '' '**镜像标签：**' '```'
+            printf '%s\n' "$IMAGE_TAGS"
+            printf '%s\n' '```'
+            if [ -n "$VERSION_TAG" ]; then
+              printf '**版本标签：** %s\n' "$VERSION_TAG"
+            fi
+            if [ "$INCLUDE_LATEST" = "true" ]; then
+              printf '%s\n' '**包含latest标签：** 是'
+            else
+              printf '%s\n' '**包含latest标签：** 否'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

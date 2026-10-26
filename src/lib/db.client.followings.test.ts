@@ -130,7 +130,8 @@ describe('following client session isolation', () => {
               title: 'Show',
               total_episodes: updated ? 3 : 2,
               updated,
-            })}\n\n` + 'data: {"type":"complete","total":1}\n\n'
+            })}\n\n` +
+              'data: {"type":"item_removed","key":"normal+1"}\n\ndata: {"type":"complete","total":1}\n\n'
           ),
         });
         expect(await pending).toEqual({});
@@ -164,7 +165,19 @@ describe('following client session isolation', () => {
     fetchMock
       .mockResolvedValueOnce({
         ...response({}),
-        body: { getReader: () => ({ read: async () => ({ done: true }) }) },
+        body: {
+          getReader: () => ({
+            read: jest
+              .fn()
+              .mockResolvedValueOnce({
+                done: false,
+                value: new TextEncoder().encode(
+                  'data: {"type":"item_removed","key":"normal+1"}\n\ndata: {"type":"complete","total":1}\n\n'
+                ),
+              })
+              .mockResolvedValueOnce({ done: true }),
+          }),
+        },
       })
       .mockResolvedValueOnce(response({}));
     expect(
@@ -192,6 +205,85 @@ describe('following client session isolation', () => {
     finish(response({ date: '2026-10-06', items: [{ title: 'Private' }] }));
     expect(await pending).toBeNull();
     expect(localStorage.getItem('moontv_cache_bob')).toBeNull();
+  });
+  it('rejects an interrupted refresh instead of returning a successful cached result', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ...response({}),
+      body: { getReader: () => ({ read: async () => ({ done: true }) }) },
+    });
+    await expect(api.refreshFollowingsStream({})).rejects.toThrow(
+      '追更刷新連線中斷'
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it('preserves successful streamed updates over an older cache when the stream breaks', async () => {
+    const item = {
+      title: 'Show',
+      search_title: 'Show',
+      source_name: 'Normal',
+      year: '2026',
+      cover: '',
+      total_episodes: 2,
+      watched_episodes: 1,
+      save_time: 1,
+    };
+    fetchMock.mockResolvedValueOnce(response({}));
+    await api.saveFollowing('normal', '1', item);
+    fetchMock.mockResolvedValueOnce({
+      ...response({}),
+      body: {
+        getReader: () => ({
+          read: jest
+            .fn()
+            .mockResolvedValueOnce({
+              done: false,
+              value: new TextEncoder().encode(
+                'data: {"type":"item_result","key":"normal+1","source":"normal","id":"1","total_episodes":9}\n\n'
+              ),
+            })
+            .mockRejectedValueOnce(new Error('broken')),
+        }),
+      },
+    });
+    await expect(
+      api.refreshFollowingsStream({ 'normal+1': item })
+    ).rejects.toThrow('broken');
+    expect(
+      JSON.parse(localStorage.getItem('moontv_cache_alice') || '{}').followings
+        .data['normal+1'].total_episodes
+    ).toBe(9);
+  });
+  it('counts a removed item as processed without claiming it was refreshed', async () => {
+    const onComplete = jest.fn();
+    const onItemRemoved = jest.fn();
+    fetchMock
+      .mockResolvedValueOnce({
+        ...response({}),
+        body: {
+          getReader: () => ({
+            read: jest
+              .fn()
+              .mockResolvedValueOnce({
+                done: false,
+                value: new TextEncoder().encode(
+                  'data: {"type":"item_removed","key":"normal+1"}\n\ndata: {"type":"complete","total":1,"successCount":0}\n\n'
+                ),
+              })
+              .mockResolvedValueOnce({ done: true }),
+          }),
+        },
+      })
+      .mockResolvedValueOnce(response({}));
+    await api.refreshFollowingsStream({}, { onComplete, onItemRemoved });
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        processedCount: 1,
+        removedCount: 1,
+        successCount: 0,
+        total: 1,
+      })
+    );
+    expect(onItemRemoved).toHaveBeenCalledWith('normal+1');
   });
 });
 

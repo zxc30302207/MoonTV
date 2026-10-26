@@ -3,6 +3,10 @@
 import type { NextRequest } from 'next/server';
 
 const mockGetConfig = jest.fn();
+const mockGetVerifiedAuthInfo = jest.fn();
+jest.mock('@/lib/auth-server', () => ({
+  getVerifiedAuthInfo: mockGetVerifiedAuthInfo,
+}));
 
 jest.mock('@/lib/config', () => ({
   getConfig: mockGetConfig,
@@ -22,6 +26,10 @@ describe('/api/danmaku/match', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.restoreAllMocks();
+    mockGetVerifiedAuthInfo.mockResolvedValue({
+      username: 'alice',
+      role: 'user',
+    });
     process.env = { ...originalEnv };
     delete process.env.DANDANPLAY_APP_ID;
     delete process.env.DANDANPLAY_APP_SECRET;
@@ -38,6 +46,58 @@ describe('/api/danmaku/match', () => {
 
   afterAll(() => {
     process.env = originalEnv;
+  });
+
+  it('rejects revoked users before contacting upstream', async () => {
+    mockGetVerifiedAuthInfo.mockResolvedValue(null);
+    global.fetch = jest.fn();
+    const { POST } = await import('./route');
+    const response = await POST(
+      new Request('http://localhost/api/danmaku/match', {
+        method: 'POST',
+        body: '{}',
+      }) as unknown as NextRequest
+    );
+    expect(response.status).toBe(401);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'null',
+    '[1]',
+    'not json',
+    JSON.stringify({ fileName: 'x'.repeat(65536) }),
+  ])(
+    'rejects malformed or oversized match input without forwarding',
+    async (body) => {
+      global.fetch = jest.fn();
+      const { POST } = await import('./route');
+      const response = await POST(
+        new Request('http://localhost/api/danmaku/match', {
+          method: 'POST',
+          body,
+        }) as unknown as NextRequest
+      );
+      expect(response.status).toBe(400);
+      expect(global.fetch).not.toHaveBeenCalled();
+    }
+  );
+
+  it('handles oversized upstream response inside the route error boundary', async () => {
+    global.fetch = jest.fn(
+      async () =>
+        new Response('{}', {
+          headers: { 'content-length': String(17 * 1024 * 1024) },
+        })
+    ) as unknown as typeof fetch;
+    const { POST } = await import('./route');
+    const response = await POST(
+      new Request('http://localhost/api/danmaku/match', {
+        method: 'POST',
+        body: '{"fileName":"test"}',
+      }) as unknown as NextRequest
+    );
+    expect(response.status).toBe(502);
   });
 
   it('proxies match requests to the default danmu upstream', async () => {

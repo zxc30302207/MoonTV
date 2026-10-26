@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { getVerifiedAuthInfo } from '@/lib/auth-server';
+import { readBoundedText } from '@/lib/bounded-response';
 import {
   buildDanmakuUpstreamHeaders,
   buildDanmakuUpstreamUrl,
@@ -14,7 +16,28 @@ const REQUEST_TIMEOUT_MS = 10000;
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as { fileName?: unknown };
+    if (!(await getVerifiedAuthInfo(request)))
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    let body: { fileName?: unknown };
+    try {
+      const text = await readBoundedText(
+        new Response(request.body),
+        64 * 1024,
+        REQUEST_TIMEOUT_MS
+      );
+      const parsed: unknown = JSON.parse(text);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+        return NextResponse.json(
+          { error: '請提供合法 JSON 物件' },
+          { status: 400 }
+        );
+      body = parsed as { fileName?: unknown };
+    } catch {
+      return NextResponse.json(
+        { error: '請求格式錯誤、過大或逾時' },
+        { status: 400 }
+      );
+    }
     if (typeof body.fileName !== 'string' || !body.fileName.trim()) {
       return NextResponse.json({ error: 'fileName 不能為空' }, { status: 400 });
     }
@@ -43,7 +66,7 @@ export async function POST(request: NextRequest) {
       }
     );
 
-    return proxyResponse(response, 'application/json');
+    return await proxyResponse(response, 'application/json');
   } catch (error) {
     return NextResponse.json(
       {
@@ -72,7 +95,11 @@ function createTimeoutSignal(timeoutMs: number): AbortSignal {
 }
 
 async function proxyResponse(response: Response, fallbackContentType: string) {
-  const body = await response.text();
+  const body = await readBoundedText(
+    response,
+    16 * 1024 * 1024,
+    REQUEST_TIMEOUT_MS
+  );
   return new NextResponse(body, {
     status: response.status,
     headers: {

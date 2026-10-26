@@ -159,7 +159,7 @@ export class StreamingTransmuxer {
   private isFirstSegment = true;
   private duration: number;
   private writeError: Error | null = null; // 跟蹤寫入錯誤
-  private pendingWrites: Promise<void>[] = []; // 跟蹤待完成的寫入操作
+  private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(
     writer?: WritableStreamDefaultWriter<Uint8Array>,
@@ -172,35 +172,33 @@ export class StreamingTransmuxer {
       duration: this.duration,
     });
 
-    // 監聽數據事件 - 直接寫入流
-    this.transmuxer.on('data', async (segment: any) => {
-      // 如果已經有寫入錯誤，不再處理新的數據
-      if (this.writeError) {
-        return;
-      }
+    this.bindDataHandler();
+  }
 
-      try {
-        // 對於第一個片段，需要寫入初始化段
-        if (this.isFirstSegment && segment.initSegment) {
-          if (this.writer) {
-            await this.writer.write(new Uint8Array(segment.initSegment));
+  private bindDataHandler(): void {
+    // mux.js emits synchronously, but writing may take arbitrarily long. Chain
+    // every init/data pair so finish cannot close the writer ahead of its data.
+    this.transmuxer.on('data', (segment: any) => {
+      const init = segment.initSegment
+        ? new Uint8Array(segment.initSegment)
+        : null;
+      const data = segment.data ? new Uint8Array(segment.data) : null;
+      this.writeQueue = this.writeQueue.then(async () => {
+        if (this.writeError) return;
+        try {
+          if (this.isFirstSegment && init) {
+            if (this.writer) await this.writer.write(init);
+            this.isFirstSegment = false;
           }
-          this.isFirstSegment = false;
+          if (data && this.writer) await this.writer.write(data);
+          this.segmentCount++;
+        } catch (error) {
+          // Store rather than throw from an unobserved event listener. Both
+          // pushAndTransmux and finish propagate this failure to the downloader.
+          this.writeError =
+            error instanceof Error ? error : new Error(String(error));
         }
-
-        // 寫入數據段
-        if (segment.data && this.writer) {
-          await this.writer.write(new Uint8Array(segment.data));
-        }
-
-        this.segmentCount++;
-      } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error('寫入 MP4 數據失敗:', error);
-        this.writeError =
-          error instanceof Error ? error : new Error(String(error));
-        throw error;
-      }
+      });
     });
   }
 
@@ -223,9 +221,7 @@ export class StreamingTransmuxer {
     this.transmuxer.push(tsData);
     this.transmuxer.flush();
 
-    // 等待一小段時間，讓 data 事件有機會執行並捕獲錯誤
-    // 注意：這是一個折中方案，因為 muxjs 的 data 事件是異步的
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await this.writeQueue;
 
     // 再次檢查是否有寫入錯誤
     if (this.writeError) {
@@ -238,15 +234,9 @@ export class StreamingTransmuxer {
    */
   async finish(): Promise<void> {
     this.transmuxer.flush();
-
-    if (this.writer) {
-      try {
-        await this.writer.close();
-      } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error('關閉寫入流失敗:', error);
-      }
-    }
+    await this.writeQueue;
+    if (this.writeError) throw this.writeError;
+    if (this.writer) await this.writer.close();
   }
 
   /**
@@ -267,27 +257,8 @@ export class StreamingTransmuxer {
       duration: this.duration,
     });
 
-    // 重新綁定事件
-    this.transmuxer.on('data', async (segment: any) => {
-      try {
-        if (this.isFirstSegment && segment.initSegment) {
-          if (this.writer) {
-            await this.writer.write(new Uint8Array(segment.initSegment));
-          }
-          this.isFirstSegment = false;
-        }
-
-        if (segment.data && this.writer) {
-          await this.writer.write(new Uint8Array(segment.data));
-        }
-
-        this.segmentCount++;
-      } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error('寫入 MP4 數據失敗:', error);
-        throw error;
-      }
-    });
+    this.writeError = null;
+    this.bindDataHandler();
   }
 }
 

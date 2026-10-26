@@ -5,7 +5,9 @@ import {
   getAuthSignaturePayload,
   getVerifiedAuthCookie,
 } from './auth-cookie';
+import { safeEqual } from './auth-crypto';
 import { getConfig } from './config';
+import { getStorage } from './db';
 
 export type { AuthCookieData };
 export { getAuthSignaturePayload };
@@ -22,7 +24,12 @@ export async function getVerifiedAuthInfo(
   }
 
   if (!authInfo.username || !authInfo.role) return null;
-  return (await isActiveUser(authInfo.username, authInfo.role))
+  if (!(await isActiveUser(authInfo.username, authInfo.role))) return null;
+  return (await isUserSessionCurrent(
+    authInfo.username,
+    Number(authInfo.timestamp),
+    authInfo.sessionVersion
+  ))
     ? authInfo
     : null;
 }
@@ -45,4 +52,32 @@ async function isActiveUser(
     (entry) => entry.username === username
   );
   return Boolean(user && !user.banned && user.role === role);
+}
+
+// Environment-owned sessions are signed by the current PASSWORD. Database
+// accounts carry a credential generation, so password changes and username
+// reuse revoke old tokens even in the same millisecond. Legacy strings retain
+// their existing timestamp contract until a password change upgrades them.
+export async function isUserSessionCurrent(
+  username: string,
+  timestamp: number,
+  sessionVersion?: string
+): Promise<boolean> {
+  if (!Number.isFinite(timestamp)) return false;
+  if (username === process.env.USERNAME) return true;
+  const storage = getStorage();
+  if (!storage) return false;
+  const state = await storage.getUserSessionState(username);
+  if (!state.exists) return false;
+  if (state.sessionVersion) {
+    return (
+      typeof sessionVersion === 'string' &&
+      safeEqual(sessionVersion, state.sessionVersion)
+    );
+  }
+  return (
+    sessionVersion === undefined &&
+    Number.isFinite(state.notBefore) &&
+    timestamp > state.notBefore
+  );
 }

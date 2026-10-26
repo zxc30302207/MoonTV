@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
-import { db, getStorage } from '@/lib/db';
+import { ConfigConflictError } from '@/lib/config-snapshot';
+import { getStorage } from '@/lib/db';
 import { IStorage } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -47,14 +48,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const verifiedCurrentPassword = await db.verifyUser(
-      username,
-      currentPassword
-    );
-    if (!verifiedCurrentPassword) {
-      return NextResponse.json({ error: '目前密碼錯誤' }, { status: 401 });
-    }
-
     // 獲取存儲實例
     const storage: IStorage | null = getStorage();
     if (!storage || typeof storage.changePassword !== 'function') {
@@ -65,10 +58,22 @@ export async function POST(request: NextRequest) {
     }
 
     // 修改密碼
-    await storage.changePassword(username, newPassword);
+    await storage.changePassword(username, newPassword, currentPassword);
 
-    return NextResponse.json({ ok: true });
+    const response = NextResponse.json({ ok: true, requiresLogin: true });
+    response.cookies.set('auth', '', {
+      path: '/',
+      maxAge: 0,
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: new URL(request.url).protocol === 'https:',
+    });
+    return response;
   } catch (error) {
+    if (error instanceof ConfigConflictError)
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    if (error instanceof Error && error.message === '目前密碼錯誤')
+      return NextResponse.json({ error: error.message }, { status: 401 });
     return NextResponse.json(
       {
         error: '修改密碼失敗',

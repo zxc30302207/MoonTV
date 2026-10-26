@@ -23,6 +23,10 @@ import {
   resolveDanmakuEpisodeNumber,
 } from '@/lib/danmaku.client';
 import {
+  readDanmakuEpisodeMapping,
+  saveDanmakuEpisodeMapping,
+} from '@/lib/danmaku-episode-mapping';
+import {
   deleteSkipConfig,
   generateStorageKey,
   getAllPlayRecords,
@@ -45,6 +49,7 @@ import {
   savePreferredQualityHeight,
 } from '@/lib/hls-quality';
 import { describeHlsError, PlaybackRecovery } from '@/lib/playback-recovery';
+import { PlaybackSelection } from '@/lib/playback-selection';
 import { getDefaultPlaybackSaveInterval } from '@/lib/playback-settings';
 import { isDirectM3U8Url, sanitizePlaybackResult } from '@/lib/playback-url';
 import {
@@ -326,6 +331,12 @@ export function usePlayEngine() {
     intro_time: 0,
     outro_time: 0,
   });
+  const selectionRef = useRef(new PlaybackSelection());
+  useEffect(() => {
+    const selection = selectionRef.current;
+    selection.activate();
+    return () => selection.dispose();
+  }, []);
   const skipConfigRef = useRef(skipConfig);
   const restartPrefetchForSkipRef = useRef<(() => void) | null>(null);
   /** 已提示過的緩存停止原因（狀態 + 文案），避免同一原因反復閃現 */
@@ -1065,6 +1076,12 @@ export function usePlayEngine() {
 
   // 進入頁面時直接獲取全部源信息
   useEffect(() => {
+    const selection = selectionRef.current;
+    const revision = selection.capture();
+    const controller = new AbortController();
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    const active = () => !controller.signal.aborted && selection.isActive();
+    const current = () => active() && selection.isCurrent(revision);
     const fetchSourcesData = async (
       query: string,
       onResult?: (results: SearchResult[]) => void
@@ -1082,12 +1099,16 @@ export function usePlayEngine() {
         const response = await fetch(
           `/api/search?q=${encodeURIComponent(
             query.trim()
-          )}&timeout=${timeoutSeconds}&stream=1&concurrency=${searchConcurrency}`
+          )}&timeout=${timeoutSeconds}&stream=1&concurrency=${searchConcurrency}`,
+          { signal: controller.signal }
         );
+        if (!active()) {
+          void response.body?.cancel().catch(() => undefined);
+          return [];
+        }
         if (!response.ok) throw new Error('搜索失敗');
 
-        const reader: ReadableStreamDefaultReader<Uint8Array> | undefined =
-          response.body?.getReader();
+        reader = response.body?.getReader();
         if (!reader) throw new Error('無法讀取搜索流');
 
         const decoder = new TextDecoder();
@@ -1096,6 +1117,7 @@ export function usePlayEngine() {
 
         while (!done) {
           const { value, done: readerDone } = await reader.read();
+          if (!active()) return [];
           done = readerDone;
 
           if (value) {
@@ -1152,9 +1174,10 @@ export function usePlayEngine() {
 
         return aggregatedResults;
       } catch (err) {
+        if (!active()) return [];
         setSourceSearchError(err instanceof Error ? err.message : '搜索失敗');
-        setAvailableSources([]);
-        return [];
+        setSourceSearchLoading(false);
+        return aggregatedResults;
       }
     };
 
@@ -1162,6 +1185,7 @@ export function usePlayEngine() {
      * 初始化播放數據
      */
     function initDetail(rawDetailData: SearchResult) {
+      if (!current()) return;
       const detailData = sanitizePlaybackResult(rawDetailData);
       if (detailData.episodes.length === 0) {
         setError('此片源沒有可播放的 m3u8 地址，請切換其他片源。');
@@ -1206,7 +1230,7 @@ export function usePlayEngine() {
 
       setLoadingStage('ready');
       setLoadingMessage('✨ 准備就緒，即將開始播放...');
-      setTimeout(() => setLoading(false), 500);
+      selection.schedule(revision, () => setLoading(false), 500);
     }
 
     const initAll = async () => {
@@ -1259,6 +1283,7 @@ export function usePlayEngine() {
         }
       });
 
+      if (!current()) return;
       // 流式搜索結束：如果目標源沒找到，就 fallback
       if (!detailData && allResults.length > 0) {
         detailData = allResults[0];
@@ -1275,7 +1300,11 @@ export function usePlayEngine() {
         setLoadingStage('preferring');
         setLoadingMessage('🚀 正在優選播放源...');
         try {
-          const bestSource = await preferBestSource(allResults);
+          const bestSource = await preferBestSource(
+            allResults,
+            () => !current()
+          );
+          if (!current()) return;
           // preferBestSource 內部已經排序了 availableSources 並設置了 precomputedVideoInfo
           detailData = bestSource;
         } catch (err) {
@@ -1290,7 +1319,11 @@ export function usePlayEngine() {
       }
     };
 
-    initAll();
+    void initAll();
+    return () => {
+      controller.abort();
+      void reader?.cancel().catch(() => undefined);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1384,7 +1417,15 @@ export function usePlayEngine() {
             manualDanmakuAnime = selectedDanmakuAnime;
           }
           const manualDanmaku = manualDanmakuAnime
-            ? findDanmakuEpisodeFromSearch([manualDanmakuAnime], epNum)
+            ? readDanmakuEpisodeMapping(
+                {
+                  source: currentSourceRef.current,
+                  id: currentIdRef.current,
+                  index: currentEpisodeIndexRef.current,
+                  title: currentEpisodeTitle,
+                },
+                manualDanmakuAnime
+              ) || findDanmakuEpisodeFromSearch([manualDanmakuAnime], epNum)
             : null;
           if (manualDanmaku && manualDanmakuAnime) {
             const url = getDanmakuUrlByEpisodeId(
@@ -1564,12 +1605,14 @@ export function usePlayEngine() {
 
   // 播放記錄處理
   useEffect(() => {
+    const revision = selectionRef.current.capture();
     // 僅在初次掛載時檢查播放記錄
     const initFromHistory = async () => {
       if (!currentSource || !currentId) return;
 
       try {
         const allRecords = await getAllPlayRecords();
+        if (!selectionRef.current.isCurrent(revision)) return;
         const key = generateStorageKey(currentSource, currentId);
         const record = allRecords[key];
 
@@ -1616,12 +1659,14 @@ export function usePlayEngine() {
 
   // 跳過片頭片尾配置處理
   useEffect(() => {
+    const revision = selectionRef.current.capture();
     // 僅在初次掛載時檢查跳過片頭片尾配置
     const initSkipConfig = async () => {
       if (!currentSource || !currentId) return;
 
       try {
         const config = await getSkipConfig(currentSource, currentId);
+        if (!selectionRef.current.isCurrent(revision)) return;
         if (config) {
           setSkipConfig(config);
         }
@@ -1645,6 +1690,7 @@ export function usePlayEngine() {
     newTitle: string,
     options?: { auto?: boolean }
   ) => {
+    const revision = selectionRef.current.begin();
     try {
       // 用戶手動換源時清空自動換源的"已試過"記錄與次數；
       // 自動換源則保留，否則會在 A→B→A 之間反復橫跳。
@@ -1675,6 +1721,7 @@ export function usePlayEngine() {
         }
       }
 
+      if (!selectionRef.current.isCurrent(revision)) return;
       const rawNewDetail = availableSources.find(
         (source) => source.source === newSource && source.id === newId
       );
@@ -1720,20 +1767,29 @@ export function usePlayEngine() {
       window.history.replaceState({}, '', newUrl.toString());
 
       setError(null);
+      setLoading(false);
       setVideoTitle(newDetail.title || newTitle);
       setVideoYear(newDetail.year);
       setVideoCover(newDetail.poster);
       setVideoDoubanId(newDetail.douban_id || 0);
+      currentSourceRef.current = newSource;
+      currentIdRef.current = newId;
+      currentEpisodeIndexRef.current = targetIndex;
       setCurrentSource(newSource);
       setCurrentId(newId);
       setDetail(newDetail);
       setCurrentEpisodeIndex(targetIndex);
 
       // 設置一個短暫的延時，確保DOM已更新
-      setTimeout(() => {
-        setIsVideoLoading(false);
-      }, 100);
+      selectionRef.current.schedule(
+        revision,
+        () => {
+          setIsVideoLoading(false);
+        },
+        100
+      );
     } catch (err) {
+      if (!selectionRef.current.isCurrent(revision)) return;
       // 隱藏換源加載狀態
       setIsVideoLoading(false);
       setError(err instanceof Error ? err.message : '換源失敗');
@@ -1809,7 +1865,14 @@ export function usePlayEngine() {
 
   // 處理集數切換
   const handleEpisodeChange = async (episodeNumber: number) => {
-    if (episodeNumber === currentEpisodeIndexRef.current) return;
+    const revision = selectionRef.current.begin();
+    if (detailRef.current) setLoading(false);
+    if (episodeNumber === currentEpisodeIndexRef.current) {
+      isEpisodeSwitchingRef.current = false;
+      setIsVideoLoading(false);
+      restoreDanmakuVisibility();
+      return;
+    }
     if (episodeNumber >= 0 && episodeNumber < totalEpisodes) {
       setSelectedState(false);
       isEpisodeSwitchingRef.current = true;
@@ -1824,6 +1887,7 @@ export function usePlayEngine() {
       // 檢查是否有歷史播放記錄
       try {
         const allRecords = await getAllPlayRecords();
+        if (!selectionRef.current.isCurrent(revision)) return;
         const key = generateStorageKey(
           currentSourceRef.current,
           currentIdRef.current
@@ -1839,8 +1903,11 @@ export function usePlayEngine() {
           resumeTimeRef.current = 0;
         }
       } catch {
+        if (!selectionRef.current.isCurrent(revision)) return;
         resumeTimeRef.current = 0;
       }
+      if (!selectionRef.current.isCurrent(revision)) return;
+      currentEpisodeIndexRef.current = episodeNumber;
       setCurrentEpisodeIndex(episodeNumber);
     }
   };
@@ -1849,6 +1916,8 @@ export function usePlayEngine() {
     const d = detailRef.current;
     const idx = currentEpisodeIndexRef.current;
     if (d && d.episodes && idx > 0) {
+      selectionRef.current.begin();
+      setLoading(false);
       setSelectedState(false);
       isEpisodeSwitchingRef.current = true;
       hideDanmakuDuringEpisodeSwitch();
@@ -1858,6 +1927,8 @@ export function usePlayEngine() {
       if (artPlayerRef.current) {
         setCurrentTooltip('');
       }
+      currentEpisodeIndexRef.current = idx - 1;
+      resumeTimeRef.current = 0;
       setCurrentEpisodeIndex(idx - 1);
     }
   };
@@ -1866,6 +1937,8 @@ export function usePlayEngine() {
     const d = detailRef.current;
     const idx = currentEpisodeIndexRef.current;
     if (d && d.episodes && idx < d.episodes.length - 1) {
+      selectionRef.current.begin();
+      setLoading(false);
       setSelectedState(false);
       isEpisodeSwitchingRef.current = true;
       hideDanmakuDuringEpisodeSwitch();
@@ -1875,6 +1948,8 @@ export function usePlayEngine() {
       if (artPlayerRef.current) {
         setCurrentTooltip('');
       }
+      currentEpisodeIndexRef.current = idx + 1;
+      resumeTimeRef.current = 0;
       setCurrentEpisodeIndex(idx + 1);
     }
   };
@@ -3436,9 +3511,18 @@ export function usePlayEngine() {
         const d = detailRef.current;
         const idx = currentEpisodeIndexRef.current;
         if (d && d.episodes && idx < d.episodes.length - 1) {
-          setTimeout(() => {
-            handleNextEpisode();
-          }, 1000);
+          const revision = selectionRef.current.capture();
+          selectionRef.current.schedule(
+            revision,
+            () => {
+              if (
+                detailRef.current === d &&
+                currentEpisodeIndexRef.current === idx
+              )
+                handleNextEpisode();
+            },
+            1000
+          );
         }
       });
 
@@ -3698,6 +3782,19 @@ export function usePlayEngine() {
     } catch {
       // Storage can be unavailable in private browsing; playback still works.
     }
+    saveDanmakuEpisodeMapping(
+      {
+        source: currentSourceRef.current,
+        id: currentIdRef.current,
+        index: currentEpisodeIndexRef.current,
+        title:
+          detailRef.current?.episodes_titles?.[
+            currentEpisodeIndexRef.current
+          ] || '',
+      },
+      anime,
+      episodeNumber ?? 1
+    );
     setSelectedDanmakuSource(sourceName);
     selectedDanmakuSourceRef.current = sourceName;
     setShowDanmakuSelector(false);

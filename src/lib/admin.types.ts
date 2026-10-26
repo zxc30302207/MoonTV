@@ -26,6 +26,7 @@ export interface AdminConfig {
       username: string;
       role: 'user' | 'admin' | 'owner';
       banned?: boolean;
+      deletionPending?: boolean;
       group?: string;
       lastOnline?: number;
     }[];

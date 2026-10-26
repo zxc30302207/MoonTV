@@ -1,7 +1,13 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createHmac } from 'crypto';
 
 import { AdminConfig } from './admin.types';
-import { normalizePasswordForStorage, verifyPassword } from './password';
+import {
+  ConfigConflictError,
+  getConfigSnapshot,
+  markConfigSnapshot,
+} from './config-snapshot';
+import { hashPassword, verifyPassword } from './password';
 import {
   Favorite,
   Following,
@@ -14,7 +20,14 @@ import {
 const SEARCH_HISTORY_LIMIT = 20;
 const DEFAULT_TABLE = 'moontv_kv';
 
-type KvRow = {
+type Credential =
+  | string
+  | { hash: string; revokedBefore: number; generation?: string };
+function credentialHash(value: Credential): string {
+  return typeof value === 'string' ? value : value.hash;
+}
+
+export type KvRow = {
   key: string;
   value: unknown;
 };
@@ -41,7 +54,11 @@ async function withRetry<T>(
     } catch (error: unknown) {
       const isLastAttempt = attempt === maxRetries - 1;
       const message =
-        error instanceof Error ? error.message : String(error || '');
+        error instanceof Error
+          ? error.message
+          : error && typeof error === 'object' && 'message' in error
+          ? String(error.message)
+          : String(error || '');
       const isTransient =
         message.includes('fetch failed') ||
         message.includes('network') ||
@@ -84,28 +101,24 @@ export class SupabaseStorage implements IStorage {
   }
 
   private async setValue(key: string, value: unknown): Promise<void> {
-    await withRetry(async () => {
-      const { error } = await this.client.from(tableName()).upsert(
-        {
-          key,
-          value,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'key' }
-      );
+    const { error } = await this.client.from(tableName()).upsert(
+      {
+        key,
+        value,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'key' }
+    );
 
-      if (error) throw error;
-    });
+    if (error) throw error;
   }
 
   private async deleteKey(key: string): Promise<void> {
-    await withRetry(async () => {
-      const { error } = await this.client
-        .from(tableName())
-        .delete()
-        .eq('key', key);
-      if (error) throw error;
-    });
+    const { error } = await this.client
+      .from(tableName())
+      .delete()
+      .eq('key', key);
+    if (error) throw error;
   }
 
   private async listByPrefix<T>(prefix: string): Promise<Record<string, T>> {
@@ -133,14 +146,12 @@ export class SupabaseStorage implements IStorage {
   }
 
   private async deleteByPrefix(prefix: string): Promise<void> {
-    await withRetry(async () => {
-      const { error } = await this.client
-        .from(tableName())
-        .delete()
-        .like('key', `${prefix.replace(/[\\%_]/g, '\\$&')}%`);
+    const { error } = await this.client
+      .from(tableName())
+      .delete()
+      .like('key', `${prefix.replace(/[\\%_]/g, '\\$&')}%`);
 
-      if (error) throw error;
-    });
+    if (error) throw error;
   }
 
   private prKey(user: string, key: string) {
@@ -159,21 +170,27 @@ export class SupabaseStorage implements IStorage {
     key: string,
     record: PlayRecord
   ): Promise<void> {
-    if (record.title) {
-      const prefix = `u:${userName}:pr:`;
-      const records = await this.listByPrefix<PlayRecord>(prefix);
-
-      await Promise.all(
-        Object.entries(records)
-          .filter(
-            ([recordKey, existing]) =>
-              recordKey !== key && existing.title === record.title
-          )
-          .map(([recordKey]) => this.deleteKey(`${prefix}${recordKey}`))
-      );
-    }
-
+    // A title is not an identity (remakes and unrelated works can share it).
+    // Update exactly this source/id; never scan/delete another work on progress saves.
     await this.setValue(this.prKey(userName, key), record);
+  }
+
+  async updatePlayRecordIfUnchanged(
+    userName: string,
+    key: string,
+    previous: PlayRecord,
+    next: PlayRecord
+  ): Promise<boolean> {
+    return this.compareAndSetValue(this.prKey(userName, key), previous, next);
+  }
+
+  async updateFavoriteIfUnchanged(
+    userName: string,
+    key: string,
+    previous: Favorite,
+    next: Favorite
+  ): Promise<boolean> {
+    return this.compareAndSetValue(this.favKey(userName, key), previous, next);
   }
 
   async getAllPlayRecords(
@@ -270,45 +287,227 @@ export class SupabaseStorage implements IStorage {
   }
 
   async registerUser(userName: string, password: string): Promise<void> {
-    const hashedPassword = await normalizePasswordForStorage(password);
+    const hashedPassword = await hashPassword(password);
     // The key constraint, not a prior existence check, arbitrates concurrent
     // registrations. Never replace another registration's password.
     const { error } = await this.client.from(tableName()).insert({
       key: this.userPwdKey(userName),
-      value: hashedPassword,
+      value: { hash: hashedPassword, revokedBefore: Date.now() },
       updated_at: new Date().toISOString(),
     });
     if (error) throw error;
   }
 
-  async verifyUser(userName: string, password: string): Promise<boolean> {
-    const stored = await this.getValue<string>(this.userPwdKey(userName));
-    if (stored === null) return false;
+  private sessionVersion(
+    userName: string,
+    credential: Exclude<Credential, string>
+  ): string {
+    return createHmac('sha256', process.env.PASSWORD || '')
+      .update(
+        JSON.stringify([userName, credential.hash, credential.generation || ''])
+      )
+      .digest('hex');
+  }
 
+  async verifyUserSession(
+    userName: string,
+    password: string
+  ): Promise<{ valid: boolean; sessionVersion?: string }> {
+    const stored = await this.getValue<Credential>(this.userPwdKey(userName));
+    if (stored === null) return { valid: false };
     const { valid, upgradedHash } = await verifyPassword(
       password,
-      ensureString(stored)
+      credentialHash(stored)
     );
+    if (!valid) return { valid: false };
+    const verified = upgradedHash
+      ? typeof stored === 'string'
+        ? upgradedHash
+        : { ...stored, hash: upgradedHash }
+      : stored;
+    if (
+      upgradedHash &&
+      !(await this.compareAndSetValue(
+        this.userPwdKey(userName),
+        stored,
+        verified
+      ))
+    )
+      return { valid: false };
+    return {
+      valid: true,
+      ...(typeof verified === 'string'
+        ? {}
+        : { sessionVersion: this.sessionVersion(userName, verified) }),
+    };
+  }
 
-    if (valid && upgradedHash) {
-      await this.setValue(this.userPwdKey(userName), upgradedHash);
-    }
+  async verifyUser(userName: string, password: string): Promise<boolean> {
+    return (await this.verifyUserSession(userName, password)).valid;
+  }
 
-    return valid;
+  async getUserSessionState(
+    userName: string
+  ): Promise<{ exists: boolean; notBefore: number; sessionVersion?: string }> {
+    const stored = await this.getValue<Credential>(this.userPwdKey(userName));
+    if (stored === null) return { exists: false, notBefore: Infinity };
+    return typeof stored === 'string'
+      ? { exists: true, notBefore: 0 }
+      : {
+          exists: true,
+          notBefore: stored.revokedBefore,
+          sessionVersion: this.sessionVersion(userName, stored),
+        };
   }
 
   async getUserPassword(userName: string): Promise<string | null> {
-    const stored = await this.getValue<string>(this.userPwdKey(userName));
-    return stored === null ? null : ensureString(stored);
+    const stored = await this.getValue<Credential>(this.userPwdKey(userName));
+    return stored === null ? null : credentialHash(stored);
+  }
+
+  async getUserSessionNotBefore(userName: string): Promise<number> {
+    const stored = await this.getValue<Credential>(this.userPwdKey(userName));
+    if (stored === null) return Number.POSITIVE_INFINITY;
+    return typeof stored === 'string' ? 0 : stored.revokedBefore;
+  }
+
+  async registerUserAtomic(
+    userName: string,
+    password: string,
+    previous: AdminConfig,
+    next: AdminConfig
+  ): Promise<string> {
+    const hash = await hashPassword(password);
+    const snapshot = getConfigSnapshot(previous);
+    if (!snapshot) throw new ConfigConflictError();
+    const { data, error } = await this.client.rpc('moontv_register_user', {
+      p_table: tableName(),
+      p_expected_config: JSON.parse(snapshot),
+      p_next_config: next,
+      p_username: userName,
+      p_password_hash: hash,
+    });
+    if (error) throw this.rpcError(error);
+    if (!data) throw new ConfigConflictError();
+    markConfigSnapshot(next, JSON.stringify(next));
+    return this.sessionVersion(userName, { hash, revokedBefore: 0 });
+  }
+
+  private rpcError(error: { code?: string; message: string }): Error {
+    return Object.assign(
+      new Error(
+        error.code === 'PGRST202'
+          ? '資料庫需要先安裝 002_atomic_kv 遷移；尚未修改任何資料'
+          : error.message
+      ),
+      { code: error.code }
+    );
+  }
+
+  async acquireLease(
+    name: string,
+    ttlMs: number
+  ): Promise<(() => Promise<void>) | null> {
+    const key = `system:lease:${name}`;
+    const previous = await this.getValue<{ expires: number; nonce: string }>(
+      key
+    );
+    if (previous && previous.expires > Date.now()) return null;
+    const lease = { expires: Date.now() + ttlMs, nonce: crypto.randomUUID() };
+    if (!(await this.compareAndSetValue(key, previous, lease))) return null;
+    return async () => {
+      const { error } = await this.client
+        .from(tableName())
+        .delete()
+        .eq('key', key)
+        .eq('value', JSON.stringify(lease));
+      if (error) throw error;
+    };
+  }
+
+  async snapshotAllData(): Promise<KvRow[]> {
+    const { data, error } = await this.client.rpc('moontv_snapshot_kv', {
+      p_table: tableName(),
+    });
+    if (error) throw this.rpcError(error);
+    return data as KvRow[];
+  }
+
+  async restoreAllData(rows: KvRow[]): Promise<void> {
+    const { error } = await this.client.rpc('moontv_restore_kv', {
+      p_table: tableName(),
+      p_rows: rows,
+    });
+    if (error) throw this.rpcError(error);
   }
 
   async checkUserExist(userName: string): Promise<boolean> {
     return (await this.getValue<string>(this.userPwdKey(userName))) !== null;
   }
 
-  async changePassword(userName: string, newPassword: string): Promise<void> {
-    const hashedPassword = await normalizePasswordForStorage(newPassword);
-    await this.setValue(this.userPwdKey(userName), hashedPassword);
+  async changePassword(
+    userName: string,
+    newPassword: string,
+    currentPassword?: string
+  ): Promise<void> {
+    const key = this.userPwdKey(userName);
+    const previous = await this.getValue<Credential>(key);
+    if (previous === null) throw new Error('帳號不存在');
+    if (
+      currentPassword !== undefined &&
+      !(await verifyPassword(currentPassword, credentialHash(previous))).valid
+    )
+      throw new Error('目前密碼錯誤');
+    const hashedPassword = await hashPassword(newPassword);
+    if (
+      !(await this.compareAndSetValue(key, previous, {
+        hash: hashedPassword,
+        revokedBefore: Math.max(
+          Date.now(),
+          typeof previous === 'string' ? 0 : previous.revokedBefore
+        ),
+      }))
+    )
+      throw new ConfigConflictError();
+  }
+
+  async getUserCredentialSnapshot(userName: string): Promise<unknown> {
+    return this.getValue<Credential>(this.userPwdKey(userName));
+  }
+
+  async deleteUserAtomic(
+    userName: string,
+    previous: AdminConfig,
+    expectedCredential: unknown
+  ): Promise<void> {
+    if (!getConfigSnapshot(previous)) throw new ConfigConflictError();
+    const raw = JSON.parse(
+      getConfigSnapshot(previous) as string
+    ) as AdminConfig;
+    const next = {
+      ...raw,
+      UserConfig: {
+        ...raw.UserConfig,
+        Users: raw.UserConfig.Users.filter(
+          (user) => user.username !== userName
+        ),
+      },
+    };
+    const { data, error } = await this.client.rpc('moontv_delete_user', {
+      p_table: tableName(),
+      p_expected_config: raw,
+      p_next_config: next,
+      p_username: userName,
+      p_expected_credential: expectedCredential,
+    });
+    if (error) {
+      if (error.code === 'PGRST202')
+        throw new Error(
+          '資料庫需要先安裝 004_atomic_user_delete 遷移；尚未刪除資料'
+        );
+      throw this.rpcError(error);
+    }
+    if (!data) throw new ConfigConflictError();
   }
 
   async deleteUser(userName: string): Promise<void> {
@@ -333,28 +532,18 @@ export class SupabaseStorage implements IStorage {
 
   async addSearchHistory(userName: string, keyword: string): Promise<void> {
     const normalized = ensureString(keyword);
-    const history = (await this.getSearchHistory(userName)).filter(
-      (item) => item !== normalized
-    );
-
-    history.unshift(normalized);
-    await this.setValue(
-      this.shKey(userName),
-      history.slice(0, SEARCH_HISTORY_LIMIT)
+    await this.mutateSearchHistory(userName, (history) =>
+      [normalized, ...history.filter((item) => item !== normalized)].slice(
+        0,
+        SEARCH_HISTORY_LIMIT
+      )
     );
   }
 
   async deleteSearchHistory(userName: string, keyword?: string): Promise<void> {
-    if (!keyword) {
-      await this.deleteKey(this.shKey(userName));
-      return;
-    }
-
-    const normalized = ensureString(keyword);
-    const history = (await this.getSearchHistory(userName)).filter(
-      (item) => item !== normalized
+    await this.mutateSearchHistory(userName, (history) =>
+      keyword ? history.filter((item) => item !== ensureString(keyword)) : []
     );
-    await this.setValue(this.shKey(userName), history);
   }
 
   async getAllUsers(): Promise<string[]> {
@@ -386,11 +575,66 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getAdminConfig(): Promise<AdminConfig | null> {
-    return this.getValue<AdminConfig>(this.adminConfigKey());
+    const config = await this.getValue<AdminConfig>(this.adminConfigKey());
+    return config ? markConfigSnapshot(config, JSON.stringify(config)) : null;
   }
 
   async setAdminConfig(config: AdminConfig): Promise<void> {
-    await this.setValue(this.adminConfigKey(), config);
+    const snapshot = getConfigSnapshot(config);
+    // Unversioned writes are initialization only, never blind replacements.
+    const previous =
+      snapshot === undefined
+        ? null
+        : snapshot === null
+        ? null
+        : JSON.parse(snapshot);
+    if (
+      !(await this.compareAndSetValue(this.adminConfigKey(), previous, config))
+    ) {
+      throw new ConfigConflictError();
+    }
+    markConfigSnapshot(config, JSON.stringify(config));
+  }
+
+  private async compareAndSetValue(
+    key: string,
+    previous: unknown,
+    value: unknown
+  ): Promise<boolean> {
+    if (previous === null) {
+      const { error } = await this.client
+        .from(tableName())
+        .insert({ key, value, updated_at: new Date().toISOString() });
+      if (error?.code === '23505') return false;
+      if (error) throw error;
+      return true;
+    }
+    const { data, error } = await this.client
+      .from(tableName())
+      .update({ value, updated_at: new Date().toISOString() })
+      .eq('key', key)
+      .eq('value', JSON.stringify(previous))
+      .select('key');
+    if (error) throw error;
+    return Boolean(data?.length);
+  }
+
+  private async mutateSearchHistory(
+    userName: string,
+    mutate: (history: string[]) => string[]
+  ): Promise<void> {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const previous = await this.getValue<string[]>(this.shKey(userName));
+      if (
+        await this.compareAndSetValue(
+          this.shKey(userName),
+          previous,
+          mutate(ensureStringArray(previous))
+        )
+      )
+        return;
+    }
+    throw new Error('搜尋紀錄已變更，請重試');
   }
 
   async appendRegisteredUser(userName: string): Promise<AdminConfig> {

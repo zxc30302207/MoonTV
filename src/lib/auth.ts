@@ -4,6 +4,7 @@ import { NextRequest } from 'next/server';
 export function getAuthInfoFromCookie(request: NextRequest): {
   username?: string;
   signature?: string;
+  sessionVersion?: string;
   timestamp?: number;
   role?: 'owner' | 'admin' | 'user';
   mode?: 'localstorage';

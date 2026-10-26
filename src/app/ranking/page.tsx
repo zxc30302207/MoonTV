@@ -32,6 +32,9 @@ function RankingClient() {
   const [currentPage, setCurrentPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [pageError, setPageError] = useState(false);
+  const [retryVersion, setRetryVersion] = useState(0);
+  const committedPage = useRef(0);
   const loadingRef = useRef<HTMLDivElement>(null);
 
   const loadMorePendingRef = useRef(false);
@@ -40,6 +43,7 @@ function RankingClient() {
   useEffect(() => {
     let cancelled = false;
     const initial = currentPage === 0;
+    setPageError(false);
     if (initial) {
       setLoading(true);
       setData([]);
@@ -54,14 +58,20 @@ function RankingClient() {
           currentPage * 25,
           25
         );
-        if (!cancelled && result.code === 200) {
+        if (result.code !== 200)
+          throw new Error(result.message || '獲取榜單失敗');
+        if (!cancelled) {
+          committedPage.current = currentPage;
           setData((previous) =>
             initial ? result.list : [...previous, ...result.list]
           );
           setHasMore(result.list.length !== 0);
         }
       } catch (error) {
-        if (!cancelled) console.error('獲取榜單失敗', error);
+        if (!cancelled) {
+          console.error('獲取榜單失敗', error);
+          setPageError(true);
+        }
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -73,11 +83,11 @@ function RankingClient() {
     return () => {
       cancelled = true;
     };
-  }, [activeId, currentPage]);
+  }, [activeId, currentPage, retryVersion]);
 
   // 無限滾動
   useEffect(() => {
-    if (!hasMore || isLoadingMore || loading) return;
+    if (!hasMore || isLoadingMore || loading || pageError) return;
     if (!loadingRef.current) return;
     const observer = new IntersectionObserver(
       (entries) => {
@@ -88,14 +98,14 @@ function RankingClient() {
           !loadMorePendingRef.current
         ) {
           loadMorePendingRef.current = true;
-          setCurrentPage((prev) => prev + 1);
+          setCurrentPage(committedPage.current + 1);
         }
       },
       { threshold: 0.1 }
     );
     observer.observe(loadingRef.current);
     return () => observer.disconnect();
-  }, [hasMore, isLoadingMore, loading]);
+  }, [hasMore, isLoadingMore, loading, pageError]);
 
   return (
     <PageLayout activePath='/ranking'>
@@ -120,6 +130,8 @@ function RankingClient() {
               onClick={() => {
                 if (activeId === c.id) return;
                 setCurrentPage(0);
+                committedPage.current = 0;
+                setPageError(false);
                 setIsLoadingMore(false);
                 loadMorePendingRef.current = false;
                 setActiveId(c.id);
@@ -135,6 +147,17 @@ function RankingClient() {
           ))}
         </div>
 
+        {pageError && (
+          <div role='alert'>
+            載入失敗，已保留現有內容。
+            <button
+              type='button'
+              onClick={() => setRetryVersion((value) => value + 1)}
+            >
+              重試
+            </button>
+          </div>
+        )}
         {/* 內容網格 */}
         <div className='max-w-[95%] mx-auto'>
           <div className='grid grid-cols-3 gap-x-2 gap-y-12 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] sm:gap-x-8 sm:gap-y-20'>
@@ -159,11 +182,7 @@ function RankingClient() {
 
           {hasMore && !loading && (
             <div
-              ref={(el) => {
-                if (el && el.offsetParent !== null) {
-                  (loadingRef as any).current = el;
-                }
-              }}
+              ref={loadingRef}
               className='flex justify-center py-8'
             >
               {isLoadingMore && (

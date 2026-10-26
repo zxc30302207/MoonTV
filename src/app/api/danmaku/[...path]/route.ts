@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { getVerifiedAuthInfo } from '@/lib/auth-server';
+import { readBoundedText } from '@/lib/bounded-response';
 import {
   buildDanmakuUpstreamHeaders,
   buildDanmakuUpstreamUrl,
@@ -31,17 +33,24 @@ async function proxyDanmakuRequest(
   paramsPromise: Promise<{ path: string[] }>
 ) {
   try {
+    if (!(await getVerifiedAuthInfo(request)))
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const { path } = await paramsPromise;
-    if (!Array.isArray(path) || path[0] !== 'api' || path[1] !== 'v2') {
+    const upstreamPath = Array.isArray(path) ? `/${path.join('/')}` : '';
+    const allowed =
+      request.method === 'GET'
+        ? /^\/api\/v2\/(?:search\/(?:anime|episodes)|(?:bangumi|comment)\/\d+)$/.test(
+            upstreamPath
+          )
+        : request.method === 'POST' && upstreamPath === '/api/v2/match';
+    if (!allowed)
       return NextResponse.json(
         { error: '不支持的彈幕 API 路徑' },
         { status: 404 }
       );
-    }
 
     const requestUrl = new URL(request.url);
     const upstream = await getDanmakuUpstreamBaseUrl();
-    const upstreamPath = `/${path.join('/')}`;
     const configError = getDanmakuUpstreamConfigError(upstream);
     if (configError) {
       return NextResponse.json(
@@ -53,7 +62,7 @@ async function proxyDanmakuRequest(
     const body =
       request.method === 'GET' || request.method === 'HEAD'
         ? undefined
-        : await request.text();
+        : await readBoundedText(new Response(request.body), 64 * 1024);
     const response = await fetch(
       buildDanmakuUpstreamUrl(upstream, upstreamPath, requestUrl.search),
       {
@@ -69,7 +78,7 @@ async function proxyDanmakuRequest(
       }
     );
 
-    return proxyResponse(response);
+    return await proxyResponse(response);
   } catch (error) {
     return NextResponse.json(
       {
@@ -109,7 +118,7 @@ function pickProxyHeaders(request: NextRequest): HeadersInit {
 }
 
 async function proxyResponse(response: Response) {
-  const body = await response.text();
+  const body = await readBoundedText(response, 16 * 1024 * 1024);
   return new NextResponse(body, {
     status: response.status,
     headers: {

@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { getConfig } from '@/lib/config';
+import { ConfigConflictError } from '@/lib/config-snapshot';
 import { getStorage } from '@/lib/db';
 import { IStorage } from '@/lib/types';
+import { normalizeUsername } from '@/lib/username';
 
 export const runtime = 'nodejs';
 
@@ -40,7 +42,7 @@ export async function POST(request: NextRequest) {
     const username = authInfo.username;
 
     const {
-      targetUsername, // 目標用戶名
+      targetUsername: rawTargetUsername, // 目標用戶名
       targetPassword, // 目標用戶密碼（僅在添加用戶時需要）
       allowRegister,
       action,
@@ -50,6 +52,11 @@ export async function POST(request: NextRequest) {
       allowRegister?: boolean;
       action?: (typeof ACTIONS)[number];
     };
+
+    const targetUsername =
+      action === 'add'
+        ? normalizeUsername(rawTargetUsername)
+        : rawTargetUsername;
 
     if (!action || !ACTIONS.includes(action)) {
       return NextResponse.json({ error: '參數格式錯誤' }, { status: 400 });
@@ -72,8 +79,14 @@ export async function POST(request: NextRequest) {
     }
 
     // 獲取配置與存儲
-    const adminConfig = await getConfig();
     const storage: IStorage | null = getStorage();
+    // Capture credential generation BEFORE the authorization/config snapshot.
+    // A delayed delete must not adopt a later re-registration's credential.
+    const expectedCredential =
+      action === 'deleteUser' && storage
+        ? await storage.getUserCredentialSnapshot(targetUsername as string)
+        : undefined;
+    const adminConfig = await getConfig();
 
     // 判定操作者角色
     let operatorRole: 'owner' | 'admin';
@@ -102,6 +115,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '無法操作站長' }, { status: 400 });
     }
 
+    if (targetEntry?.deletionPending && action !== 'deleteUser')
+      return NextResponse.json(
+        { error: '帳號正在刪除，請先重試完成刪除' },
+        { status: 409 }
+      );
+
     // 權限校驗邏輯
     const isTargetAdmin = targetEntry?.role === 'admin';
 
@@ -129,7 +148,7 @@ export async function POST(request: NextRequest) {
               { status: 500 }
             );
           }
-          await storage.registerUser(targetUsername as string, targetPassword);
+          const previousConfig = { ...adminConfig };
           // 更新配置
           adminConfig.UserConfig.Users.push({
             username: targetUsername as string,
@@ -139,7 +158,13 @@ export async function POST(request: NextRequest) {
             adminConfig.UserConfig.Users[
               adminConfig.UserConfig.Users.length - 1
             ];
-          break;
+          await storage.registerUserAtomic(
+            targetUsername as string,
+            targetPassword,
+            previousConfig,
+            adminConfig
+          );
+          return NextResponse.json({ ok: true });
         }
         case 'ban': {
           if (!targetEntry) {
@@ -263,7 +288,7 @@ export async function POST(request: NextRequest) {
             targetUsername as string,
             targetPassword
           );
-          break;
+          return NextResponse.json({ ok: true });
         }
         case 'deleteUser': {
           if (!targetEntry) {
@@ -295,17 +320,12 @@ export async function POST(request: NextRequest) {
             );
           }
 
-          await storage.deleteUser(targetUsername as string);
-
-          // 從配置中移除用戶
-          const userIndex = adminConfig.UserConfig.Users.findIndex(
-            (u) => u.username === targetUsername
+          await storage.deleteUserAtomic(
+            targetUsername as string,
+            adminConfig,
+            expectedCredential
           );
-          if (userIndex > -1) {
-            adminConfig.UserConfig.Users.splice(userIndex, 1);
-          }
-
-          break;
+          return NextResponse.json({ ok: true });
         }
         default:
           return NextResponse.json({ error: '未知操作' }, { status: 400 });
@@ -326,6 +346,8 @@ export async function POST(request: NextRequest) {
       }
     );
   } catch (error) {
+    if (error instanceof ConfigConflictError)
+      return NextResponse.json({ error: error.message }, { status: 409 });
     return NextResponse.json(
       {
         error: '用戶管理操作失敗',
