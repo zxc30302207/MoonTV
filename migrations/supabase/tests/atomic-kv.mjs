@@ -1,13 +1,14 @@
 // Local-only PostgreSQL (PGlite) regression. NEVER connects to a remote database.
-// Install PGlite outside this repo and set PGLITE_MODULE to its dist/index.js.
+// Uses the exact repo dev dependency; PGLITE_MODULE optionally selects a local build.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
-if (!process.env.PGLITE_MODULE) {
-  throw new Error('Set PGLITE_MODULE to a temporary PGlite installation');
-}
-const { PGlite } = await import(pathToFileURL(process.env.PGLITE_MODULE).href);
+const { PGlite } = await import(
+  process.env.PGLITE_MODULE
+    ? pathToFileURL(process.env.PGLITE_MODULE).href
+    : '@electric-sql/pglite'
+);
 const db = new PGlite();
 let passed = 0;
 async function test(name, run) {

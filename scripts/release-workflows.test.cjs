@@ -94,3 +94,40 @@ test('summary treats input as data and supports spaces in its output path', () =
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('CI requires reproducible SQL and actual TCP/TLS regressions on Node 22', () => {
+  const workflow = read('ci.yml');
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(root, 'package.json'), 'utf8')
+  );
+  assert.match(workflow, /node-version: '22'/);
+  assert.match(workflow, /pnpm install --frozen-lockfile/);
+  assert.match(workflow, /run: pnpm test:sql/);
+  assert.match(workflow, /run: pnpm test:transport/);
+  assert.match(workflow, /run: pnpm test:built-transport/);
+  assert.ok(
+    workflow.indexOf('- name: Build project') <
+      workflow.indexOf('- name: Test authenticated built proxy transport')
+  );
+  assert.equal(
+    manifest.scripts['test:built-transport'],
+    'node scripts/pinned-proxy-build-smoke.cjs'
+  );
+  assert.doesNotMatch(workflow, /continue-on-error:\s*true|if:\s*always\(\)/);
+  assert.equal(manifest.devDependencies['@electric-sql/pglite'], '0.5.11');
+  for (const testFile of [
+    'atomic-kv.mjs',
+    'namespace-mutations.mjs',
+    'rate-limits.test.mjs',
+  ]) {
+    assert.ok(
+      manifest.scripts['test:sql'].includes(
+        `migrations/supabase/tests/${testFile}`
+      )
+    );
+  }
+  assert.equal(
+    manifest.scripts['test:transport'],
+    'node --test scripts/pinned-fetch.test.cjs'
+  );
+});

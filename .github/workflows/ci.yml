@@ -60,8 +60,17 @@ jobs:
       - name: Run unit tests
         run: pnpm test --runInBand
 
+      - name: Test local PostgreSQL migrations
+        run: pnpm test:sql
+
+      - name: Test pinned TCP and TLS transport
+        run: pnpm test:transport
+
       - name: Run linting
         run: pnpm run lint:strict
 
       - name: Build project
         run: pnpm run build
+
+      - name: Test authenticated built proxy transport
+        run: pnpm test:built-transport

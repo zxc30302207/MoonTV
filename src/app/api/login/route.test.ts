@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
+const mockRateLimit = jest.fn(() => ({ allowed: true }));
 const mockConfig = jest.fn();
 const mockVerify = jest.fn();
 const mockIsUserSessionCurrent = jest.fn();
@@ -15,7 +16,7 @@ jest.mock('@/lib/auth-server', () => ({
 }));
 jest.mock('@/lib/rate-limit', () => ({
   getClientIp: () => 'test',
-  rateLimit: () => ({ allowed: true }),
+  rateLimit: mockRateLimit,
   getRateLimitHeaders: () => ({}),
 }));
 
@@ -49,6 +50,13 @@ describe('login membership requirement', () => {
       })
     );
   }
+  it('fails closed with 503 and does not verify credentials when shared limiter is unavailable', async () => {
+    mockRateLimit.mockReturnValueOnce({ allowed: false, unavailable: true } as never);
+    const response = await login();
+    expect(response.status).toBe(503);
+    expect(mockVerify).not.toHaveBeenCalled();
+    expect(mockConfig).not.toHaveBeenCalled();
+  });
   it('does not issue a cookie for a password-only account', async () => {
     mockConfig.mockResolvedValue({ UserConfig: { Users: [] } });
     const response = await login();

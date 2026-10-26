@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { createHmac } from 'crypto';
+import { createHmac, randomUUID } from 'crypto';
 
 import { AdminConfig } from './admin.types';
 import {
@@ -7,6 +7,14 @@ import {
   getConfigSnapshot,
   markConfigSnapshot,
 } from './config-snapshot';
+import {
+  MutationNamespace,
+  NamespaceConflictError,
+  NamespaceMutation,
+  NamespaceMutationResult,
+  NamespaceSnapshot,
+  NamespaceVersion,
+} from './mutation-protocol';
 import { hashPassword, verifyPassword } from './password';
 import {
   Favorite,
@@ -83,6 +91,108 @@ export class SupabaseStorage implements IStorage {
 
   constructor() {
     this.client = getSupabaseClient();
+  }
+
+  private readonly namespaceSnapshots = new WeakMap<
+    object,
+    {
+      user: string;
+      namespace: MutationNamespace;
+      key: string;
+      cursor: { version: NamespaceVersion };
+    }
+  >();
+
+  async readNamespace(
+    userName: string,
+    namespace: MutationNamespace
+  ): Promise<NamespaceSnapshot> {
+    const { data, error } = await this.client.rpc('moontv_read_namespace', {
+      p_table: tableName(),
+      p_username: userName,
+      p_namespace: namespace,
+      p_is_owner: userName === process.env.USERNAME,
+    });
+    if (error) throw this.namespaceError(error);
+    const snapshot = data as NamespaceSnapshot;
+    const cursor = { version: snapshot.version };
+    for (const [key, value] of Object.entries(snapshot.data)) {
+      if (value && typeof value === 'object')
+        this.namespaceSnapshots.set(value, {
+          user: userName,
+          namespace,
+          key,
+          cursor,
+        });
+    }
+    return snapshot;
+  }
+
+  async mutateNamespace(
+    userName: string,
+    namespace: MutationNamespace,
+    mutation: NamespaceMutation
+  ): Promise<NamespaceMutationResult> {
+    // Never refresh the expected version or retry with a new operation id here.
+    // A transport error is an unknown commit outcome, not proof of rollback.
+    const { data, error } = await this.client.rpc('moontv_mutate_namespace', {
+      p_table: tableName(),
+      p_username: userName,
+      p_namespace: namespace,
+      p_is_owner: userName === process.env.USERNAME,
+      p_epoch: mutation.version.epoch,
+      p_revision: mutation.version.revision,
+      p_operation: mutation.operationId,
+      p_action: mutation.action,
+      p_key: mutation.key ?? null,
+      p_value: mutation.value ?? null,
+    });
+    if (error) throw this.namespaceError(error);
+    return data as NamespaceMutationResult;
+  }
+
+  private namespaceError(error: { code?: string; message: string }): Error {
+    if (error.code === '40001') return new NamespaceConflictError();
+    if (error.code === 'PGRST202' || error.code === '55000')
+      return Object.assign(new Error('資料庫寫入協定尚未啟用，請稍後再試'), {
+        code: 'NAMESPACE_UNAVAILABLE',
+      });
+    return Object.assign(new Error(error.message), { code: error.code });
+  }
+
+  private async updateNamespaceRecordIfUnchanged(
+    userName: string,
+    namespace: MutationNamespace,
+    key: string,
+    previous: object,
+    next: unknown
+  ): Promise<boolean> {
+    const snapshot = this.namespaceSnapshots.get(previous);
+    // Only snapshot-aligned reads confer a version, not a freshly fetched version
+    // attached to stale data. This also prevents delete/recreate ABA updates.
+    if (
+      !snapshot ||
+      snapshot.user !== userName ||
+      snapshot.namespace !== namespace ||
+      snapshot.key !== key
+    )
+      return false;
+    try {
+      const result = await this.mutateNamespace(userName, namespace, {
+        version: snapshot.cursor.version,
+        operationId: randomUUID(),
+        action: 'set',
+        key,
+        value: next,
+      });
+      // Records from the same snapshot may be refreshed sequentially by cron.
+      snapshot.cursor.version = result.version;
+      this.namespaceSnapshots.delete(previous);
+      return true;
+    } catch (error) {
+      if (error instanceof NamespaceConflictError) return false;
+      throw error;
+    }
   }
 
   private async getValue<T>(key: string): Promise<T | null> {
@@ -181,7 +291,13 @@ export class SupabaseStorage implements IStorage {
     previous: PlayRecord,
     next: PlayRecord
   ): Promise<boolean> {
-    return this.compareAndSetValue(this.prKey(userName, key), previous, next);
+    return this.updateNamespaceRecordIfUnchanged(
+      userName,
+      'pr',
+      key,
+      previous,
+      next
+    );
   }
 
   async updateFavoriteIfUnchanged(
@@ -190,13 +306,22 @@ export class SupabaseStorage implements IStorage {
     previous: Favorite,
     next: Favorite
   ): Promise<boolean> {
-    return this.compareAndSetValue(this.favKey(userName, key), previous, next);
+    return this.updateNamespaceRecordIfUnchanged(
+      userName,
+      'fav',
+      key,
+      previous,
+      next
+    );
   }
 
   async getAllPlayRecords(
     userName: string
   ): Promise<Record<string, PlayRecord>> {
-    return this.listByPrefix<PlayRecord>(`u:${userName}:pr:`);
+    return (await this.readNamespace(userName, 'pr')).data as Record<
+      string,
+      PlayRecord
+    >;
   }
 
   async deletePlayRecord(userName: string, key: string): Promise<void> {
@@ -220,7 +345,10 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getAllFavorites(userName: string): Promise<Record<string, Favorite>> {
-    return this.listByPrefix<Favorite>(`u:${userName}:fav:`);
+    return (await this.readNamespace(userName, 'fav')).data as Record<
+      string,
+      Favorite
+    >;
   }
 
   async deleteFavorite(userName: string, key: string): Promise<void> {
@@ -232,7 +360,14 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getFollowing(userName: string, key: string): Promise<Following | null> {
-    return this.getValue<Following>(this.followingKey(userName, key));
+    return (
+      (
+        (await this.readNamespace(userName, 'followings')).data as Record<
+          string,
+          Following
+        >
+      )[key] ?? null
+    );
   }
 
   async setFollowing(
@@ -249,22 +384,20 @@ export class SupabaseStorage implements IStorage {
     previous: Following,
     following: Following
   ): Promise<boolean> {
-    // A refresh may finish after unfollow or a progress edit. Never recreate
-    // a deleted row or overwrite a concurrent value with the old snapshot.
-    return withRetry(async () => {
-      const { data, error } = await this.client
-        .from(tableName())
-        .update({ value: following, updated_at: new Date().toISOString() })
-        .eq('key', this.followingKey(userName, key))
-        .eq('value', JSON.stringify(previous))
-        .select('key');
-      if (error) throw error;
-      return Boolean(data?.length);
-    });
+    return this.updateNamespaceRecordIfUnchanged(
+      userName,
+      'followings',
+      key,
+      previous,
+      following
+    );
   }
 
   async getAllFollowings(userName: string): Promise<Record<string, Following>> {
-    return this.listByPrefix<Following>(`u:${userName}:following:`);
+    return (await this.readNamespace(userName, 'followings')).data as Record<
+      string,
+      Following
+    >;
   }
 
   async deleteFollowing(userName: string, key: string): Promise<void> {
@@ -510,14 +643,8 @@ export class SupabaseStorage implements IStorage {
     if (!data) throw new ConfigConflictError();
   }
 
-  async deleteUser(userName: string): Promise<void> {
-    await this.deleteKey(this.userPwdKey(userName));
-    await this.deleteKey(this.shKey(userName));
-    await this.deleteByPrefix(`u:${userName}:pr:`);
-    await this.deleteByPrefix(`u:${userName}:fav:`);
-    await this.deleteByPrefix(`u:${userName}:following:`);
-    await this.deleteKey(`u:${userName}:today-updated`);
-    await this.deleteByPrefix(`u:${userName}:skip:`);
+  async deleteUser(_userName: string): Promise<void> {
+    throw new Error('帳號刪除必須使用已授權的交易式操作');
   }
 
   private shKey(user: string) {
@@ -825,14 +952,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async clearAllData(): Promise<void> {
-    await withRetry(async () => {
-      const { error } = await this.client
-        .from(tableName())
-        .delete()
-        .neq('key', '');
-
-      if (error) throw error;
-    });
+    throw new Error('資料取代必須使用已授權的交易式還原操作');
   }
 }
 

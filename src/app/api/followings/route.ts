@@ -1,6 +1,12 @@
 import { NextRequest } from 'next/server';
 
 import { db } from '@/lib/db';
+import {
+  mutateFromRequest,
+  namespaceError,
+  namespaceJson,
+} from '@/lib/mutation-api';
+import { Following } from '@/lib/types';
 
 import {
   getFollowingAccess,
@@ -20,22 +26,28 @@ export async function GET(request: NextRequest) {
       const parsed = parseFollowingKey(key);
       if (!parsed) return privateJson({ error: 'Invalid key format' }, 400);
       const [source, id] = parsed;
-      const following = await db.getFollowing(access.username, source, id);
-      return privateJson(
-        following && access.canView(source, following) ? following : null
+      const snapshot = await db.readNamespace(access.username, 'followings');
+      const following = (snapshot.data as Record<string, Following>)[
+        `${source}+${id}`
+      ];
+      return namespaceJson(
+        following && access.canView(source, following) ? following : null,
+        snapshot.version
       );
     }
-    const followings = await db.getAllFollowings(access.username);
-    return privateJson(
+    const snapshot = await db.readNamespace(access.username, 'followings');
+    const followings = snapshot.data as Record<string, Following>;
+    return namespaceJson(
       Object.fromEntries(
         Object.entries(followings).filter(([key, item]) => {
           const parsed = parseFollowingKey(key);
           return parsed && access.canView(parsed[0], item);
         })
-      )
+      ),
+      snapshot.version
     );
-  } catch {
-    return privateJson({ error: 'Internal Server Error' }, 500);
+  } catch (error) {
+    return namespaceError(error);
   }
 }
 
@@ -45,22 +57,29 @@ export async function POST(request: NextRequest) {
     if (!access) return privateJson({ error: 'Unauthorized' }, 401);
     const body = await request.json().catch(() => null);
     const parsed = parseFollowingKey(body?.key);
-    if (!parsed || !isFollowing(body?.following)) {
+    if (
+      !parsed ||
+      !isFollowing(body?.following) ||
+      !Number.isFinite(body.following.save_time)
+    ) {
       return privateJson({ error: 'Invalid following data' }, 400);
     }
     const [source, id] = parsed;
     const following = body.following;
     if (!access.canView(source, following))
       return privateJson({ error: 'Forbidden' }, 403);
-    await db.saveFollowing(access.username, source, id, {
-      ...following,
-      source,
-      id,
-      save_time: following.save_time ?? Date.now(),
+    return await mutateFromRequest(request, access.username, 'followings', {
+      action: 'set',
+      key: body.key,
+      value: {
+        ...following,
+        source,
+        id,
+        save_time: following.save_time,
+      },
     });
-    return privateJson({ success: true });
-  } catch {
-    return privateJson({ error: 'Internal Server Error' }, 500);
+  } catch (error) {
+    return namespaceError(error);
   }
 }
 
@@ -72,18 +91,12 @@ export async function DELETE(request: NextRequest) {
     if (key !== null) {
       const parsed = parseFollowingKey(key);
       if (!parsed) return privateJson({ error: 'Invalid key format' }, 400);
-      await db.deleteFollowing(access.username, ...parsed);
-    } else {
-      const followings = await db.getAllFollowings(access.username);
-      await Promise.all(
-        Object.keys(followings).map(async (entry) => {
-          const parsed = parseFollowingKey(entry);
-          if (parsed) await db.deleteFollowing(access.username, ...parsed);
-        })
-      );
     }
-    return privateJson({ success: true });
-  } catch {
-    return privateJson({ error: 'Internal Server Error' }, 500);
+    return await mutateFromRequest(request, access.username, 'followings', {
+      action: key !== null ? 'delete' : 'clear',
+      ...(key !== null ? { key } : {}),
+    });
+  } catch (error) {
+    return namespaceError(error);
   }
 }

@@ -3,11 +3,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
+import {
+  mutateFromRequest,
+  namespaceError,
+  namespaceJson,
+} from '@/lib/mutation-api';
 
 export const runtime = 'nodejs';
-
-// 最大保存條數（與客戶端保持一致）
-const HISTORY_LIMIT = 20;
 
 /**
  * GET /api/searchhistory
@@ -32,13 +34,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const history = await db.getSearchHistory(authInfo.username);
-    return NextResponse.json(history, { status: 200 });
+    const snapshot = await db.readNamespace(authInfo.username, 'sh');
+    return namespaceJson(snapshot.data, snapshot.version);
   } catch (err) {
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    );
+    return namespaceError(err);
   }
 }
 
@@ -66,25 +65,21 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const keyword: string = body.keyword?.trim();
+    const keyword = typeof body.keyword === 'string' ? body.keyword.trim() : '';
 
-    if (!keyword) {
+    if (!keyword || keyword.length > 1024) {
       return NextResponse.json(
         { error: 'Keyword is required' },
         { status: 400 }
       );
     }
 
-    await db.addSearchHistory(authInfo.username, keyword);
-
-    // 再次獲取最新列表，確保客戶端與服務端同步
-    const history = await db.getSearchHistory(authInfo.username);
-    return NextResponse.json(history.slice(0, HISTORY_LIMIT), { status: 200 });
+    return await mutateFromRequest(request, authInfo.username, 'sh', {
+      action: 'add',
+      key: keyword,
+    });
   } catch (err) {
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    );
+    return namespaceError(err);
   }
 }
 
@@ -116,13 +111,13 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const kw = searchParams.get('keyword')?.trim();
 
-    await db.deleteSearchHistory(authInfo.username, kw || undefined);
-
-    return NextResponse.json({ success: true }, { status: 200 });
+    if (searchParams.has('keyword') && (!kw || kw.length > 1024))
+      return namespaceJson({ error: 'Invalid keyword' }, undefined, 400);
+    return await mutateFromRequest(request, authInfo.username, 'sh', {
+      action: kw ? 'delete' : 'clear',
+      ...(kw ? { key: kw } : {}),
+    });
   } catch (err) {
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    );
+    return namespaceError(err);
   }
 }

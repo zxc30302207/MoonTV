@@ -3,6 +3,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { getConfig } from '@/lib/config';
 import { db } from '@/lib/db';
+import {
+  mutateFromRequest,
+  namespaceError,
+  namespaceJson,
+} from '@/lib/mutation-api';
 import { PlayRecord } from '@/lib/types';
 
 import {
@@ -31,13 +36,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const records = await db.getAllPlayRecords(authInfo.username);
-    return NextResponse.json(records, { status: 200 });
+    const snapshot = await db.readNamespace(authInfo.username, 'pr');
+    return namespaceJson(snapshot.data, snapshot.version);
   } catch (err) {
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    );
+    return namespaceError(err);
   }
 }
 
@@ -74,7 +76,7 @@ export async function POST(request: NextRequest) {
     if (
       !playRecordSchema.safeParse({
         ...record,
-        save_time: record.save_time ?? Date.now(),
+        save_time: record.save_time,
       }).success ||
       record.index < 1 ||
       !Number.isInteger(record.index)
@@ -96,17 +98,16 @@ export async function POST(request: NextRequest) {
 
     const finalRecord = {
       ...record,
-      save_time: record.save_time ?? Date.now(),
+      save_time: record.save_time,
     } as PlayRecord;
 
-    await db.savePlayRecord(authInfo.username, source, id, finalRecord);
-
-    return NextResponse.json({ success: true }, { status: 200 });
+    return await mutateFromRequest(request, authInfo.username, 'pr', {
+      action: 'set',
+      key,
+      value: finalRecord,
+    });
   } catch (err) {
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    );
+    return namespaceError(err);
   }
 }
 
@@ -133,7 +134,7 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const key = searchParams.get('key');
 
-    if (key) {
+    if (key !== null) {
       // 如果提供了 key，刪除單條播放記錄
       const [source, id] = key.split('+');
       if (!source || !id || key.split('+').length !== 2) {
@@ -142,25 +143,12 @@ export async function DELETE(request: NextRequest) {
           { status: 400 }
         );
       }
-
-      await db.deletePlayRecord(username, source, id);
-    } else {
-      // 未提供 key，則清空全部播放記錄
-      // 目前 DbManager 沒有對應方法，這裡直接遍歷刪除
-      const all = await db.getAllPlayRecords(username);
-      await Promise.all(
-        Object.keys(all).map(async (k) => {
-          const [s, i] = k.split('+');
-          if (s && i) await db.deletePlayRecord(username, s, i);
-        })
-      );
     }
-
-    return NextResponse.json({ success: true }, { status: 200 });
+    return await mutateFromRequest(request, username, 'pr', {
+      action: key !== null ? 'delete' : 'clear',
+      ...(key !== null ? { key } : {}),
+    });
   } catch (err) {
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    );
+    return namespaceError(err);
   }
 }

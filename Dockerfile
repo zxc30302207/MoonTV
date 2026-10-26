@@ -1,8 +1,8 @@
 # ---- 第 1 阶段：安装依赖 ----
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 
-# 启用 corepack 并激活 pnpm（Node20 默认提供 corepack）
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# 启用 corepack 并激活 pnpm（Node22 默认提供 corepack）
+RUN corepack enable && corepack prepare pnpm@10.14.0 --activate
 
 WORKDIR /app
 
@@ -13,8 +13,8 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # ---- 第 2 阶段：构建项目 ----
-FROM node:20-alpine AS builder
-RUN corepack enable && corepack prepare pnpm@latest --activate
+FROM node:22-alpine AS builder
+RUN corepack enable && corepack prepare pnpm@10.14.0 --activate
 WORKDIR /app
 
 # 复制依赖
@@ -35,7 +35,7 @@ RUN sed -i "/const inter = Inter({ subsets: \['latin'] });/a export const dynami
 RUN pnpm run build
 
 # ---- 第 3 阶段：生成运行时镜像 ----
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 
 # 创建非 root 用户
 RUN addgroup -g 1001 -S nodejs && adduser -u 1001 -S nextjs -G nodejs

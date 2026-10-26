@@ -22,6 +22,7 @@ import {
   getCachedAuthInfo,
   refreshAuthInfo,
 } from '@/lib/auth-client';
+import { namespaceProblems } from '@/lib/namespace-client';
 import { saveNavSettings } from '@/lib/nav-settings';
 import { pendingWriteCount } from '@/lib/pending-writes';
 import { useDialogFocus } from '@/lib/use-dialog-focus';
@@ -63,7 +64,12 @@ export const UserMenu: React.FC = () => {
     if (!isSettingsOpen) return;
     const update = () =>
       setPendingWrites(
-        authInfo?.username ? pendingWriteCount(authInfo.username) : 0
+        authInfo?.username
+          ? Math.max(
+              pendingWriteCount(authInfo.username),
+              namespaceProblems(authInfo.username).length
+            )
+          : 0
       );
     update();
     window.addEventListener('databaseSyncStatus', update);
@@ -853,10 +859,12 @@ export const UserMenu: React.FC = () => {
                 onClick={async () => {
                   setRetryingWrites(true);
                   try {
-                    const { retryPendingDatabaseWrites } = await import(
+                    const { reconfirmPendingDatabaseWrites } = await import(
                       '@/lib/db.client'
                     );
-                    const failures = await retryPendingDatabaseWrites();
+                    const failures = await reconfirmPendingDatabaseWrites(
+                      (message) => window.confirm(message)
+                    );
                     if (failures)
                       window.dispatchEvent(
                         new CustomEvent('globalError', {
@@ -866,11 +874,14 @@ export const UserMenu: React.FC = () => {
                           },
                         })
                       );
-                  } catch {
+                  } catch (error) {
                     window.dispatchEvent(
                       new CustomEvent('globalError', {
                         detail: {
-                          message: '無法重試同步，請確認登入狀態後再試。',
+                          message:
+                            error instanceof Error
+                              ? error.message
+                              : '無法重試同步，請確認登入狀態後再試。',
                         },
                       })
                     );

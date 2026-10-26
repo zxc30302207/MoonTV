@@ -124,11 +124,36 @@ export function pendingWriteCount(username: string): number {
 export function currentWriteRevision(): number {
   return revision;
 }
+export type WriteAcknowledgement = (() => void) & { revision: number };
+
+export function acknowledgeWriteRevision(
+  username: string,
+  targetRevision: number,
+  url: string,
+  options: RequestInit
+) {
+  for (const [entry, intent] of Object.entries(intents(username))) {
+    if (intent.revision !== targetRevision) continue;
+    if (url) {
+      const request = pendingWriteRequests(username, true).find(
+        (item) =>
+          item.entry === entry &&
+          item.revision === targetRevision &&
+          item.url === url &&
+          item.options.method === options?.method &&
+          item.options.body === options?.body
+      );
+      if (!request) continue;
+    }
+    acknowledgeIntent(username, entry, intent);
+  }
+}
+
 export function beginWrite(
   username: string,
   url: string,
   options?: RequestInit
-): (() => void) | undefined {
+): WriteAcknowledgement | undefined {
   const parsed = new URL(url, window.location.origin);
   const path = parsed.pathname;
   const method = options?.method || 'GET';
@@ -164,7 +189,10 @@ export function beginWrite(
   };
   store[`${path}:${key}`] = intent;
   persist(username);
-  return () => acknowledgeIntent(username, `${path}:${key}`, intent);
+  return Object.assign(
+    () => acknowledgeIntent(username, `${path}:${key}`, intent),
+    { revision: intent.revision }
+  );
 }
 export function mergePendingWrites<T>(
   username: string,
@@ -217,9 +245,23 @@ export function mergePendingWrites<T>(
   return merged as T;
 }
 
-export function pendingWriteRequests(username: string) {
+/** Clear-all intent needs deliberate original-page confirmation, never automatic replay. */
+export function pendingClearPaths(username: string): string[] {
   return Object.entries(intents(username))
-    .filter(([, intent]) => intent.pending && intent.key !== '')
+    .filter(([, intent]) => intent.pending && intent.key === '')
+    .map(([entry]) => entry.slice(0, entry.indexOf(':')));
+}
+export function discardPendingClear(username: string, path: string) {
+  const store = intents(username);
+  if (store[`${path}:`]?.pending) delete store[`${path}:`];
+  persist(username);
+}
+
+export function pendingWriteRequests(username: string, includeClear = false) {
+  return Object.entries(intents(username))
+    .filter(
+      ([, intent]) => intent.pending && (includeClear || intent.key !== '')
+    )
     .sort(([, a], [, b]) => a.revision - b.revision)
     .map(([entry, intent]) => {
       const path = entry.slice(0, entry.indexOf(':'));
@@ -233,6 +275,8 @@ export function pendingWriteRequests(username: string) {
           ? 'following'
           : 'keyword';
       return {
+        entry,
+        revision: intent.revision,
         acknowledge: () => acknowledgeIntent(username, entry, intent),
         isCurrent: () => intents(username)[entry] === intent && intent.pending,
         url:
