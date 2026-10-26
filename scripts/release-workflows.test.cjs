@@ -119,6 +119,7 @@ test('CI requires reproducible SQL and actual TCP/TLS regressions on Node 22', (
     'atomic-kv.mjs',
     'namespace-mutations.mjs',
     'rate-limits.test.mjs',
+    'service-table-privileges.mjs',
   ]) {
     assert.ok(
       manifest.scripts['test:sql'].includes(

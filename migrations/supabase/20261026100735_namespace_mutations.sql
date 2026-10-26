@@ -19,6 +19,8 @@ create table public.moontv_mutation_state (
 alter table public.moontv_mutation_control enable row level security;
 alter table public.moontv_mutation_state enable row level security;
 revoke all on public.moontv_mutation_control, public.moontv_mutation_state from public, anon, authenticated;
+-- Explicitly replace inherited default grants; GRANT alone cannot narrow ALL.
+revoke all on public.moontv_mutation_control, public.moontv_mutation_state from service_role;
 grant select on public.moontv_mutation_control to service_role;
 grant select,insert,update,delete on public.moontv_mutation_state to service_role;
 

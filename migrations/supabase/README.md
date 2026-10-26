@@ -207,3 +207,28 @@ from migration 002 (not the entire old migration). This affects only future
 registrations and does not convert envelopes already created. Any application
 rollback must retain compatibility with existing object credentials; reverting
 to code that blindly treats every credential as a string can break logins.
+
+## Follow-up: replace inherited service-role table grants
+
+PostgreSQL default privileges can grant `service_role` ALL privileges on newly
+created tables. A later `GRANT SELECT` or `GRANT ... CRUD` is additive; it does
+not narrow those existing privileges. The phase-two fresh-install scripts now
+explicitly revoke service-role table privileges before granting their intended
+subset. Anonymous/authenticated denial and RLS remain unchanged.
+
+Existing installations must apply the separately reviewed
+`20261026125455_narrow_service_table_privileges.sql`, not rerun the old CREATE
+TABLE migrations. It replaces service-role privileges on exactly three tables:
+
+- `moontv_mutation_control`: SELECT only.
+- `moontv_mutation_state` and `moontv_rate_buckets`: SELECT, INSERT, UPDATE, DELETE.
+
+The correction changes no rows, RLS, function definitions/EXECUTE rights,
+activation flag, schema default privileges, or existing `moontv_kv` privileges.
+It is transactional and safe to reapply, but production ACL changes still require
+explicit approval. Do not restore broad ALL grants as an automatic rollback.
+
+`pnpm test:sql` reproduces default ALL grants before fresh installation and checks
+all eight PostgreSQL table privileges, including MAINTAIN. The existing-install
+regression checks exact grants, service-role operations, unchanged data/RLS/KV
+ACLs, public denial, and idempotent reapplication using synthetic local data.

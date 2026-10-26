@@ -22,7 +22,7 @@
     "prepare": "husky install",
     "gen:version": "node scripts/convert-changelog.js",
     "check:version": "node scripts/convert-changelog.js --check",
-    "test:sql": "node migrations/supabase/tests/atomic-kv.mjs && node migrations/supabase/tests/namespace-mutations.mjs && node migrations/supabase/tests/rate-limits.test.mjs",
+    "test:sql": "node migrations/supabase/tests/atomic-kv.mjs && node migrations/supabase/tests/namespace-mutations.mjs && node migrations/supabase/tests/rate-limits.test.mjs && node migrations/supabase/tests/service-table-privileges.mjs",
     "test:transport": "node --test scripts/pinned-fetch.test.cjs",
     "test:built-transport": "node scripts/pinned-proxy-build-smoke.cjs"
   },

@@ -10,6 +10,8 @@ create table public.moontv_rate_buckets (
 create index moontv_rate_buckets_expiry on public.moontv_rate_buckets (reset_at);
 alter table public.moontv_rate_buckets enable row level security;
 revoke all on public.moontv_rate_buckets from public, anon, authenticated;
+-- Explicitly replace inherited default grants; GRANT alone cannot narrow ALL.
+revoke all on public.moontv_rate_buckets from service_role;
 grant select, insert, update, delete on public.moontv_rate_buckets to service_role;
 
 create function public.moontv_consume_rate_limit(p_scope text, p_subject_hash text)

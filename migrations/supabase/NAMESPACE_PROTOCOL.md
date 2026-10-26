@@ -95,3 +95,12 @@ flag on errors. A rollback must retain the phase-one credential envelope reader;
 very old application versions cannot safely read newly created credentials.
 Dropping schema objects is not a recovery of successfully changed user data.
 Any destructive recovery still requires an actually verified backup.
+
+### Default-privilege correction
+
+Fresh-install grants explicitly revoke `service_role` privileges first, because
+schema default ALL grants otherwise survive narrower additive GRANT statements.
+For an existing installation, use the separate
+`20261026125455_narrow_service_table_privileges.sql` after approval. It changes
+only the three phase-two tables' service ACLs; it does not toggle enforcement or
+rewrite data. See the parent migration README for scope and regressions.
