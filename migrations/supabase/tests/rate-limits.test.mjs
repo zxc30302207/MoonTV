@@ -23,7 +23,7 @@ const consume = async (scope = 'login', subject = hash) =>
   ).rows[0].result;
 try {
   await db.exec(
-    'create role anon; create role authenticated; create role service_role bypassrls; grant usage on schema public to service_role;'
+    'create role anon; create role authenticated; create role service_role bypassrls; grant usage on schema public to service_role; alter default privileges in schema public grant all on tables to service_role;'
   );
   await db.exec(
     await readFile(
@@ -43,6 +43,25 @@ try {
       "select relrowsecurity from pg_class where oid='public.moontv_rate_buckets'::regclass"
     );
     assert.equal(rows[0].relrowsecurity, true);
+  });
+  await test('default service ALL is narrowed to exact rate-table CRUD', async () => {
+    const expected = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
+    for (const privilege of [
+      'SELECT',
+      'INSERT',
+      'UPDATE',
+      'DELETE',
+      'TRUNCATE',
+      'REFERENCES',
+      'TRIGGER',
+      'MAINTAIN',
+    ]) {
+      const { rows } = await db.query(
+        'select has_table_privilege($1,$2,$3) allowed',
+        ['service_role', 'public.moontv_rate_buckets', privilege]
+      );
+      assert.equal(rows[0].allowed, expected.includes(privilege), privilege);
+    }
   });
   await db.exec('set role service_role');
   await test('first request has database expiry and remaining count', async () => {

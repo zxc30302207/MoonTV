@@ -53,7 +53,7 @@ const mutate = (
   ]);
 try {
   await db.exec(
-    'create role anon; create role authenticated; create role service_role bypassrls; grant usage on schema public to service_role;'
+    'create role anon; create role authenticated; create role service_role bypassrls; grant usage on schema public to service_role; alter default privileges in schema public grant all on tables to service_role;'
   );
   for (const name of [
     '001_moontv_kv.sql',
@@ -103,6 +103,34 @@ try {
       ),
       false
     );
+  });
+  await test('default service ALL is narrowed to exact control SELECT and state CRUD', async () => {
+    for (const table of ['moontv_mutation_control', 'moontv_mutation_state']) {
+      const expected =
+        table === 'moontv_mutation_control'
+          ? ['SELECT']
+          : ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
+      for (const privilege of [
+        'SELECT',
+        'INSERT',
+        'UPDATE',
+        'DELETE',
+        'TRUNCATE',
+        'REFERENCES',
+        'TRIGGER',
+        'MAINTAIN',
+      ]) {
+        assert.equal(
+          await scalar('select has_table_privilege($1,$2,$3)', [
+            'service_role',
+            `public.${table}`,
+            privilege,
+          ]),
+          expected.includes(privilege),
+          `${table} ${privilege}`
+        );
+      }
+    }
   });
   await test('functions are invoker and EXECUTE restricted', async () => {
     const functions = (
