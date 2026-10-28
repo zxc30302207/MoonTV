@@ -123,6 +123,50 @@ it('retains retry backoff for transient server errors instead of immediately swi
   }
 });
 
+it('retries a truncated segment body on the same route before using the proxy', async () => {
+  jest.useFakeTimers();
+  (parseM3U8 as jest.Mock).mockResolvedValue(task);
+  const direct = task.tsUrlList[0];
+  let attempts = 0;
+  global.fetch = jest.fn(async (url) => {
+    if (url !== direct) {
+      throw new Error(`unexpected fetch ${String(url)}`);
+    }
+    attempts += 1;
+    if (attempts === 1) {
+      return {
+        ok: true,
+        headers: { get: () => null },
+        arrayBuffer: async () => {
+          throw new TypeError('Connection closed');
+        },
+      } as unknown as Response;
+    }
+    return {
+      ok: true,
+      headers: { get: () => null },
+      arrayBuffer: async () => new ArrayBuffer(8),
+    } as unknown as Response;
+  });
+  const prefetcher = new VideoPrefetcher();
+  try {
+    prefetcher.ensure(options);
+    await flush();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(1000);
+    await flush();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(
+      (fetch as jest.Mock).mock.calls.map((call: unknown[]) => call[0])
+    ).toEqual([direct, direct]);
+    expect(prefetcher.getStats()).toMatchObject({ state: 'done', cached: 1 });
+  } finally {
+    prefetcher.stop();
+    await flush();
+    jest.useRealTimers();
+  }
+});
+
 it('retains useful parse error details without changing the safe filtering pipeline', async () => {
   (parseM3U8 as jest.Mock).mockRejectedValue(new Error('HTTP 403'));
   const prefetcher = new VideoPrefetcher();

@@ -878,11 +878,25 @@ export class VideoPrefetcher {
                   if (Number.isFinite(expectedBytes) && expectedBytes > 0) {
                     observePrefetchSegment(expectedBytes);
                   }
-                  const buffer = await readByteRangeResponse(
-                    response,
-                    range,
-                    () => deadline.readBody(response)
-                  );
+                  let buffer: ArrayBuffer;
+                  try {
+                    buffer = await readByteRangeResponse(response, range, () =>
+                      deadline.readBody(response)
+                    );
+                  } catch (error) {
+                    // 讀到一半斷線會以 TypeError 出現。這是可重試的傳輸故障，
+                    // 不能和 fetch 本身的 CORS / DNS TypeError 一樣標成 noRetry，
+                    // 否則會跳過同一路徑的重試、直接改走代理。
+                    // 取消與截止時間仍是 DOMException，維持原有中止流程。
+                    if (error instanceof TypeError) {
+                      const bodyError = new Error(
+                        `回應內容讀取失敗：${error.message}`
+                      ) as Error & { noRetry?: boolean };
+                      bodyError.noRetry = false;
+                      throw bodyError;
+                    }
+                    throw error;
+                  }
                   observePrefetchSegment(buffer.byteLength);
                   return { response, buffer };
                 } catch (error) {
