@@ -7,6 +7,7 @@ import {
   Compass,
   Download,
   Film,
+  GripVertical,
   History,
   Home,
   Search,
@@ -14,6 +15,7 @@ import {
   Trash2,
   Trophy,
   Tv,
+  UsersRound,
   X,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -28,8 +30,15 @@ import {
   getSearchHistory,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
+import {
+  applyNavMenuOrder,
+  loadNavMenuOrder,
+  NAV_ORDER_UPDATED_EVENT,
+  saveNavMenuOrder,
+} from '@/lib/nav-settings';
 
 import { useNavigationLoading } from './NavigationLoadingProvider';
+import NavScrollContainer from './NavScrollContainer';
 import SearchSuggestions from './SearchSuggestions';
 import { useSite } from './SiteProvider';
 import SourceSelector from './SourceSelector';
@@ -60,7 +69,9 @@ const TopNav = ({ activePath }: TopNavProps) => {
   const [downloadTaskCount, setDownloadTaskCount] = useState(0);
   const [simpleMode, setSimpleMode] = useState(false);
   const [isClient, setIsClient] = useState(false);
-  // 自動隱藏導覽列（僅桌面端）：默認收起，指針移到屏幕頂部邊緣時展開
+  // 用户自定义的菜单顺序（长按拖動调整后持久化到 localStorage）
+  const [menuOrder, setMenuOrder] = useState<string[]>([]);
+  // 自动隐藏导航栏（仅桌面端）：默认收起，指针移到屏幕顶部边缘时展开
   const {
     enabled: autoHideNav,
     hidden: autoHideNavHidden,
@@ -103,16 +114,24 @@ const TopNav = ({ activePath }: TopNavProps) => {
   }, []);
   useEffect(() => {
     setIsClient(true);
-    if (typeof window !== 'undefined') {
-      const s = localStorage.getItem('simpleMode');
-      if (s !== null) setSimpleMode(JSON.parse(s));
+    try {
+      setSimpleMode(localStorage.getItem('simpleMode') === 'true');
+    } catch {
+      // Keep navigation usable when browser storage is unavailable.
     }
+    // 读取自定义菜单顺序，并订阅同标签页内的排序变更
+    setMenuOrder(loadNavMenuOrder());
+    const onOrderUpdated = () => setMenuOrder(loadNavMenuOrder());
+    window.addEventListener(NAV_ORDER_UPDATED_EVENT, onOrderUpdated);
     getSearchHistory().then(setSearchHistory);
     const unsubscribe = subscribeToDataUpdates(
       'searchHistoryUpdated',
       setSearchHistory
     );
-    return () => unsubscribe();
+    return () => {
+      window.removeEventListener(NAV_ORDER_UPDATED_EVENT, onOrderUpdated);
+      unsubscribe();
+    };
   }, []);
   useEffect(() => {
     if (activePath) {
@@ -184,6 +203,26 @@ const TopNav = ({ activePath }: TopNavProps) => {
     });
   }, []);
 
+  const allMenuItems = [
+    { icon: Home, label: '首頁', href: '/', isHome: true },
+    ...menuItems.map((item) => ({ ...item, isHome: false })),
+    { icon: UsersRound, label: '觀影室', href: '/watch-room', isHome: false },
+  ];
+  /* 简洁模式：仅保留首页与觀影室 */
+  const visibleMenuItems = allMenuItems.filter((item) =>
+    item.isHome ? !simpleMode : !simpleMode || item.href === '/watch-room'
+  );
+  /* 套用用户自定义顺序（未记录顺序的项保持原始相对顺序排在后面） */
+  const orderedMenuItems = applyNavMenuOrder(
+    visibleMenuItems,
+    (item) => item.href,
+    menuOrder
+  );
+  /* 长按拖動结束后保存新顺序 */
+  const handleMenuReorder = (order: string[]) => {
+    setMenuOrder(order);
+    saveNavMenuOrder(order);
+  };
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const q = searchQuery.trim();
@@ -429,51 +468,52 @@ const TopNav = ({ activePath }: TopNavProps) => {
               </span>
             </Link>
           )}
-          <nav className='flex items-center gap-1 flex-shrink-0'>
-            {isClient && !simpleMode && (
-              <Link
-                href='/'
-                onClick={() => {
-                  if (active !== '/') {
-                    startLoading();
-                  }
-                  setActive('/');
-                }}
-                data-active={active === '/'}
-                className='top-nav__link group flex items-center gap-2 rounded-lg text-gray-700 hover:bg-gray-100/50 hover:text-green-600 data-[active=true]:bg-green-500/10 data-[active=true]:text-green-600 font-medium transition-colors duration-200 dark:text-gray-300 dark:hover:text-green-400 dark:hover:bg-gray-700/50 dark:data-[active=true]:bg-green-500/10 dark:data-[active=true]:text-green-400'
-              >
-                <Home className='top-nav__icon' />
-                <span className='top-nav__text'>首頁</span>
-              </Link>
-            )}
-            {isClient &&
-              !simpleMode &&
-              menuItems.map((item) => {
-                const typeMatch = item.href.match(/type=([^&]+)/)?.[1];
-                const decodedActive = decodeURIComponent(active);
-                const decodedHref = decodeURIComponent(item.href);
-                const isActive =
-                  decodedActive === decodedHref ||
-                  (decodedActive.startsWith('/douban') &&
-                    decodedActive.includes(`type=${typeMatch}`));
-                const Icon = item.icon;
-                return (
-                  <Link
-                    key={item.label}
-                    href={item.href}
-                    onClick={() => {
-                      if (!isActive) startLoading();
-                      setActive(item.href);
-                    }}
-                    data-active={isActive}
-                    className='top-nav__link group flex items-center gap-2 rounded-lg text-gray-700 hover:bg-gray-100/50 hover:text-green-600 data-[active=true]:bg-green-500/10 data-[active=true]:text-green-600 font-medium transition-colors duration-200 dark:text-gray-300 dark:hover:text-green-400 dark:hover:bg-gray-700/50 dark:data-[active=true]:bg-green-500/10 dark:data-[active=true]:text-green-400'
-                  >
-                    <Icon className='top-nav__icon' />
-                    <span className='top-nav__text'>{item.label}</span>
-                  </Link>
-                );
-              })}
-          </nav>
+          {/* ★ 左侧菜单统一放进固定最大宽度的横向滚动容器：
+              超出部分隐藏并可拖拽 / 滑动查看，長按選單项还能拖動調整順序 */}
+          <NavScrollContainer
+            className='top-nav__menu-scroll'
+            activeKey={active}
+            scrollIntoViewSelector='[data-active="true"]'
+            onReorder={handleMenuReorder}
+          >
+            <nav className='flex items-center gap-1'>
+              {isClient &&
+                orderedMenuItems.map((item) => {
+                  const [itemPath, itemQuery = ''] = item.href.split('?');
+                  const [currentPath, currentQuery = ''] = active.split('?');
+                  const isActive =
+                    currentPath === itemPath &&
+                    (!itemQuery ||
+                      new URLSearchParams(itemQuery).get('type') ===
+                        (new URLSearchParams(currentQuery).get('type') ??
+                          (itemPath === '/douban' ? 'movie' : null)));
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      data-nav-key={item.href}
+                      onClick={() => {
+                        if (!isActive) startLoading();
+                        setActive(item.href);
+                      }}
+                      data-active={isActive}
+                      aria-current={isActive ? 'page' : undefined}
+                      title='長按可拖動調整位置'
+                      className='top-nav__link top-nav__link--sortable group relative flex items-center gap-2 rounded-lg text-gray-700 hover:bg-gray-100/50 hover:text-green-600 data-[active=true]:bg-green-500/10 data-[active=true]:text-green-600 font-medium transition-colors duration-200 dark:text-gray-300 dark:hover:text-green-400 dark:hover:bg-gray-700/50 dark:data-[active=true]:bg-green-500/10 dark:data-[active=true]:text-green-400'
+                    >
+                      <Icon className='top-nav__icon' />
+                      <span className='top-nav__text'>{item.label}</span>
+                      {/* 拖動把手：悬停菜单栏时浮现，暗示可以长按拖動排序 */}
+                      <GripVertical
+                        aria-hidden
+                        className='top-nav__drag-handle h-3 w-3 absolute -right-0.5 top-1/2 -translate-y-1/2'
+                      />
+                    </Link>
+                  );
+                })}
+            </nav>
+          </NavScrollContainer>
           <div className='ml-auto flex items-center justify-end flex-shrink-0'>
             {showSearchBar && searchBarContent}
             {!showSearchBar && searchButton}
