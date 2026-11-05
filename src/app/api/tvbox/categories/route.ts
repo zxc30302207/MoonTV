@@ -1,9 +1,14 @@
 import { NextResponse } from 'next/server';
 
 import { getConfig } from '@/lib/config';
-import type { DoubanItem, DoubanResult } from '@/lib/types';
 
 export const runtime = 'nodejs';
+
+type UnknownRecord = Record<string, unknown>;
+
+function asRecord(value: unknown): UnknownRecord | null {
+  return value && typeof value === 'object' ? (value as UnknownRecord) : null;
+}
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -131,8 +136,14 @@ export async function GET(request: Request) {
       const resp = await fetch(
         `${origin}/api/douban/recommends?${qs.toString()}`
       );
-      const data: DoubanResult = await resp.json();
-      const list: DoubanItem[] = Array.isArray(data.list) ? data.list : [];
+      const data: unknown = await resp.json();
+      const dataRecord = asRecord(data);
+      const rawList = dataRecord?.list;
+      const list = Array.isArray(rawList)
+        ? rawList
+            .map((item) => asRecord(item))
+            .filter((item): item is UnknownRecord => !!item)
+        : [];
 
       const payload = {
         code: 1,
@@ -142,11 +153,11 @@ export async function GET(request: Request) {
         limit: pageSize,
         total: 0,
         list: list.map((item) => ({
-          vod_id: item.id,
-          vod_name: item.title,
-          vod_pic: item.poster,
-          vod_year: item.year || '',
-          vod_remarks: item.rate || '',
+          vod_id: String(item.id ?? ''),
+          vod_name: String(item.title ?? ''),
+          vod_pic: String(item.poster ?? ''),
+          vod_year: String(item.year ?? ''),
+          vod_remarks: String(item.rate ?? ''),
         })),
       };
 

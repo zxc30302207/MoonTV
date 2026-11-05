@@ -54,6 +54,8 @@ interface EpisodeSelectorProps {
   setVideoLoadingStage: (
     stage: 'initing' | 'sourceChanging' | 'optimizing'
   ) => void;
+  /** 共同觀影室內容，提供後顯示「一起看」分頁。 */
+  watchRoomSlot?: React.ReactNode;
 }
 
 /**
@@ -77,6 +79,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   setLoading,
   setIsVideoLoading,
   setVideoLoadingStage,
+  watchRoomSlot,
 }) => {
   const router = useRouter();
   const pageCount = Math.ceil(totalEpisodes / episodesPerPage);
@@ -102,11 +105,24 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     videoInfoMapRef.current = videoInfoMap;
   }, [videoInfoMap]);
 
-  // 主要的 tab 狀態：'episodes' 或 'sources'
+  // 主要的 tab 狀態：'episodes' / 'sources' / 'watchroom'
   // 當只有一集時默認展示 "換源"，並隱藏 "選集" 標簽
-  const [activeTab, setActiveTab] = useState<'episodes' | 'sources'>(
-    totalEpisodes > 1 ? 'episodes' : 'sources'
-  );
+  const [activeTab, setActiveTab] = useState<
+    'episodes' | 'sources' | 'watchroom'
+  >(totalEpisodes > 1 ? 'episodes' : 'sources');
+
+  // 邀請鏈接（URL 帶 ?room=）打開時自動落到「一起看」Tab。
+  // 用 effect 而非 useState 初始化，避免 SSR / hydration 時兩端計算不一致；
+  // 用 ref 保證只判一次——slot 是 React element，每次 render 引用都會變，
+  // 否則會把用戶手動切走的 Tab 反復拉回來。
+  const autoSwitchedRef = useRef(false);
+  useEffect(() => {
+    if (!watchRoomSlot || autoSwitchedRef.current) return;
+    autoSwitchedRef.current = true;
+    if (typeof window === 'undefined') return;
+    if (!new URLSearchParams(window.location.search).has('room')) return;
+    setActiveTab('watchroom');
+  }, [watchRoomSlot]);
 
   // 當前分頁索引（0 開始）
   const initialPage = Math.floor((value - 1) / episodesPerPage);
@@ -428,6 +444,17 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
               </div>
             )}
         </div>
+        {watchRoomSlot && (
+          <div
+            onClick={() => setActiveTab('watchroom')}
+            className={`${tabClass(
+              activeTab === 'watchroom'
+            )} flex items-center justify-center gap-1 whitespace-nowrap`}
+            title='共同觀影室'
+          >
+            <span>一起看</span>
+          </div>
+        )}
       </div>
 
       {/* 選集 Tab 內容 */}
@@ -757,6 +784,19 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                 </div>
               </div>
             )}
+        </div>
+      )}
+
+      {/* 共同觀影室 Tab 內容：由播放頁注入，組件本身不感知房間邏輯。
+          這裡用 CSS 顯隱而非條件掛載：即使停在「選集 / 換源」Tab，觀影室
+          也必須保持掛載，否則帶 ?room= 的邀請鏈接打開後不會自動入房、不會同步。 */}
+      {watchRoomSlot && (
+        <div
+          className={`min-h-0 flex-1 flex-col overflow-hidden ${
+            activeTab === 'watchroom' ? 'flex' : 'hidden'
+          }`}
+        >
+          {watchRoomSlot}
         </div>
       )}
     </div>

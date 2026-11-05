@@ -18,6 +18,7 @@ jest.mock('@/lib/config.client', () => ({ getCustomCategories: jest.fn() }));
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   mockPathname = '/';
   mockQuery = '';
   jest.clearAllMocks();
@@ -28,7 +29,7 @@ it('preserves all destinations, marks current page and offers explicit horizonta
   await act(async () => {
     render(<MobileBottomNav activePath='/ranking' />);
   });
-  expect(screen.getAllByRole('link')).toHaveLength(9);
+  expect(screen.getAllByRole('link')).toHaveLength(10);
   expect(screen.getByRole('link', { name: '榜單' })).toHaveAttribute(
     'aria-current',
     'page'
@@ -39,6 +40,7 @@ it('preserves all destinations, marks current page and offers explicit horizonta
     scrollWidth: { value: 700 },
   });
   fireEvent.scroll(list);
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
   const right = screen.getByRole('button', { name: '向右捲動，查看更多導覽' });
   expect(right).toBeEnabled();
   fireEvent.click(right);
@@ -75,7 +77,7 @@ it('retains simple mode without overflow controls and supports custom categories
   localStorage.setItem('simpleMode', 'true');
   const first = render(<MobileBottomNav />);
   await act(async () => undefined);
-  expect(screen.getAllByRole('link')).toHaveLength(2);
+  expect(screen.getAllByRole('link')).toHaveLength(3);
   expect(screen.queryByRole('button')).not.toBeInTheDocument();
   first.unmount();
   localStorage.clear();
@@ -83,7 +85,7 @@ it('retains simple mode without overflow controls and supports custom categories
   await act(async () => {
     render(<MobileBottomNav activePath='/douban?type=custom' />);
   });
-  expect(screen.getAllByRole('link')).toHaveLength(10);
+  expect(screen.getAllByRole('link')).toHaveLength(11);
   expect(screen.getByRole('link', { name: '自定義' })).toHaveAttribute(
     'aria-current',
     'page'
@@ -135,6 +137,26 @@ it('updates selected category on query-only navigation and retains explicit over
   );
   view.rerender(<MobileBottomNav activePath='/ranking?sort=rating' />);
   expect(screen.getByRole('link', { name: '榜單' })).toHaveAttribute(
+    'aria-current',
+    'page'
+  );
+});
+
+it('restores a saved order and keeps the new watch-room destination', async () => {
+  localStorage.setItem(
+    'navMenuOrder',
+    JSON.stringify(['/search', '/ranking', '/'])
+  );
+  await act(async () => {
+    render(<MobileBottomNav activePath='/watch-room' />);
+  });
+  expect(
+    screen
+      .getAllByRole('link')
+      .slice(0, 3)
+      .map((link) => link.getAttribute('href'))
+  ).toEqual(['/search', '/ranking', '/']);
+  expect(screen.getByRole('link', { name: '觀影室' })).toHaveAttribute(
     'aria-current',
     'page'
   );

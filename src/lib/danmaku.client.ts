@@ -873,28 +873,96 @@ export interface VideoInfo {
 }
 
 /**
+ * 解析中文數字（支援一到九十九，以及「兩」）。無法解析時返回 null。
+ *
+ * 彈幕源標題常見「好兆頭第二季」「雙城之戰：第二季」。舊規則只認阿拉伯數字，
+ * 會把「第二季」當成第 1 季，自動匹配變成 `好兆頭第二季 S1E1 @平台`。
+ */
+function parseChineseNumber(text: string): number | null {
+  if (!text) return null;
+  if (/^\d+$/.test(text)) return parseInt(text, 10);
+
+  const digits: Record<string, number> = {
+    零: 0,
+    一: 1,
+    二: 2,
+    两: 2,
+    兩: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+  };
+
+  const tenIndex = text.indexOf('十');
+  if (tenIndex === -1) {
+    let value = 0;
+    for (const ch of text) {
+      const digit = digits[ch];
+      if (digit === undefined) return null;
+      value = value * 10 + digit;
+    }
+    return value;
+  }
+
+  // 十 / 十X / X十 / X十Y
+  const head = text.slice(0, tenIndex);
+  const tail = text.slice(tenIndex + 1);
+  const tens = head ? digits[head] : 1;
+  if (tens === undefined) return null;
+
+  let ones = 0;
+  if (tail) {
+    if (tail.length !== 1 || digits[tail] === undefined) return null;
+    ones = digits[tail];
+  }
+  return tens * 10 + ones;
+}
+
+/**
  * 從標題中提取季數（Season）
+ *
+ * 支援「第二季 / 第2季 / 第 2 期」「Season 2 / S02 / S2」「2nd Season」。
+ * 沒有季數資訊時才回退到第 1 季。中文季數優先於標題裡附帶的 S1 標記。
+ *
  * @param title 動漫標題
  * @returns 季數（從 1 開始），如果無法提取則返回 1
  */
 export function extractSeasonFromTitle(title: string): number {
   if (!title) return 1;
 
-  title = title.toLowerCase();
+  const text = title.toLowerCase();
 
-  // 正則1：S01、S1、Season 1、Season01
-  const match = title.match(/(?:season|s)\s*?(\d{1,2})/i);
-  if (match && match[1]) {
-    return Number(match[1]);
+  // 1. 中文「第X季 / 第X期 / 第X部」，X 可為阿拉伯數字或中文數字
+  const cnSeason = text.match(
+    /第\s*([0-9]+|[零一二两三兩四五六七八九十]+)\s*[季期部]/
+  );
+  const cnNumber = cnSeason ? parseChineseNumber(cnSeason[1]) : null;
+  if (cnNumber !== null && cnNumber >= 1 && cnNumber <= 99) {
+    return cnNumber;
   }
 
-  // 正則2：中文「第1季、第2季」
-  const cnMatch = title.match(/第\s*(\d+)\s*季/);
-  if (cnMatch && cnMatch[1]) {
-    return Number(cnMatch[1]);
+  // 2. 英文序數：2nd Season / 3rd season
+  const ordinalMatch = text.match(/(\d{1,2})\s*(?:st|nd|rd|th)\s*season/);
+  if (ordinalMatch && ordinalMatch[1]) {
+    return Number(ordinalMatch[1]);
   }
 
-  // 默認季別
+  // 3. Season 1、Season01（season 前不能緊接字母，避免誤傷單字）
+  const seasonMatch = text.match(/(?:^|[^a-z])season\s*(\d{1,2})/);
+  if (seasonMatch && seasonMatch[1]) {
+    return Number(seasonMatch[1]);
+  }
+
+  // 4. S01、S1、S 2（前面不是字母，後面不接數字或字母）
+  const shortMatch = text.match(/(?:^|[^a-z])s\s*(\d{1,2})(?![0-9a-z])/);
+  if (shortMatch && shortMatch[1]) {
+    return Number(shortMatch[1]);
+  }
+
   return 1;
 }
 

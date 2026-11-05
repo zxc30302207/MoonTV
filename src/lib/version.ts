@@ -1,4 +1,4 @@
-const CURRENT_VERSION = '4.7.5';
+const CURRENT_VERSION = '4.8.0';
 
 export enum UpdateStatus {
   HAS_UPDATE = 'has_update',

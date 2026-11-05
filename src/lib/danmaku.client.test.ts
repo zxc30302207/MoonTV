@@ -1,6 +1,7 @@
 import {
   buildDanmakuMatchFileNames,
   DanmakuRequestError,
+  extractSeasonFromTitle,
   findAutoDanmakuMatch,
   findDanmakuEpisodeFromSearch,
   getDanmakuUrlByEpisodeId,
@@ -493,6 +494,31 @@ describe('danmaku client', () => {
       episodeId: 1101,
       episodeTitle: '[renren] 第1集',
     });
+  });
+
+  it('reads Chinese and bounded English season numbers from titles', () => {
+    expect(extractSeasonFromTitle('')).toBe(1);
+    expect(extractSeasonFromTitle('好兆頭')).toBe(1);
+    expect(extractSeasonFromTitle('好兆頭第二季')).toBe(2);
+    expect(extractSeasonFromTitle('好兆頭第二季 S1E1')).toBe(2);
+    expect(extractSeasonFromTitle('雙城之戰：第二季')).toBe(2);
+    expect(extractSeasonFromTitle('第兩季')).toBe(2);
+    expect(extractSeasonFromTitle('第十二季')).toBe(12);
+    expect(extractSeasonFromTitle('第二十二季')).toBe(22);
+    expect(extractSeasonFromTitle('第十季')).toBe(10);
+    expect(extractSeasonFromTitle('第 2 期')).toBe(2);
+    expect(extractSeasonFromTitle('第3部')).toBe(3);
+    expect(extractSeasonFromTitle('第2季')).toBe(2);
+    expect(extractSeasonFromTitle('第零季')).toBe(1);
+    expect(extractSeasonFromTitle('第100季')).toBe(1);
+    expect(extractSeasonFromTitle('2nd Season')).toBe(2);
+    expect(extractSeasonFromTitle('3rd season')).toBe(3);
+    expect(extractSeasonFromTitle('Season 2')).toBe(2);
+    expect(extractSeasonFromTitle('Season02')).toBe(2);
+    expect(extractSeasonFromTitle('Show S02')).toBe(2);
+    expect(extractSeasonFromTitle('Show S 2')).toBe(2);
+    expect(extractSeasonFromTitle('Transformers 2')).toBe(1);
+    expect(extractSeasonFromTitle('classics2')).toBe(1);
   });
 
   it('uses the default danmaku service when no base URL is configured', () => {
