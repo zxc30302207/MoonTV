@@ -49,6 +49,37 @@ export const MEMBER_META_TTL_SECONDS = 60;
 /** 事件批量寫入時單次響應的上限 */
 export const EVENT_RESPONSE_LIMIT = EVENT_LIMIT;
 
+/** 创建观影室时允许设置的最小 / 最大 / 默认人数上限 */
+export const MIN_ROOM_CAPACITY = 1;
+export const MAX_ROOM_CAPACITY = 100;
+export const DEFAULT_ROOM_CAPACITY = 20;
+
+/**
+ * 读取 / 校验口径：把房间对象里存的 maxMembers 转成有效上限。
+ *
+ * 返回 undefined 表示「不限制」。这个语义必须保留：升级前创建的房间没有
+ * maxMembers 字段，若把它也解释成默认上限，历史房间会被凭空限流。
+ * 列表展示、容量校验都用这个函数。
+ */
+export function normalizeCapacity(value: unknown): number | undefined {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  const rounded = Math.floor(n);
+  if (rounded < MIN_ROOM_CAPACITY) return undefined;
+  return Math.min(rounded, MAX_ROOM_CAPACITY);
+}
+
+/**
+ * 创建口径：输入框留空 / 0 / 非数字一律落到默认上限，填了有效数字则
+ * 收敛到 [MIN, MAX]。始终返回具体数字，保证新建房间一定带 maxMembers。
+ *
+ * 与 normalizeCapacity 分开是为了让「历史房间不限制」和「新房间默认 20 人」
+ * 两件事互不干扰：前者是读旧数据，后者是写新数据。
+ */
+export function resolveCreateCapacity(value: unknown): number {
+  return normalizeCapacity(value) ?? DEFAULT_ROOM_CAPACITY;
+}
+
 export interface RoomMember {
   /** Server-only account binding, never included in public member views. */
   account?: string;
@@ -109,7 +140,12 @@ export interface WatchRoom {
   members: RoomMember[];
   /** 活跃成員精確總數，由 presence 层實時統計 */
   memberCount?: number;
-  /** 最近一次事件序號，僅作參考；客戶端以收到的事件 seq 為准 */
+  /**
+   * 房主创建时设置的在线人数上限。新建房间必定带此字段（默认 20 人）；
+   * 字段缺失表示升级前创建的历史房间，按「不限制」处理。
+   */
+  maxMembers?: number;
+  /** 最近一次事件序号，仅作参考；客户端以收到的事件 seq 为准 */
   seq: number;
   /**
    * 房間核心版本號，僅在核心狀態（播放狀態 / 影片 / 房主 / 配置）變化時遞增。
@@ -148,6 +184,8 @@ export type RoomRequest =
       persistent?: boolean;
       /** 建立時直接公開到觀影室頁面 */
       isPublic?: boolean;
+      /** 在线人数上限；留空 / 0 由服务端落到默认 20 人，最大 100 */
+      maxMembers?: number;
     }
   /**
    * 我的房間列表。
