@@ -9,6 +9,8 @@ import {
   LoaderCircle,
   Lock,
   Plus,
+  Power,
+  PowerOff,
   RefreshCw,
   Trash2,
   UsersRound,
@@ -17,8 +19,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Swal from 'sweetalert2';
 
 import { getCachedAuthInfo, refreshAuthInfo } from '@/lib/auth-client';
-import { roomRequest } from '@/lib/watch-room/client';
-import { WatchRoom } from '@/lib/watch-room/types';
+import {
+  cacheMemberId,
+  clearCachedMemberId,
+  roomRequest,
+} from '@/lib/watch-room/client';
+import {
+  DEFAULT_ROOM_CAPACITY,
+  MAX_ROOM_CAPACITY,
+  normalizeCapacity,
+  resolveCreateCapacity,
+  WatchRoom,
+} from '@/lib/watch-room/types';
 
 import PageLayout from '@/components/PageLayout';
 
@@ -46,9 +58,11 @@ function describeRoom(room: WatchRoom): string {
       : room.videoTitle || room.title || '共同觀影室';
   const episode = room.episode > 1 ? ` · 第 ${room.episode} 集` : '';
   // 只認服務端按 presence 實時統計的人數；members 是裁剪過的預覽名單，
-  // 不能用它的長度冒充在線人數。
+  // 不能用它的長度冒充在線人數。設置了上限時一並展示容量。
   const count = Math.max(0, Number(room.memberCount) || 0);
-  return `${video}${episode} · ${count} 人在線`;
+  const cap = normalizeCapacity(room.maxMembers);
+  const countText = cap ? `${count}/${cap} 人在線` : `${count} 人在線`;
+  return `${video}${episode} · ${countText}`;
 }
 
 export default function WatchRoomPage() {
@@ -62,6 +76,8 @@ export default function WatchRoomPage() {
   const myLoadRef = useRef(0);
   const publicLoadRef = useRef(0);
   const [roomNameInput, setRoomNameInput] = useState('');
+  // 留空 = 採用默認上限（20 人）；只保留數字，避免移動端帶出步進箭頭
+  const [capacityInput, setCapacityInput] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
@@ -159,6 +175,7 @@ export default function WatchRoomPage() {
       persistent: true,
       // 默認不公開：需要房主手動點「公開」才會出現在公開列表
       isPublic: false,
+      maxMembers: resolveCreateCapacity(capacityInput),
     });
     if (generation !== generationRef.current) return;
     busyRef.current = false;
@@ -167,8 +184,12 @@ export default function WatchRoomPage() {
       setError(res.error || '創建觀影室失敗');
       return;
     }
+    const capacity = resolveCreateCapacity(capacityInput);
     setRoomNameInput('');
-    setNotice('觀影室已創建（未公開），點「公開」後其他人才能在觀影室頁面看到');
+    setCapacityInput('');
+    setNotice(
+      `觀影室已創建（未公開，最多 ${capacity} 人），點「公開」後其他人才能在觀影室頁面看到`
+    );
     await refreshAll();
   };
 
@@ -269,6 +290,7 @@ export default function WatchRoomPage() {
       setError(res.error || '刪除觀影室失敗');
       return;
     }
+    clearCachedMemberId(roomId);
     setRooms((current) => current.filter((room) => room.id !== roomId));
     setPublicRooms((current) => current.filter((room) => room.id !== roomId));
   };
@@ -295,6 +317,7 @@ export default function WatchRoomPage() {
       setError(res.error || '進入觀影室失敗');
       return;
     }
+    if (res.memberId) cacheMemberId(room.id, res.memberId);
     const url = inviteUrl(res.room || room);
     if (url) window.location.assign(url);
   };
@@ -322,8 +345,8 @@ export default function WatchRoomPage() {
   return (
     <PageLayout>
       <main className='mx-auto w-full max-w-5xl px-4 pb-24 pt-6 md:px-6 md:pt-10'>
-        {/* 窄屏：標題獨佔一行，控件區兩行鋪滿（輸入整行 / 刷新+創建並排），
-            避免 flex-wrap 把三個控件逐個擠到下一行形成參差的三行。
+        {/* 窄屏：標題獨占一行，控件區兩行鋪滿（兩個輸入並排 / 刷新+創建並排），
+            避免 flex-wrap 把控件逐個擠到下一行形成參差的多行。
             sm 及以上恢復原來的單行橫排布局。 */}
         <header className='mb-6 flex flex-col gap-3 border-b border-gray-200 pb-4 dark:border-gray-700 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between'>
           <div className='flex min-w-0 items-center gap-3'>
@@ -337,7 +360,7 @@ export default function WatchRoomPage() {
               </p>
             </div>
           </div>
-          <div className='flex w-full min-w-0 flex-col gap-2 sm:flex-1 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end'>
+          <div className='grid w-full min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-1 sm:flex-wrap sm:items-center sm:justify-end'>
             <input
               value={roomNameInput}
               onChange={(e) => setRoomNameInput(e.target.value.slice(0, 20))}
@@ -349,7 +372,28 @@ export default function WatchRoomPage() {
               placeholder='共同觀影室'
               className='h-10 w-full min-w-0 rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-green-500 focus:outline-none dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 sm:w-auto sm:min-w-[180px] sm:max-w-[280px] sm:flex-1'
             />
-            <div className='flex min-w-0 gap-2 sm:shrink-0'>
+            <input
+              value={capacityInput}
+              onChange={(e) =>
+                setCapacityInput(
+                  e.target.value.replace(/[^\d]/g, '').slice(0, 3)
+                )
+              }
+              onBlur={() => {
+                const cap = normalizeCapacity(capacityInput);
+                setCapacityInput(cap ? String(cap) : '');
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !busy && rooms.length === 0)
+                  void createRoom();
+              }}
+              inputMode='numeric'
+              aria-label='人數上限'
+              title={`默認 ${DEFAULT_ROOM_CAPACITY} 人，最多 ${MAX_ROOM_CAPACITY} 人`}
+              placeholder={`默認 ${DEFAULT_ROOM_CAPACITY} 人`}
+              className='h-10 w-full min-w-0 rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-green-500 focus:outline-none dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 sm:w-[112px] sm:flex-none'
+            />
+            <div className='col-span-2 flex min-w-0 gap-2 sm:shrink-0'>
               <button
                 type='button'
                 onClick={() => void refreshAll()}
@@ -440,6 +484,11 @@ export default function WatchRoomPage() {
                           已公開
                         </span>
                       )}
+                      {normalizeCapacity(room.maxMembers) !== undefined && (
+                        <span className='rounded-full bg-gray-500/10 px-2 py-0.5 text-[11px] text-gray-600 dark:text-gray-300'>
+                          限 {normalizeCapacity(room.maxMembers)} 人
+                        </span>
+                      )}
                       {room.enabled === false && (
                         <span className='rounded-full bg-gray-500/10 px-2 py-0.5 text-[11px] text-gray-600 dark:text-gray-300'>
                           已關閉
@@ -453,12 +502,15 @@ export default function WatchRoomPage() {
                       創建於 {new Date(room.createdAt).toLocaleString()}
                     </p>
                   </div>
-                  <div className='flex shrink-0 flex-wrap gap-2'>
+                  {/* 窄屏：5 個按鈕改成規整的 2 列網格，主操作獨占整行、
+                      其餘 2×2 對齊，避免 flex-wrap 把按鈕逐個擠到下一行形成
+                      參差的多行；sm 及以上恢復原來的單行橫排。 */}
+                  <div className='grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:shrink-0 sm:flex-wrap sm:justify-end'>
                     <button
                       type='button'
                       onClick={() => void enterRoom(room)}
                       disabled={busy}
-                      className='inline-flex h-9 items-center gap-2 rounded-md bg-green-600 px-3 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50'
+                      className='col-span-2 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-green-600 px-3 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 sm:w-auto'
                     >
                       <DoorOpen className='h-4 w-4' />
                       {room.enabled === false ? '恢復播放' : '播放此房間'}
@@ -466,7 +518,7 @@ export default function WatchRoomPage() {
                     <button
                       type='button'
                       onClick={() => void copyInvite(room)}
-                      className='inline-flex h-9 items-center gap-2 rounded-md border border-gray-300 px-3 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800'
+                      className='inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-gray-300 px-3 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 sm:w-auto'
                     >
                       <Copy className='h-4 w-4' />
                       邀請
@@ -476,7 +528,7 @@ export default function WatchRoomPage() {
                       onClick={() => void togglePublic(room)}
                       disabled={busy}
                       title={room.isPublic ? '取消公開' : '公開到觀影室列表'}
-                      className={`inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm disabled:opacity-50 ${
+                      className={`inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border px-3 text-sm disabled:opacity-50 sm:w-auto ${
                         room.isPublic
                           ? 'border-green-300 text-green-700 hover:bg-green-50 dark:border-green-800 dark:text-green-400 dark:hover:bg-green-950/40'
                           : 'border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800'
@@ -496,8 +548,13 @@ export default function WatchRoomPage() {
                       title={
                         room.enabled === false ? '開啟觀影室' : '關閉觀影室'
                       }
-                      className='inline-flex h-9 items-center gap-2 rounded-md border border-gray-300 px-3 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800'
+                      className='inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-gray-300 px-3 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800 sm:w-auto'
                     >
+                      {room.enabled === false ? (
+                        <Power className='h-4 w-4 sm:hidden' />
+                      ) : (
+                        <PowerOff className='h-4 w-4 sm:hidden' />
+                      )}
                       {room.enabled === false ? '開啟' : '關閉'}
                     </button>
                     <button
@@ -505,9 +562,10 @@ export default function WatchRoomPage() {
                       onClick={() => void deleteRoom(room.id)}
                       disabled={busy}
                       title='刪除觀影室'
-                      className='inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:hover:bg-red-950/40'
+                      className='inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:hover:bg-red-950/40 sm:w-9 sm:gap-0'
                     >
                       <Trash2 className='h-4 w-4' />
+                      <span className='sm:hidden'>刪除</span>
                     </button>
                   </div>
                 </li>

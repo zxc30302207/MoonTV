@@ -2,6 +2,7 @@
 
 'use client';
 
+import { LoaderCircle, RefreshCw } from 'lucide-react';
 import {
   type MutableRefObject,
   useCallback,
@@ -11,16 +12,25 @@ import {
 } from 'react';
 
 import { getCachedAuthInfo, refreshAuthInfo } from '@/lib/auth-client';
-import { roomRequest } from '@/lib/watch-room/client';
+import {
+  cachedMemberId,
+  cacheMemberId,
+  clearCachedMemberId,
+  roomRequest,
+} from '@/lib/watch-room/client';
 import {
   ControlKind,
   currentPlayPath,
+  DEFAULT_ROOM_CAPACITY,
   MAX_MESSAGE_LENGTH,
+  MAX_ROOM_CAPACITY,
   MEMBER_PREVIEW_LIMIT,
+  normalizeCapacity,
   POLL_HIDDEN_INTERVAL_MS,
   POLL_IDLE_INTERVAL_MS,
   POLL_INTERVAL_MS,
   POLL_JITTER,
+  resolveCreateCapacity,
   RoomEvent,
   RoomResponse,
   WatchRoom,
@@ -82,32 +92,6 @@ function displayName(): string {
   }
 }
 
-const memberKey = (roomId: string) => `moontv:watchroom:member:${roomId}`;
-
-function cachedMemberId(roomId: string): string {
-  try {
-    return sessionStorage.getItem(memberKey(roomId)) || '';
-  } catch {
-    return '';
-  }
-}
-
-function cacheMemberId(roomId: string, memberId: string): void {
-  try {
-    sessionStorage.setItem(memberKey(roomId), memberId);
-  } catch {
-    /* 隱私模式下忽略 */
-  }
-}
-
-function clearCachedMemberId(roomId: string): void {
-  try {
-    sessionStorage.removeItem(memberKey(roomId));
-  } catch {
-    /* ignore */
-  }
-}
-
 function buildInviteUrl(room: WatchRoom): string {
   if (typeof window === 'undefined') return '';
   try {
@@ -165,6 +149,19 @@ export default function WatchRoomPanel({
   const [input, setInput] = useState('');
   const [joinCode, setJoinCode] = useState('');
   const [roomNameInput, setRoomNameInput] = useState('');
+  // 創建房間時的人數上限，留空 = 採用默認上限（20 人）
+  const [capacityInput, setCapacityInput] = useState('');
+  /**
+   * 帳號已創建的持久觀影室。只作展示，不自動激活：換影片進播放頁時不再
+   * 把用戶直接拉回自己的房間，需要用戶主動點「加入我的觀影室」。
+   */
+  const [savedRoom, setSavedRoom] = useState<WatchRoom | null>(null);
+  const [joiningSaved, setJoiningSaved] = useState(false);
+  /** 查詢「我的觀影室」的加載態與錯誤態：失敗必須顯式報錯並允許手動重試 */
+  const [savedRoomLoading, setSavedRoomLoading] = useState(false);
+  const [savedRoomError, setSavedRoomError] = useState('');
+  /** 丟棄過期的 hasPersistentRoom 響應，避免卸載 / 快速切換時覆蓋狀態 */
+  const savedRoomReqRef = useRef(0);
   const [errorText, setErrorText] = useState('');
   const [hint, setHint] = useState('');
   const [storeKind, setStoreKind] = useState('');
@@ -325,11 +322,20 @@ export default function WatchRoomPanel({
     setErrorText('');
     setExpanded(true);
     setStoreKind(res.storeKind || '');
+    savedRoomReqRef.current += 1;
+    setSavedRoom(null);
+    setSavedRoomError('');
+    setSavedRoomLoading(false);
     writeRoomToUrl(nextRoom.id);
   }, []);
 
   const resetLocal = useCallback(() => {
     sessionGenerationRef.current += 1;
+    savedRoomReqRef.current += 1;
+    setSavedRoom(null);
+    setSavedRoomError('');
+    setSavedRoomLoading(false);
+    setJoiningSaved(false);
     busyRef.current = false;
     setBusy(false);
     const id = roomIdRef.current;
@@ -356,6 +362,73 @@ export default function WatchRoomPanel({
     setSettingsOpen(false);
     writeRoomToUrl(null);
   }, []);
+
+  /**
+   * 只查詢帳號已創建的房間用於展示；不發心跳、不 activateOwned。
+   *
+   * 失敗不再靜默回落到創建表單（用戶已創建過時點創建只會報「不能重復創建」），
+   * 而是顯式報錯並提供重試按鈕。查詢期間保留上一次的卡片，避免界面閃空。
+   */
+  const loadSavedRoom = useCallback(async () => {
+    const reqId = ++savedRoomReqRef.current;
+    const generation = sessionGenerationRef.current;
+    // 重試期間故意保留上一條錯誤：錯誤塊裡的按鈕才能顯示「正在重試…」，
+    // 而不是整塊消失、讓用戶以為點擊沒生效。成功後在下面清空。
+    setSavedRoomLoading(true);
+
+    let res: RoomResponse | null = null;
+    try {
+      res = await roomRequest({ action: 'hasPersistentRoom' });
+    } catch {
+      /* roomRequest 內部已兜底，這裡只防意外拋出 */
+    }
+    if (
+      !mountedRef.current ||
+      generation !== sessionGenerationRef.current ||
+      reqId !== savedRoomReqRef.current
+    )
+      return;
+    setSavedRoomLoading(false);
+
+    if (!res || !res.ok) {
+      // roomRequest 超時文案寫的是「正在重試」，但本查詢本身沒有自動重試，
+      // 這裡換成準確描述，避免誤導用戶等著一個不會發生的重試。
+      const raw = res?.error || '讀取我的觀影室失敗';
+      setSavedRoomError(
+        /正在重[試试]/.test(raw) ? '讀取觀影室超時，請點擊重試' : raw
+      );
+      return;
+    }
+    // ok=true 且沒有 room 是正常結果（帳號確實沒創建過房間），不是錯誤
+    setSavedRoomError('');
+    setSavedRoom(res.room || null);
+  }, []);
+
+  /** 用戶主動點「加入我的觀影室」後才真正建立連接 */
+  const joinSavedRoom = useCallback(async () => {
+    if (!savedRoom || busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    const generation = sessionGenerationRef.current;
+    setJoiningSaved(true);
+    setErrorText('');
+    const res = await roomRequest({
+      action: 'activateOwned',
+      roomId: savedRoom.id,
+    });
+    if (!mountedRef.current || generation !== sessionGenerationRef.current)
+      return;
+    busyRef.current = false;
+    setBusy(false);
+    setJoiningSaved(false);
+    if (!res.ok || !res.room || !res.memberId) {
+      setErrorText(res.error || '加入觀影室失敗');
+      // 房間可能已在別處被刪除：刷新一次，讓卡片回落到創建表單
+      void loadSavedRoom();
+      return;
+    }
+    activate(res);
+  }, [savedRoom, joiningSaved, busy, activate, loadSavedRoom]);
 
   const createRoom = useCallback(async () => {
     if (getCachedAuthInfo()?.mode === 'localstorage') {
@@ -391,6 +464,7 @@ export default function WatchRoomPanel({
       persistent: true,
       // 默認不公開：由房主在設置裡主動公開
       isPublic: false,
+      maxMembers: resolveCreateCapacity(capacityInput),
     });
     if (!mountedRef.current || generation !== sessionGenerationRef.current)
       return;
@@ -401,8 +475,16 @@ export default function WatchRoomPanel({
       return;
     }
     setRoomNameInput('');
+    setCapacityInput('');
     activate(res);
-  }, [busy, roomNameInput, videoTitle, currentEpisodeIndex, activate]);
+  }, [
+    busy,
+    roomNameInput,
+    capacityInput,
+    videoTitle,
+    currentEpisodeIndex,
+    activate,
+  ]);
 
   const joinRoom = useCallback(
     async (code: string) => {
@@ -412,10 +494,10 @@ export default function WatchRoomPanel({
         return;
       }
       if (getCachedAuthInfo()?.mode === 'localstorage') {
-      setErrorText('觀影室需要 Supabase 帳號登入，本機儲存模式不支援。');
-      return;
-    }
-    if (busyRef.current) return;
+        setErrorText('觀影室需要 Supabase 帳號登入，本機儲存模式不支援。');
+        return;
+      }
+      if (busyRef.current) return;
       busyRef.current = true;
       const generation = sessionGenerationRef.current;
       setBusy(true);
@@ -448,9 +530,11 @@ export default function WatchRoomPanel({
       });
     }
     resetLocal();
+    // 離開後回到「我的觀影室」卡片，可再次手動加入
+    void loadSavedRoom();
     // 緊湊模式下 Tab 本身就是開關，離開後仍停留在面板上便於重新建房
     if (!compact) setExpanded(false);
-  }, [resetLocal, compact]);
+  }, [resetLocal, loadSavedRoom, compact]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -465,11 +549,11 @@ export default function WatchRoomPanel({
     };
   }, [resetLocal]);
 
-  // 優先使用邀請鏈接；否則自動復用賬號已有的持久觀影室。
+  // 邀請鏈接（URL 帶 ?room=）仍按顯式意圖自動入房；沒有邀請鏈接時只查詢
+  // 帳號已創建的房間並展示卡片，由用戶手動點「加入我的觀影室」，避免換影片
+  // 進入播放頁就被自動拉回自己的房間。
   useEffect(() => {
-    let cancelled = false;
-    const generation = sessionGenerationRef.current;
-    const activateSavedRoom = async () => {
+    const initRoomState = () => {
       if (getCachedAuthInfo()?.mode === 'localstorage') {
         setErrorText('觀影室需要 Supabase 帳號登入，本機儲存模式不支援。');
         return;
@@ -484,30 +568,14 @@ export default function WatchRoomPanel({
         setExpanded(true);
         return;
       }
-      const res = await roomRequest({ action: 'hasPersistentRoom' });
-      if (
-        cancelled ||
-        generation !== sessionGenerationRef.current ||
-        !res.ok ||
-        !res.room
-      )
-        return;
-      const activated = await roomRequest({
-        action: 'activateOwned',
-        roomId: res.room.id,
-      });
-      if (
-        !cancelled &&
-        generation === sessionGenerationRef.current &&
-        activated.ok
-      )
-        activate(activated);
+      void loadSavedRoom();
     };
-    void activateSavedRoom();
+    initRoomState();
+    // 卸載後丟棄在途響應，避免對已卸載組件 setState
     return () => {
-      cancelled = true;
+      savedRoomReqRef.current += 1;
     };
-  }, [activate]);
+  }, [loadSavedRoom]);
 
   // 可見性感知：側欄 Tab 被隱藏 / 標簽頁切到後台時，不再高頻輪詢
   useEffect(() => {
@@ -564,9 +632,17 @@ export default function WatchRoomPanel({
 
       if (!res.ok) {
         setConnected('error');
-        setErrorText(res.error || '連接異常，正在重試');
-        if (/不存在|已解散|房[間间][號号][無无]效/.test(res.error || ''))
+        const message = res.error || '連接異常，正在重試';
+        setErrorText(message);
+        if (
+          /不存在|已解散|房[間间][號号][無无]效|人[數数]已[滿满]/.test(message)
+        ) {
+          // 房間滿了不要繼續反復心跳重試；退出本地房間狀態，
+          // 並把滿員提示留在面板上（resetLocal 會清空錯誤文案）。
           resetLocal();
+          void loadSavedRoom();
+          if (/人[數数]已[滿满]/.test(message)) setErrorText(message);
+        }
         return;
       }
 
@@ -664,6 +740,7 @@ export default function WatchRoomPanel({
     videoTitle,
     applyRoomState,
     resetLocal,
+    loadSavedRoom,
   ]);
 
   // 綁定播放器事件：房主的播放 / 暫停 / 拖動立即廣播，不等下一輪心跳
@@ -919,6 +996,15 @@ export default function WatchRoomPanel({
       ? '連接中'
       : '未連接';
 
+  /** 「我的觀影室」卡片的人數：服務端已按 presence 實時統計，0 就明確顯示無人 */
+  const savedRoomCount = Math.max(0, Number(savedRoom?.memberCount) || 0);
+  const savedRoomCap = normalizeCapacity(savedRoom?.maxMembers);
+  const savedRoomCountText = savedRoomCount
+    ? `當前 ${savedRoomCount}${savedRoomCap ? ` / ${savedRoomCap}` : ''} 人在線`
+    : savedRoomCap
+    ? `當前無人在線 · 上限 ${savedRoomCap} 人`
+    : '當前無人在線';
+
   return (
     <div
       ref={rootRef}
@@ -938,7 +1024,11 @@ export default function WatchRoomPanel({
           {room && (
             <span className='truncate text-xs text-gray-500 dark:text-gray-400'>
               房間 {room.id} · {isHost ? '房主' : '成員'} · {statusText} ·{' '}
-              {memberCount} 人
+              {memberCount}
+              {normalizeCapacity(room.maxMembers)
+                ? ` / ${normalizeCapacity(room.maxMembers)}`
+                : ''}{' '}
+              人
             </span>
           )}
         </div>
@@ -968,21 +1058,131 @@ export default function WatchRoomPanel({
         <div
           className={compact ? 'mt-3 min-h-0 flex-1 overflow-y-auto' : 'mt-4'}
         >
-          <div className='mb-3'>
-            <label className='mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400'>
-              房間名稱
-            </label>
-            <input
-              value={roomNameInput}
-              onChange={(e) => setRoomNameInput(e.target.value.slice(0, 20))}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !busy) void createRoom();
-              }}
-              aria-label='房間名稱'
-              placeholder='共同觀影室'
-              className='w-full rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-gray-400 focus:border-blue-500 dark:border-white/15 dark:placeholder:text-gray-500'
-            />
-          </div>
+          {/* 查詢「我的觀影室」失敗：顯式報錯 + 手動重試，不靜默回落到創建表單 */}
+          {savedRoomError && (
+            <div className='mb-4 rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/30'>
+              <p className='text-sm font-medium text-red-700 dark:text-red-300'>
+                讀取我的觀影室失敗
+              </p>
+              <p className='mt-1 break-words text-xs leading-relaxed text-red-600 dark:text-red-400'>
+                {savedRoomError}
+              </p>
+              <button
+                type='button'
+                onClick={() => void loadSavedRoom()}
+                disabled={savedRoomLoading}
+                className='mt-3 inline-flex items-center gap-2 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:bg-white/5 dark:text-red-300 dark:hover:bg-red-950/60'
+              >
+                <RefreshCw
+                  className={`h-3.5 w-3.5 ${
+                    savedRoomLoading ? 'animate-spin' : ''
+                  }`}
+                />
+                {savedRoomLoading ? '正在重試…' : '重試'}
+              </button>
+            </div>
+          )}
+
+          {savedRoomLoading && !savedRoomError && (
+            <p className='mb-4 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400'>
+              <LoaderCircle className='h-3.5 w-3.5 animate-spin' />
+              正在讀取我的觀影室…
+            </p>
+          )}
+
+          {/* 已創建房間：只展示，不自動連接，由用戶手動點按鈕加入 */}
+          {savedRoom && (
+            <div className='mb-4 rounded-xl border border-green-500/30 bg-green-500/5 p-3 dark:border-green-500/25 dark:bg-green-500/10'>
+              <div className='mb-2 flex items-start justify-between gap-2'>
+                <div className='min-w-0'>
+                  <p className='text-xs font-medium text-green-700 dark:text-green-400'>
+                    我的觀影室
+                  </p>
+                  <p className='mt-0.5 truncate text-sm font-semibold text-gray-900 dark:text-white'>
+                    {savedRoom.title || savedRoom.videoTitle || '共同觀影室'}
+                  </p>
+                </div>
+                <span className='shrink-0 rounded-md bg-white/60 px-2 py-0.5 font-mono text-xs tracking-wider text-green-700 ring-1 ring-green-500/20 dark:bg-white/5 dark:text-green-400'>
+                  {savedRoom.id}
+                </span>
+              </div>
+              <p className='truncate text-xs text-gray-500 dark:text-gray-400'>
+                當前影片：
+                {savedRoom.playPath === '/play'
+                  ? '尚未開始播放'
+                  : savedRoom.videoTitle || savedRoom.title || '共同觀影室'}
+                {savedRoom.episode > 1 ? ` · 第 ${savedRoom.episode} 集` : ''}
+              </p>
+              <div className='mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 dark:text-gray-400'>
+                <span>{savedRoomCountText}</span>
+                {savedRoom.isPublic && <span>· 已公開</span>}
+                {savedRoom.enabled === false && (
+                  <span className='rounded-full bg-gray-500/10 px-1.5 py-0.5 text-gray-600 dark:text-gray-300'>
+                    已關閉（加入後重新開啟）
+                  </span>
+                )}
+              </div>
+              <button
+                type='button'
+                onClick={() => void joinSavedRoom()}
+                disabled={joiningSaved || busy}
+                className='mt-3 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50'
+              >
+                {joiningSaved ? '正在加入…' : '加入我的觀影室'}
+              </button>
+              <p className='mt-2 text-xs leading-relaxed text-gray-500 dark:text-gray-400'>
+                進入其它影片時不會自動連回房間，點上方按鈕才會連接並同步。
+              </p>
+            </div>
+          )}
+
+          {/* 一個帳號只能有一個持久房間：已有房間時收起創建表單 */}
+          {!savedRoom && !savedRoomError && !savedRoomLoading && (
+            <>
+              <div className='mb-3'>
+                <label className='mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400'>
+                  房間名稱
+                </label>
+                <input
+                  value={roomNameInput}
+                  onChange={(e) =>
+                    setRoomNameInput(e.target.value.slice(0, 20))
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !busy) void createRoom();
+                  }}
+                  aria-label='房間名稱'
+                  placeholder='共同觀影室'
+                  className='w-full rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-gray-400 focus:border-blue-500 dark:border-white/15 dark:placeholder:text-gray-500'
+                />
+              </div>
+              <div className='mb-3'>
+                <label className='mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400'>
+                  人數上限（默認 {DEFAULT_ROOM_CAPACITY} 人）
+                </label>
+                <input
+                  value={capacityInput}
+                  onChange={(e) =>
+                    setCapacityInput(
+                      e.target.value.replace(/[^\d]/g, '').slice(0, 3)
+                    )
+                  }
+                  onBlur={() => {
+                    const cap = normalizeCapacity(capacityInput);
+                    setCapacityInput(cap ? String(cap) : '');
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !busy) void createRoom();
+                  }}
+                  inputMode='numeric'
+                  aria-label='人數上限'
+                  title={`默認 ${DEFAULT_ROOM_CAPACITY} 人，最多 ${MAX_ROOM_CAPACITY} 人`}
+                  placeholder={`默認 ${DEFAULT_ROOM_CAPACITY} 人`}
+                  className='w-full rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-gray-400 focus:border-blue-500 dark:border-white/15 dark:placeholder:text-gray-500'
+                />
+              </div>
+            </>
+          )}
           <div
             className={
               compact
@@ -990,14 +1190,16 @@ export default function WatchRoomPanel({
                 : 'flex flex-col gap-3 sm:flex-row sm:items-center'
             }
           >
-            <button
-              type='button'
-              onClick={() => void createRoom()}
-              disabled={busy}
-              className='rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50'
-            >
-              {busy ? '處理中…' : '創建房間'}
-            </button>
+            {!savedRoom && !savedRoomError && !savedRoomLoading && (
+              <button
+                type='button'
+                onClick={() => void createRoom()}
+                disabled={busy}
+                className='rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50'
+              >
+                {busy ? '處理中…' : '創建房間'}
+              </button>
+            )}
             <div className='flex flex-1 gap-2'>
               <input
                 value={joinCode}
@@ -1007,7 +1209,9 @@ export default function WatchRoomPanel({
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') void joinRoom(joinCode);
                 }}
-                placeholder='輸入 6 至 7 位房間號'
+                placeholder={
+                  savedRoom ? '輸入其它房間號' : '輸入 6 至 7 位房間號'
+                }
                 className='min-w-0 flex-1 rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm outline-none focus:border-blue-500 dark:border-white/15'
               />
               <button
@@ -1021,7 +1225,11 @@ export default function WatchRoomPanel({
             </div>
           </div>
           <p className='mt-2 text-xs leading-relaxed text-gray-500 dark:text-gray-400'>
-            {compact
+            {savedRoom
+              ? '也可以輸入別人分享的房間號加入其它觀影室。'
+              : savedRoomError || savedRoomLoading
+              ? '也可以直接輸入房間號加入其它觀影室。'
+              : compact
               ? '復制邀請鏈接發給伙伴，鏈接自帶片源與集數；房主控制播放，其他人自動跟隨。'
               : '創建後復制邀請鏈接發給伙伴。邀請鏈接會帶上當前的片源與集數，保證大家看的是同一集；房間內由房主控制播放，其他人自動跟隨進度。'}
           </p>
