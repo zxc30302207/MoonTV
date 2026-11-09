@@ -23,7 +23,7 @@ jest.mock('@/lib/watch-room/client', () => ({
 }));
 
 const request = jest.mocked(roomRequest);
-function panel() {
+function panel(waitingForVideo = false) {
   return render(
     <WatchRoomPanel
       artPlayerRef={{ current: null }}
@@ -33,6 +33,7 @@ function panel() {
       currentEpisodeIndex={0}
       videoUrl=''
       compact
+      waitingForVideo={waitingForVideo}
     />
   );
 }
@@ -236,21 +237,19 @@ it.each([
   );
 });
 
-it('stops invitation polling when capacity is exhausted and preserves the error', async () => {
-  window.history.replaceState({}, '', '/play?source=test&id=1&room=ABC123');
-  request.mockResolvedValueOnce({
-    ok: false,
-    error: '觀影室人數已滿（上限 1 人）',
-  });
-  panel();
-  expect(
-    await screen.findByText('觀影室人數已滿（上限 1 人）')
-  ).toBeInTheDocument();
-  expect(window.location.search).not.toContain('room=');
-  expect(
-    request.mock.calls.filter(([body]) => body.action === 'sync')
-  ).toHaveLength(1);
-});
+it.each(['觀影室人數已滿（上限 1 人）', '觀影室不存在', '觀影室已解散'])(
+  'stops room-only invitation polling and preserves %s',
+  async (error) => {
+    window.history.replaceState({}, '', '/play?room=ABC123');
+    request.mockResolvedValueOnce({ ok: false, error });
+    panel(true);
+    expect(await screen.findByText(error)).toBeInTheDocument();
+    expect(window.location.search).not.toContain('room=');
+    expect(
+      request.mock.calls.filter(([body]) => body.action === 'sync')
+    ).toHaveLength(1);
+  }
+);
 
 it('activates the saved room only after an explicit click and caches the returned member', async () => {
   request.mockResolvedValueOnce({ ok: true, room: savedRoom });
@@ -272,4 +271,43 @@ it('activates the saved room only after an explicit click and caches the returne
   expect(
     screen.queryByRole('button', { name: '加入我的觀影室' })
   ).not.toBeInTheDocument();
+});
+
+it('keeps a room-only host connected without overwriting the selected film', async () => {
+  window.history.replaceState({}, '', '/play?room=ABC123');
+  request.mockResolvedValue({
+    ok: true,
+    room: savedRoom,
+    memberId: 'host',
+    isHost: true,
+  });
+  render(
+    <WatchRoomPanel
+      artPlayerRef={{ current: null }}
+      videoTitle=''
+      currentSource=''
+      currentId=''
+      currentEpisodeIndex={0}
+      videoUrl=''
+      compact
+      waitingForVideo
+    />
+  );
+  await screen.findByRole('button', { name: /點此跟隨/ });
+  await waitFor(
+    () =>
+      expect(
+        request.mock.calls.filter(([body]) => body.action === 'sync').length
+      ).toBeGreaterThanOrEqual(2),
+    { timeout: 5000 }
+  );
+  for (const [body] of request.mock.calls.filter(
+    ([body]) => body.action === 'sync'
+  )) {
+    if (body.action !== 'sync') continue;
+    expect(body.playPath).toBeUndefined();
+    expect(body.title).toBeUndefined();
+    expect(body.episode).toBeUndefined();
+    expect(body.local).toBeUndefined();
+  }
 });

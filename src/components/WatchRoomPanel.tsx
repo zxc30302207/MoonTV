@@ -49,6 +49,8 @@ interface WatchRoomPanelProps {
    * 去掉獨立卡片外框與「收起」按鈕，內容按窄欄單列縱向鋪滿。
    */
   compact?: boolean;
+  /** Room-only entry must never publish empty playback metadata. */
+  waitingForVideo?: boolean;
 }
 
 const ROOM_ID_PATTERN = /^[A-Z0-9]{6,7}$/;
@@ -133,6 +135,7 @@ export default function WatchRoomPanel({
   videoTitle,
   currentEpisodeIndex,
   compact = false,
+  waitingForVideo = false,
 }: WatchRoomPanelProps) {
   const [roomId, setRoomId] = useState<string | null>(null);
   const [room, setRoom] = useState<WatchRoom | null>(null);
@@ -605,7 +608,7 @@ export default function WatchRoomPanel({
       if (inFlightRef.current || cancelled) return;
       inFlightRef.current = true;
       const art = artPlayerRef.current;
-      const host = isHostRef.current;
+      const host = isHostRef.current && !waitingForVideo;
       const local =
         host && art && typeof art.currentTime === 'number'
           ? { time: art.currentTime || 0, playing: !art.paused }
@@ -638,10 +641,10 @@ export default function WatchRoomPanel({
           /不存在|已解散|房[間间][號号][無无]效|人[數数]已[滿满]/.test(message)
         ) {
           // 房間滿了不要繼續反復心跳重試；退出本地房間狀態，
-          // 並把滿員提示留在面板上（resetLocal 會清空錯誤文案）。
+          // 並把失敗原因留在面板上（resetLocal 會清空錯誤文案）。
           resetLocal();
           void loadSavedRoom();
-          if (/人[數数]已[滿满]/.test(message)) setErrorText(message);
+          setErrorText(message);
         }
         return;
       }
@@ -741,6 +744,7 @@ export default function WatchRoomPanel({
     applyRoomState,
     resetLocal,
     loadSavedRoom,
+    waitingForVideo,
   ]);
 
   // 綁定播放器事件：房主的播放 / 暫停 / 拖動立即廣播，不等下一輪心跳
@@ -817,12 +821,12 @@ export default function WatchRoomPanel({
 
   // 成員與房主不在同一集時給出提示（不自動跳轉，避免打斷用戶）
   useEffect(() => {
-    if (!room || isHost) {
+    if (!room || (isHost && !waitingForVideo)) {
       setEpisodeMismatch(false);
       return;
     }
     setEpisodeMismatch(!!room.playPath && room.playPath !== currentPlayPath());
-  }, [room, isHost, currentEpisodeIndex]);
+  }, [room, isHost, currentEpisodeIndex, waitingForVideo]);
 
   useEffect(() => {
     if (listRef.current) {
@@ -943,11 +947,15 @@ export default function WatchRoomPanel({
       memberId: memberIdRef.current,
       since: sinceRef.current,
       name: displayName(),
-      playPath: isHostRef.current ? currentPlayPath() : undefined,
-      title: isHostRef.current ? videoTitle : undefined,
-      episode: isHostRef.current ? currentEpisodeIndex + 1 : undefined,
+      playPath:
+        isHostRef.current && !waitingForVideo ? currentPlayPath() : undefined,
+      title: isHostRef.current && !waitingForVideo ? videoTitle : undefined,
+      episode:
+        isHostRef.current && !waitingForVideo
+          ? currentEpisodeIndex + 1
+          : undefined,
       local:
-        isHostRef.current && artPlayerRef.current
+        isHostRef.current && !waitingForVideo && artPlayerRef.current
           ? {
               time: artPlayerRef.current.currentTime || 0,
               playing: !artPlayerRef.current.paused,
@@ -981,7 +989,14 @@ export default function WatchRoomPanel({
       setEvents((prev) => [...prev, ...nextEvents].slice(-100));
     }
     showHint('同步成功');
-  }, [artPlayerRef, currentEpisodeIndex, videoTitle, applyRoomState, showHint]);
+  }, [
+    artPlayerRef,
+    currentEpisodeIndex,
+    videoTitle,
+    applyRoomState,
+    showHint,
+    waitingForVideo,
+  ]);
 
   const myCurrentSyncMode = room ? resolveMemberSyncMode(room) : 'auto';
   const effectiveSyncMode = optimisticSyncMode ?? myCurrentSyncMode;

@@ -2,8 +2,8 @@
 
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import AddDownloadModal from '@/components/AddDownloadModal';
@@ -36,6 +36,58 @@ function stopPlayerPointer(event: { stopPropagation: () => void }) {
  * 加載、錯誤、視頻遮罩、詳情面板等均已拆分為獨立展示組件。
  */
 export default function PlayClient() {
+  const params = useSearchParams();
+  const room = params.get('room') || '';
+  const hasVideo = ['source', 'id', 'title', 'stitle'].some((key) =>
+    params.get(key)
+  );
+  const isRoomEntry = /^[A-Z0-9]{6,7}$/i.test(room) && !hasVideo;
+  const [enteredRoomOnly, setEnteredRoomOnly] = useState(isRoomEntry);
+  useEffect(() => {
+    if (isRoomEntry) setEnteredRoomOnly(true);
+  }, [isRoomEntry]);
+  // Leaving or a rejected invitation clears ?room. Keep the panel mounted so
+  // it can show that result, rather than starting a player without a film.
+  if (!hasVideo && (isRoomEntry || enteredRoomOnly)) {
+    return <WatchRoomWaiting />;
+  }
+  return <VideoPlayClient />;
+}
+
+/** A room can exist before its host selects a film. Do not start the player. */
+function WatchRoomWaiting() {
+  const artPlayerRef = useRef(null);
+  const router = useRouter();
+  return (
+    <PageLayout activePath='/play'>
+      <main className='mx-auto max-w-3xl space-y-5 px-4 py-8'>
+        <h1 className='text-xl font-semibold'>觀影室等待中</h1>
+        <p>
+          尚未選擇影片。房主請先選片，再於播放頁「一起看」點選「加入我的觀影室」。其他成員可留在這裡等待並聊天。
+        </p>
+        <button
+          type='button'
+          onClick={() => router.push('/')}
+          className='rounded-lg bg-green-600 px-4 py-2 text-white'
+        >
+          前往選片
+        </button>
+        <WatchRoomPanel
+          artPlayerRef={artPlayerRef}
+          videoTitle=''
+          currentSource=''
+          currentId=''
+          currentEpisodeIndex={0}
+          videoUrl=''
+          waitingForVideo
+          compact
+        />
+      </main>
+    </PageLayout>
+  );
+}
+
+function VideoPlayClient() {
   const router = useRouter();
   const [showAddDownload, setShowAddDownload] = useState(false);
 
