@@ -2,10 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getVerifiedAuthInfo } from '@/lib/auth-server';
 import { fetchBangumiSubjectDetail } from '@/lib/bangumi';
-import { getAvailableApiSites } from '@/lib/config';
+import {
+  canAccessAdultContent,
+  getAvailableApiSites,
+  getConfig,
+} from '@/lib/config';
 import { fetchDoubanData } from '@/lib/douban';
 import { getDetailFromApi, searchFromApiStream } from '@/lib/downstream';
 import { sanitizePlaybackResult } from '@/lib/playback-url';
+import { isYellowSearchResult } from '@/lib/yellow';
 
 export const runtime = 'nodejs';
 
@@ -156,7 +161,19 @@ export async function GET(request: NextRequest) {
         controller.abort();
       }
     }
-    const result = sanitizePlaybackResult(await getDetailFromApi(apiSite, id));
+    const result = sanitizePlaybackResult(
+      await getDetailFromApi(apiSite, id, { signal: request.signal })
+    );
+    const config = await getConfig();
+    if (
+      !canAccessAdultContent(config, auth.username) &&
+      isYellowSearchResult(result)
+    ) {
+      return NextResponse.json(
+        { error: '無權存取此影片' },
+        { status: 403, headers }
+      );
+    }
     return NextResponse.json(result, { headers });
   } catch {
     return NextResponse.json(

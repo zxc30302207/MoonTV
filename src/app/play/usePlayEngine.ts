@@ -115,6 +115,7 @@ import {
   setDanmakuDensity,
   SkipConfig,
 } from './play-utils';
+import { withPlaybackDeadline } from './playback-request';
 import { clearPlayerNotices, pushPlayerNotice } from './player-notice';
 import { PreviewThumbnailer } from './preview-thumbnailer';
 
@@ -1071,113 +1072,122 @@ export function usePlayEngine() {
   }, [loading, detail, currentEpisodeIndex]);
 
   // -----------------------------------------------------------------------------
-  // 初始化：拉取全部源並確定播放數據
+  // 初始化：優先讀取指定影片，其他來源在背景搜尋
   // -----------------------------------------------------------------------------
 
-  // 進入頁面時直接獲取全部源信息
   useEffect(() => {
     const selection = selectionRef.current;
     const revision = selection.capture();
     const controller = new AbortController();
-    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     const active = () => !controller.signal.aborted && selection.isActive();
     const current = () => active() && selection.isCurrent(revision);
+    const allResults: SearchResult[] = [];
+    const timeoutMs = getRequestTimeout() * 1000;
+    const targetYear = videoYearRef.current;
+    const addResults = (results: SearchResult[]) => {
+      if (!active()) return;
+      for (const result of results) {
+        if (
+          !allResults.some(
+            (item) => item.source === result.source && item.id === result.id
+          )
+        ) {
+          allResults.push(result);
+        }
+      }
+      setAvailableSources([...allResults]);
+      if (allResults.length) {
+        setSourceSearchLoading(false);
+        setSourceSearchError('');
+      }
+    };
     const fetchSourcesData = async (
       query: string,
-      onResult?: (results: SearchResult[]) => void
-    ): Promise<SearchResult[]> => {
+      onResult: (results: SearchResult[]) => void
+    ): Promise<void> => {
+      if (!query.trim()) return;
       setSourceSearchLoading(true);
       setSourceSearchError('');
-
-      const aggregatedResults: SearchResult[] = [];
-      const targetYear = videoYearRef.current;
-
+      let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
       try {
-        // 發起流式搜索請求
-        const timeoutSeconds = getRequestTimeout();
-        const searchConcurrency = getSearchConcurrency();
-        const response = await fetch(
-          `/api/search?q=${encodeURIComponent(
-            query.trim()
-          )}&timeout=${timeoutSeconds}&stream=1&concurrency=${searchConcurrency}`,
-          { signal: controller.signal }
-        );
-        if (!active()) {
-          void response.body?.cancel().catch(() => undefined);
-          return [];
-        }
-        if (!response.ok) throw new Error('搜索失敗');
-
-        reader = response.body?.getReader();
-        if (!reader) throw new Error('無法讀取搜索流');
-
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let done = false;
-
-        while (!done) {
-          const { value, done: readerDone } = await reader.read();
-          if (!active()) return [];
-          done = readerDone;
-
-          if (value) {
-            buffer += decoder.decode(value, { stream: true });
-            const lines: string[] = buffer.split('\n');
-            buffer = lines.pop() || '';
-
-            for (const line of lines) {
-              if (!line.trim()) continue;
-
+        await withPlaybackDeadline(
+          async (signal) => {
+            const response = await fetch(
+              `/api/search?q=${encodeURIComponent(query.trim())}&timeout=${
+                timeoutMs / 1000
+              }&stream=1&concurrency=${getSearchConcurrency()}`,
+              { signal }
+            );
+            if (!active() || signal.aborted) {
+              void response.body?.cancel().catch(() => undefined);
+              return;
+            }
+            if (!response.ok) throw new Error('搜索失敗');
+            reader = response.body?.getReader();
+            if (!reader) throw new Error('無法讀取搜索流');
+            const decoder = new TextDecoder();
+            let buffer = '';
+            const processLine = (line: string) => {
+              if (!line.trim() || !active() || signal.aborted) return;
               try {
                 const data = JSON.parse(line) as {
                   pageResults?: SearchResult[];
                 };
-                if (data.pageResults) {
-                  const filteredResults: SearchResult[] = data.pageResults
-                    .map(sanitizePlaybackResult)
-                    .filter((r: SearchResult) => {
-                      if (!r.episodes.length) return false;
-                      const titleMatch = matchesFullSearchTitle(r.title, query);
-                      const yearMatch = targetYear
-                        ? r.year.toLowerCase() === targetYear.toLowerCase()
-                        : true;
-                      const typeMatch = searchType
-                        ? (searchType === 'tv' && r.episodes.length > 1) ||
-                          (searchType === 'movie' && r.episodes.length === 1)
-                        : true;
-                      return titleMatch && yearMatch && typeMatch;
-                    });
-
-                  if (filteredResults.length > 0) {
-                    const newOnes = filteredResults.filter(
-                      (r) =>
-                        !aggregatedResults.some(
-                          (item) => item.source === r.source && item.id === r.id
-                        )
+                if (!data.pageResults) return;
+                const results = data.pageResults
+                  .map(sanitizePlaybackResult)
+                  .filter((result) => {
+                    if (!result.episodes.length) return false;
+                    // Explicit identity is authoritative, even if metadata/year changed.
+                    if (
+                      result.source === currentSource &&
+                      result.id === currentId
+                    )
+                      return true;
+                    return (
+                      matchesFullSearchTitle(result.title, query) &&
+                      (!targetYear ||
+                        result.year.toLowerCase() ===
+                          targetYear.toLowerCase()) &&
+                      (!searchType ||
+                        (searchType === 'tv' && result.episodes.length > 1) ||
+                        (searchType === 'movie' &&
+                          result.episodes.length === 1))
                     );
-
-                    if (newOnes.length > 0) {
-                      aggregatedResults.push(...newOnes);
-                      setAvailableSources([...aggregatedResults]);
-                      setSourceSearchLoading(false);
-                      onResult?.(newOnes);
-                    }
-                  }
+                  });
+                if (results.length) {
+                  addResults(results);
+                  onResult(results);
                 }
-              } catch (err) {
-                console.warn('解析行 JSON 失敗:', err);
+              } catch (error) {
+                console.warn('解析行 JSON 失敗:', error);
+              }
+            };
+            while (active() && !signal.aborted) {
+              const { value, done } = await reader.read();
+              if (!active() || signal.aborted) return;
+              buffer += decoder.decode(value, { stream: !done });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+              lines.forEach(processLine);
+              if (done) {
+                processLine(buffer);
+                break;
               }
             }
-          }
-        }
-        setSourceSearchLoading(false);
-
-        return aggregatedResults;
-      } catch (err) {
-        if (!active()) return [];
-        setSourceSearchError(err instanceof Error ? err.message : '搜索失敗');
-        setSourceSearchLoading(false);
-        return aggregatedResults;
+          },
+          controller.signal,
+          timeoutMs,
+          '搜尋播放源逾時，請重試或切換片源。'
+        );
+      } catch (error) {
+        if (active() && allResults.length === 0)
+          setSourceSearchError(
+            error instanceof Error ? error.message : '搜索失敗'
+          );
+      } finally {
+        void reader?.cancel().catch(() => undefined);
+        if (active()) setSourceSearchLoading(false);
       }
     };
 
@@ -1239,7 +1249,6 @@ export function usePlayEngine() {
         setLoading(false);
         return;
       }
-
       setLoading(true);
       setLoadingStage(currentSource && currentId ? 'fetching' : 'searching');
       setLoadingMessage(
@@ -1247,83 +1256,93 @@ export function usePlayEngine() {
           ? '🎬 正在獲取視頻詳情...'
           : '🔍 正在搜索播放源...'
       );
-      // 從 localStorage 讀取是否啟用優選播放源（避免狀態延遲）
-      const enablePreferBestSourceFromStorage = (() => {
-        if (typeof window === 'undefined') return false;
-        const saved = localStorage.getItem('enablePreferBestSource');
-        if (saved === null) return false;
-        try {
-          return JSON.parse(saved);
-        } catch {
-          return false;
-        }
-      })();
-
-      let detailData: SearchResult | null = null;
-      let allResults: SearchResult[] = [];
-      let hasInitialized = false; // 標記是否已經初始化過播放數據
-
-      await fetchSourcesData(videoTitle || searchTitle, (newResults) => {
-        allResults = [...allResults, ...newResults];
-
-        // 如果還沒確定 detailData，就嘗試找目標源
-        if (!detailData && currentSource && currentId) {
-          const match = newResults.find(
-            (item) => item.source === currentSource && item.id === currentId
-          );
-          if (match) {
-            detailData = match;
-            // 如果未啟用優選，立即初始化播放數據
-            if (!enablePreferBestSourceFromStorage) {
-              initDetail(detailData);
-              hasInitialized = true;
-            }
-            // 如果啟用優選，則等待所有源收集完再決定是否優選
-          }
-        }
-      });
-
-      if (!current()) return;
-      // 流式搜索結束：如果目標源沒找到，就 fallback
-      if (!detailData && allResults.length > 0) {
-        detailData = allResults[0];
+      let prefer = false;
+      try {
+        prefer =
+          JSON.parse(
+            localStorage.getItem('enablePreferBestSource') || 'false'
+          ) === true;
+      } catch {
+        // A blocked or malformed settings store must not prevent playback.
       }
-
-      // 完全沒結果
+      let detailData: SearchResult | undefined;
+      let hasInitialized = false;
+      const acceptResults = (results: SearchResult[]) => {
+        if (!current() || detailData) return;
+        const match =
+          currentSource && currentId
+            ? results.find(
+                (item) => item.source === currentSource && item.id === currentId
+              )
+            : results[0];
+        if (!match) return;
+        detailData = match;
+        if (!prefer) {
+          initDetail(match);
+          hasInitialized = true;
+        }
+      };
+      const fetchSelectedDetail = async () => {
+        if (!currentSource || !currentId) return;
+        try {
+          const result = await withPlaybackDeadline(
+            async (signal) => {
+              const response = await fetch(
+                `/api/detail?source=${encodeURIComponent(
+                  currentSource
+                )}&id=${encodeURIComponent(currentId)}`,
+                { signal }
+              );
+              if (!response.ok) throw new Error('獲取詳情失敗');
+              return sanitizePlaybackResult(await response.json());
+            },
+            controller.signal,
+            Math.min(timeoutMs, 15000),
+            '獲取詳情逾時'
+          );
+          if (
+            !current() ||
+            !result.episodes.length ||
+            result.source !== currentSource ||
+            result.id !== currentId
+          )
+            return;
+          addResults([result]);
+          acceptResults([result]);
+        } catch {
+          // Unavailable or empty detail falls back to the bounded source search.
+        }
+      };
+      await Promise.all([
+        fetchSelectedDetail(),
+        fetchSourcesData(videoTitle || searchTitle, acceptResults),
+      ]);
+      if (!current()) return;
+      detailData ||= allResults[0];
       if (!detailData) {
-        setError('未找到匹配結果');
+        setError('未找到可播放的匹配結果，請重試或切換片源。');
         setLoading(false);
         return;
       }
-
-      if (enablePreferBestSourceFromStorage && allResults.length > 1) {
+      if (prefer && allResults.length > 1) {
         setLoadingStage('preferring');
         setLoadingMessage('🚀 正在優選播放源...');
         try {
-          const bestSource = await preferBestSource(
-            allResults,
-            () => !current()
-          );
+          detailData = await preferBestSource(allResults, () => !current());
           if (!current()) return;
-          // preferBestSource 內部已經排序了 availableSources 並設置了 precomputedVideoInfo
-          detailData = bestSource;
-        } catch (err) {
-          console.error('優選播放源失敗:', err);
-          // 失敗時使用原來的 detailData
+        } catch (error) {
+          console.error('優選播放源失敗:', error);
         }
       }
-
-      // 如果尚未初始化播放數據，則初始化
-      if (!hasInitialized) {
-        initDetail(detailData);
-      }
+      if (!hasInitialized) initDetail(detailData);
     };
 
-    void initAll();
-    return () => {
-      controller.abort();
-      void reader?.cancel().catch(() => undefined);
-    };
+    void initAll().catch((error: unknown) => {
+      if (!current()) return;
+      setError(error instanceof Error ? error.message : '載入播放源失敗');
+      setLoading(false);
+    });
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
