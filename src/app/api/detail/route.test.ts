@@ -62,6 +62,20 @@ describe('/api/detail', () => {
     });
   });
 
+  it('passes client cancellation to playback detail requests', async () => {
+    const { GET } = await import('./route');
+    const request = new Request(
+      'http://localhost/api/detail?id=97846&source=ffzynew'
+    );
+    const response = await GET(request as never);
+    expect(response.status).toBe(200);
+    expect(mockGetDetailFromApi).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'ffzynew' }),
+      '97846',
+      { signal: request.signal }
+    );
+  });
+
   it.each(['vod', 'douban', 'bangumi'])(
     'requires signed login for %s descriptions',
     async (provider) => {

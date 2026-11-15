@@ -156,7 +156,9 @@ export async function GET(request: NextRequest) {
         controller.abort();
       }
     }
-    const result = sanitizePlaybackResult(await getDetailFromApi(apiSite, id));
+    const result = sanitizePlaybackResult(
+      await getDetailFromApi(apiSite, id, { signal: request.signal })
+    );
     return NextResponse.json(result, { headers });
   } catch {
     return NextResponse.json(
