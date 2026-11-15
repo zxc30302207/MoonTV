@@ -1083,6 +1083,7 @@ export function usePlayEngine() {
     const current = () => active() && selection.isCurrent(revision);
     const allResults: SearchResult[] = [];
     const timeoutMs = getRequestTimeout() * 1000;
+    const targetYear = videoYearRef.current;
     const addResults = (results: SearchResult[]) => {
       if (!active()) return;
       for (const result of results) {
@@ -1145,9 +1146,9 @@ export function usePlayEngine() {
                       return true;
                     return (
                       matchesFullSearchTitle(result.title, query) &&
-                      (!videoYearRef.current ||
+                      (!targetYear ||
                         result.year.toLowerCase() ===
-                          videoYearRef.current.toLowerCase()) &&
+                          targetYear.toLowerCase()) &&
                       (!searchType ||
                         (searchType === 'tv' && result.episodes.length > 1) ||
                         (searchType === 'movie' &&

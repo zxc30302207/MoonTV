@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 
 const mockGetAvailableApiSites = jest.fn();
+const mockGetConfig = jest.fn();
+const mockCanAccessAdultContent = jest.fn();
 const mockGetDetailFromApi = jest.fn();
 const mockGetVerifiedAuthInfo = jest.fn();
 const mockFetchBangumiSubjectDetail = jest.fn();
@@ -17,6 +19,9 @@ jest.mock('@/lib/auth-server', () => ({
 }));
 
 jest.mock('@/lib/config', () => ({
+  ADULT_SOURCE_KEYS: new Set(),
+  getConfig: mockGetConfig,
+  canAccessAdultContent: mockCanAccessAdultContent,
   getAvailableApiSites: mockGetAvailableApiSites,
 }));
 
@@ -35,6 +40,10 @@ describe('/api/detail', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetConfig.mockResolvedValue({
+      SiteConfig: { DisableYellowFilter: true },
+    });
+    mockCanAccessAdultContent.mockReturnValue(false);
     mockGetVerifiedAuthInfo.mockResolvedValue({
       username: 'alice',
       role: 'user',
@@ -61,6 +70,39 @@ describe('/api/detail', () => {
       year: '2026',
     });
   });
+
+  it.each([false, true])(
+    'enforces per-item adult authorization: %s',
+    async (authorized) => {
+      mockCanAccessAdultContent.mockReturnValue(authorized);
+      mockGetDetailFromApi.mockResolvedValue({
+        id: '97846',
+        source: 'ffzynew',
+        source_name: '一般來源',
+        title: '受限影片',
+        type_name: '成人',
+        year: '2026',
+        poster: '',
+        episodes: ['https://cdn.test/restricted.m3u8'],
+        episodes_titles: ['1'],
+      });
+      const { GET } = await import('./route');
+      const response = await GET(
+        new Request(
+          'http://localhost/api/detail?id=97846&source=ffzynew'
+        ) as never
+      );
+      expect(mockCanAccessAdultContent).toHaveBeenCalledWith(
+        { SiteConfig: { DisableYellowFilter: true } },
+        'alice'
+      );
+      expect(response.status).toBe(authorized ? 200 : 403);
+      const data = await response.json();
+      if (authorized) expect(data.episodes).toHaveLength(1);
+      else expect(data).toEqual({ error: '無權存取此影片' });
+      expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+    }
+  );
 
   it('passes client cancellation to playback detail requests', async () => {
     const { GET } = await import('./route');

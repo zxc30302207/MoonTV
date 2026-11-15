@@ -239,3 +239,49 @@ it('does not change the URL when detail completes after unmount', async () => {
     '/search?q=newer'
   );
 });
+
+it.each([false, true])(
+  'keeps an initially unconstrained year stable after an early result (explicit ID: %s)',
+  async (explicit) => {
+    window.history.replaceState(
+      {},
+      '',
+      '/play?title=掌门低调点动漫' + (explicit ? '&source=ruyi&id=83488' : '')
+    );
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    const early = { ...selected, year: 'unknown' };
+    global.fetch = jest.fn(async (url) =>
+      String(url).startsWith('/api/detail')
+        ? detailResponse(early)
+        : ({
+            ok: true,
+            body: new ReadableStream({
+              start(controller) {
+                stream = controller;
+              },
+            }),
+          } as Response)
+    );
+    const { result } = renderHook(() => usePlayEngine());
+    await flush();
+    if (!explicit) {
+      stream.enqueue(
+        new TextEncoder().encode(
+          JSON.stringify({ pageResults: [early] }) + '\n'
+        )
+      );
+      await flush();
+    }
+    expect(result.current.totalEpisodes).toBe(2);
+    stream.enqueue(
+      new TextEncoder().encode(
+        JSON.stringify({ pageResults: [alternative] }) + '\n'
+      )
+    );
+    stream.close();
+    await flush();
+    expect(
+      result.current.availableSources.map((item) => item.source).sort()
+    ).toEqual(['other', 'ruyi']);
+  }
+);
